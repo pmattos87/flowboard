@@ -26,7 +26,7 @@
 - Full documentation and agent framework for structured AI-assisted development
 - Detailed build plan with phased tasks and handoff protocols
 - Core constraints, tech stack decisions, and visual specifications
-- Agent role definitions for specialized development (frontend-design, subagent, etc.)
+- Agent role definitions for specialized development (frontend-design, backend-engineer, etc.)
 
 ### Architecture Decisions
 - Tauri v2 + React 18 + TypeScript + SQLite (local-first)

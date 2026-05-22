@@ -159,7 +159,7 @@ src-tauri/
 | Agent | File | Primary Focus |
 |-------|------|---------------|
 | `skill:frontend-design` | [frontend-design.md](./frontend-design.md) | All React UI, layouts, boards, charts, modals |
-| `subagent` | [subagent.md](./subagent.md) | Rust backend, Tauri, SQLite, Gantt, file I/O |
+| `backend-engineer` | [backend-engineer.md](./backend-engineer.md) | Rust backend, Tauri, SQLite, Gantt, file I/O |
 | `skill:data-layer` | [data-layer.md](./data-layer.md) | Zustand, React Query, command wrappers, caching |
 | `skill:ux-engineer` | [ux-engineer.md](./ux-engineer.md) | Keyboard shortcuts, search, command palette, accessibility |
 | `skill:qa-engineer` | [qa-engineer.md](./qa-engineer.md) | Testing, Definition of Done enforcement |
