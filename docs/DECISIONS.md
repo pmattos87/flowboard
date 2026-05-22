@@ -78,4 +78,4 @@
 
 ---
 
-**Decision Process:** All foundational decisions were made during project definition phase by the combined input of `docs-architect`, `frontend-design`, and `subagent` roles. Future changes must be recorded here with status, rationale, and consequences.
+**Decision Process:** All foundational decisions were made during project definition phase by the combined input of `docs-architect`, `frontend-design`, and `backend-engineer` roles. Future changes must be recorded here with status, rationale, and consequences.

@@ -1,4 +1,4 @@
-# FlowBoard — Agent: subagent
+# FlowBoard — Agent: backend-engineer
 
 **Primary Responsibility:** All Rust / Tauri backend work, SQLite, file system operations, and complex rendering logic.
 
