@@ -1,0 +1,24 @@
+# Node/Frontend dependencies
+node_modules/
+.pnpm-store/
+dist/
+dist-tauri/
+
+# Rust/Tauri build artifacts
+src-tauri/target/
+
+# Local SQLite Database files (Crucial for local-first apps!)
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment & Logs
+.env
+.env.*
+*.log
+npm-debug.log*
+
+# IDE / OS clutter
+.DS_Store
+.vscode/
+.idea/
