@@ -5,7 +5,13 @@
 ### App Shell
 
 - **Sidebar** (fixed 220px, `bg-gray-950`):
-  - Logo: "FlowBoard" with blue `F` icon + "PROJECT TRACKER"
+  - Logo:
+    - Use official FlowBoard logo asset
+    - Display icon + wordmark lockup
+    - Subtitle: `PLAN • FLOW • DELIVER`
+    - Sidebar placement: top-left
+    - Logo container height: 56px
+    - Preserve dark spacing and glow aesthetics
   - Projects section with colored square icons (20px) + `+` button
   - Navigation (flat list with Lucide icons):
     - Discovery Board
