@@ -10,6 +10,7 @@ FlowBoard is a **single-user, local-first desktop project management application
 
 ### Logo Assets
 Primary logo: `/assets/logo.png`
+Logo with no background: `/assets/logo_background.png`
 
 ---
 
