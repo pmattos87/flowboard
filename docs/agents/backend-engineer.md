@@ -1,4 +1,4 @@
-# FlowBoard — Agent: backend-engineer
+# FlowBoard — Agent: skill:backend-engineer
 
 **Primary Responsibility:** All Rust / Tauri backend work, SQLite, file system operations, and complex rendering logic.
 

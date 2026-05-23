@@ -120,13 +120,13 @@ For multi-step tasks, state a brief plan:
 
 ### 2. Commit Message Naming Conventions
 Commits must be granular (one per sub-task) and use the following semantic prefixes:
-- `feat(tauri):` for Rust backend, SQLite schema, or Tauri command changes.
+- `feat(rust/sqlite/tauri):` for Rust backend, SQLite schema, or Tauri command changes.
 - `feat(ui):` for React components, Tailwind styling, or UI state layout.
 - `feat(data):` for Zustand stores, React Query hooks, or data layer wrappers.
 - `fix(scope):` for bug fixes (specify `ui`, `tauri`, or `data`).
 - `chore(repo):` for updating configuration files, dependencies, or `.md` files.
 
-*Example:* `feat(tauri): init sqlite schema and migration helpers (task 1.3)`
+*Example:* `feat(sqlite): init sqlite schema and migration helpers (task 1.3)`
 
 ### 3. Agent Safety & Error Recovery Rule
 If a command execution fails (`tsc` throws compilation errors, or a test breaks) and cannot be resolved cleanly within 2 iterations, the agent must stop, notify the user, and **must not** commit broken code. If instructed to abort, use `git reset --hard HEAD` to restore the last clean commit state.
@@ -152,21 +152,21 @@ src-tauri/
 
 ---
 
-## Agents Overview and Responsabilities
+## Agent Registry
 
 **Directory:**  `docs/agents/`
 
-| Agent | File | Primary Focus |
-|-------|------|---------------|
-| `skill:frontend-design` | [frontend-design.md](./frontend-design.md) | All React UI, layouts, boards, charts, modals |
-| `backend-engineer` | [backend-engineer.md](./backend-engineer.md) | Rust backend, Tauri, SQLite, Gantt, file I/O |
-| `skill:data-layer` | [data-layer.md](./data-layer.md) | Zustand, React Query, command wrappers, caching |
-| `skill:ux-engineer` | [ux-engineer.md](./ux-engineer.md) | Keyboard shortcuts, search, command palette, accessibility |
-| `skill:qa-engineer` | [qa-engineer.md](./qa-engineer.md) | Testing, Definition of Done enforcement |
-| `skill:frontend-polish` | [frontend-polish.md](./frontend-polish.md) | Animations, micro-interactions, a11y, final polish |
-| `skill:docs-architect` | [docs-architect.md](./docs-architect.md) | Documentation & type synchronization |
+| Agent | File | Primary Focus | Model | Rationale |
+|-------|------|---------------|-------|-----------|
+| `skill:frontend-design` | [frontend-design.md](./frontend-design.md) | All React UI, layouts, boards, charts, modals | `claude-sonnet-4-6` | Well-specified execution tasks; broad output volume across phases |
+| `skill:backend-engineer` | [backend-engineer.md](./backend-engineer.md) | Rust backend, Tauri, SQLite, Gantt, file I/O | `claude-opus-4-7` | Rust/Tauri architecture, SQLite schema design, complex file I/O — high-judgment, hard-to-reverse decisions |
+| `skill:data-layer` | [data-layer.md](./data-layer.md) | Zustand, React Query, command wrappers, caching | `claude-opus-4-7` | Load-bearing layer; React Query/Zustand separation errors propagate to every subsequent phase |
+| `skill:ux-engineer` | [ux-engineer.md](./ux-engineer.md) | Keyboard shortcuts, search, command palette, accessibility | `claude-sonnet-4-6` | Interaction patterns are well-scoped in handoffs |
+| `skill:qa-engineer` | [qa-engineer.md](./qa-engineer.md) | Testing, Definition of Done enforcement | `claude-opus-4-7` | Requires holistic reasoning across the full codebase to assess correctness |
+| `skill:frontend-polish` | [frontend-polish.md](./frontend-polish.md) | Animations, micro-interactions, a11y, final polish | `claude-sonnet-4-6` | Refinement work on already-existing components |
+| `skill:docs-architect` | [docs-architect.md](./docs-architect.md) | Documentation & type synchronization | `claude-sonnet-4-6` | Documentation and type sync — low ambiguity |
 
-**Usage:** When handing off work, attach the relevant agent file(s) + the main `CLAUDE.md`.
+**Usage:** When handing off work, attach the relevant agent file(s) + the main `CLAUDE.md`. Always invoke each agent with its assigned model above — do not substitute models without explicit approval.
 
 ---
 
