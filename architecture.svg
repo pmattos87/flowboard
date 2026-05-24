@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0 25px 25px rgb(0 0 0 / 0.4));" viewBox="0 0 680 720" width="100%">
+  <defs>
+    
+    <linearGradient y2="100%" x2="0%" y1="0%" x1="0%" id="layer1Grad">
+      <stop stop-color="#4F46E5" offset="0%"></stop>
+      <stop stop-color="#3730A3" offset="100%"></stop>
+    </linearGradient>
+    
+    <linearGradient y2="100%" x2="0%" y1="0%" x1="0%" id="layer2Grad">
+      <stop stop-color="#D97706" offset="0%"></stop>
+      <stop stop-color="#92400E" offset="100%"></stop>
+    </linearGradient>
+    
+    <linearGradient y2="100%" x2="0%" y1="0%" x1="0%" id="layer3Grad">
+      <stop stop-color="#10B981" offset="0%"></stop>
+      <stop stop-color="#047857" offset="100%"></stop>
+    </linearGradient>
+
+    <filter height="200%" width="200%" y="-50%" x="-50%" id="glow">
+      <feGaussianBlur result="coloredBlur" stdDeviation="3"></feGaussianBlur>
+      <feMerge>
+        <feMergeNode in="coloredBlur"></feMergeNode>
+        <feMergeNode in="SourceGraphic"></feMergeNode>
+      </feMerge>
+    </filter>
+
+    <marker orient="auto-start-reverse" markerHeight="7" markerWidth="7" refY="5" refX="8" viewBox="0 0 10 10" id="arrow">
+      <path stroke-linejoin="round" stroke-linecap="round" stroke-width="1.8" stroke="#E2E8F0" fill="none" d="M2 1L8 5L2 9"></path>
+    </marker>
+  </defs>
+
+  
+  <rect fill="#0F172A" height="720" width="680"></rect>
+
+  
+  <rect stroke-width="3" stroke="#818CF8" fill="url(#layer1Grad)" rx="18" height="228" width="620" y="28" x="30"></rect>
+  <rect opacity="0.6" stroke-width="1" stroke="#C4C4F7" fill="none" rx="18" height="228" width="620" y="28" x="30"></rect>
+  
+  <text letter-spacing="-0.5px" font-weight="700" font-size="18" font-family="system-ui, sans-serif" fill="#E0E7FF" y="56" x="50">React Frontend</text>
+  <text font-weight="500" font-size="13" font-family="system-ui, sans-serif" fill="#A5B4FC" y="76" x="50">Vite · TypeScript · Tailwind CSS · shadcn/ui</text>
+
+  
+  <rect stroke-width="2.5" stroke="#C084FC" fill="#4C1D95" rx="10" height="68" width="152" y="92" x="52"></rect>
+  <text font-weight="600" font-size="14.5" font-family="system-ui" fill="#E9D5FF" text-anchor="middle" y="118" x="128">Zustand Stores</text>
+  <text font-size="11.5" font-family="system-ui" fill="#D8B4FE" text-anchor="middle" y="138" x="128">UI State · Modals · Filters</text>
+
+  
+  <rect stroke-width="2.5" stroke="#C084FC" fill="#4C1D95" rx="10" height="68" width="168" y="92" x="228"></rect>
+  <text font-weight="600" font-size="14.5" font-family="system-ui" fill="#E9D5FF" text-anchor="middle" y="118" x="312">React Query</text>
+  <text font-size="11.5" font-family="system-ui" fill="#D8B4FE" text-anchor="middle" y="138" x="312">Server State · Cache · Mutations</text>
+
+  
+  <rect stroke-width="2.5" stroke="#C084FC" fill="#4C1D95" rx="10" height="68" width="200" y="92" x="420"></rect>
+  <text font-weight="600" font-size="14.5" font-family="system-ui" fill="#E9D5FF" text-anchor="middle" y="115" x="520">Views &amp; Components</text>
+  <text font-size="11" font-family="system-ui" fill="#D8B4FE" text-anchor="middle" y="133" x="520">Boards · Sprints · Roadmap</text>
+  <text font-size="11" font-family="system-ui" fill="#D8B4FE" text-anchor="middle" y="148" x="520">Reports · Inbox · People</text>
+
+  
+  <rect stroke-width="2.5" stroke="#C084FC" fill="#4C1D95" rx="9" height="44" width="152" y="180" x="52"></rect>
+  <text font-weight="600" font-size="14" font-family="system-ui" fill="#E9D5FF" text-anchor="middle" y="200" x="128">@dnd-kit</text>
+  <text font-size="10.5" font-family="system-ui" fill="#D8B4FE" text-anchor="middle" y="215" x="128">Drag &amp; Drop · Kanban</text>
+
+  
+  <rect stroke-width="2.5" stroke="#C084FC" fill="#4C1D95" rx="9" height="44" width="168" y="180" x="228"></rect>
+  <text font-weight="600" font-size="14" font-family="system-ui" fill="#E9D5FF" text-anchor="middle" y="200" x="312">Recharts</text>
+  <text font-size="10.5" font-family="system-ui" fill="#D8B4FE" text-anchor="middle" y="215" x="312">Burndown · Velocity · Workload</text>
+
+  
+  <rect stroke-width="2.5" stroke="#C084FC" fill="#4C1D95" rx="9" height="44" width="200" y="180" x="420"></rect>
+  <text font-weight="600" font-size="14" font-family="system-ui" fill="#E9D5FF" text-anchor="middle" y="200" x="520">Lucide React</text>
+  <text font-size="10.5" font-family="system-ui" fill="#D8B4FE" text-anchor="middle" y="215" x="520">Icons · Visual Language</text>
+
+  
+  <rect stroke-width="3" stroke="#FBBF24" fill="url(#layer2Grad)" rx="18" height="100" width="620" y="292" x="30"></rect>
+  <rect opacity="0.5" stroke-width="1" stroke="#FDE68A" fill="none" rx="18" height="100" width="620" y="292" x="30"></rect>
+  
+  <text font-weight="700" font-size="18" font-family="system-ui" fill="#FEF3C7" y="320" x="50">Tauri v2 Bridge</text>
+  <text font-weight="500" font-size="13" font-family="system-ui" fill="#FCD34D" y="340" x="50">Rust Backend · Typed Commands · IPC Layer</text>
+
+  
+  <rect stroke-width="2.5" stroke="#FDBA74" fill="#78350F" rx="9" height="40" width="200" y="340" x="52"></rect>
+  <text font-weight="600" font-size="13.5" font-family="system-ui" fill="#FED7AA" text-anchor="middle" y="360" x="152">CRUD Commands</text>
+  <text font-size="10.5" font-family="system-ui" fill="#FDBA74" text-anchor="middle" y="373" x="152">projects · tasks · sprints · people</text>
+
+  <rect stroke-width="2.5" stroke="#FDBA74" fill="#78350F" rx="9" height="40" width="172" y="340" x="276"></rect>
+  <text font-weight="600" font-size="13.5" font-family="system-ui" fill="#FED7AA" text-anchor="middle" y="360" x="362">File System</text>
+  <text font-size="10.5" font-family="system-ui" fill="#FDBA74" text-anchor="middle" y="373" x="362">tauri-plugin-fs</text>
+
+  <rect stroke-width="2.5" stroke="#FDBA74" fill="#78350F" rx="9" height="40" width="162" y="340" x="468"></rect>
+  <text font-weight="600" font-size="13.5" font-family="system-ui" fill="#FED7AA" text-anchor="middle" y="360" x="549">Notifications</text>
+  <text font-size="10.5" font-family="system-ui" fill="#FDBA74" text-anchor="middle" y="373" x="549">tauri-plugin-notification</text>
+
+  
+  <rect stroke-width="3" stroke="#34D399" fill="url(#layer3Grad)" rx="18" height="248" width="620" y="432" x="30"></rect>
+  <rect opacity="0.5" stroke-width="1" stroke="#A7F3D0" fill="none" rx="18" height="248" width="620" y="432" x="30"></rect>
+  
+  <text font-weight="700" font-size="18" font-family="system-ui" fill="#D1FAE5" y="460" x="50">SQLite Data Layer</text>
+  <text font-weight="500" font-size="13" font-family="system-ui" fill="#6EE7B7" y="480" x="50">tauri-plugin-sql · Local-only · No Cloud</text>
+
+  
+  <rect stroke-width="2.5" stroke="#86EFAC" fill="#166534" rx="9" height="44" width="130" y="494" x="52"></rect>
+  <text font-weight="600" font-size="14" font-family="system-ui" fill="#D1FAE5" text-anchor="middle" y="514" x="117">projects</text>
+  <text font-size="10.5" font-family="system-ui" fill="#86EFAC" text-anchor="middle" y="530" x="117">id · name · key · color</text>
+
+  <rect stroke-width="2.5" stroke="#86EFAC" fill="#166534" rx="9" height="44" width="130" y="494" x="202"></rect>
+  <text font-weight="600" font-size="14" font-family="system-ui" fill="#D1FAE5" text-anchor="middle" y="514" x="267">tasks</text>
+  <text font-size="10.5" font-family="system-ui" fill="#86EFAC" text-anchor="middle" y="530" x="267">type · status · priority</text>
+
+  <rect stroke-width="2.5" stroke="#86EFAC" fill="#166534" rx="9" height="44" width="130" y="494" x="352"></rect>
+  <text font-weight="600" font-size="14" font-family="system-ui" fill="#D1FAE5" text-anchor="middle" y="514" x="417">sprints</text>
+  <text font-size="10.5" font-family="system-ui" fill="#86EFAC" text-anchor="middle" y="530" x="417">goal · start · end · status</text>
+
+  <rect stroke-width="2.5" stroke="#86EFAC" fill="#166534" rx="9" height="44" width="120" y="494" x="502"></rect>
+  <text font-weight="600" font-size="14" font-family="system-ui" fill="#D1FAE5" text-anchor="middle" y="514" x="562">people</text>
+  <text font-size="10.5" font-family="system-ui" fill="#86EFAC" text-anchor="middle" y="530" x="562">name · email · role</text>
+
+  
+  <rect stroke-width="2.5" stroke="#86EFAC" fill="#166534" rx="9" height="44" width="130" y="558" x="52"></rect>
+  <text font-weight="600" font-size="14" font-family="system-ui" fill="#D1FAE5" text-anchor="middle" y="578" x="117">comments</text>
+  <text font-size="10.5" font-family="system-ui" fill="#86EFAC" text-anchor="middle" y="594" x="117">task_id · author · body</text>
+
+  <rect stroke-width="2.5" stroke="#86EFAC" fill="#166534" rx="9" height="44" width="130" y="558" x="202"></rect>
+  <text font-weight="600" font-size="14" font-family="system-ui" fill="#D1FAE5" text-anchor="middle" y="578" x="267">time_logs</text>
+  <text font-size="10.5" font-family="system-ui" fill="#86EFAC" text-anchor="middle" y="594" x="267">task · person · minutes</text>
+
+  <rect stroke-width="2.5" stroke="#86EFAC" fill="#166534" rx="9" height="44" width="130" y="558" x="352"></rect>
+  <text font-weight="600" font-size="14" font-family="system-ui" fill="#D1FAE5" text-anchor="middle" y="578" x="417">attachments</text>
+  <text font-size="10.5" font-family="system-ui" fill="#86EFAC" text-anchor="middle" y="594" x="417">filepath · size · task_id</text>
+
+  <rect stroke-width="2.5" stroke="#86EFAC" fill="#166534" rx="9" height="44" width="120" y="558" x="502"></rect>
+  <text font-weight="600" font-size="14" font-family="system-ui" fill="#D1FAE5" text-anchor="middle" y="578" x="562">activity_log</text>
+  <text font-size="10.5" font-family="system-ui" fill="#86EFAC" text-anchor="middle" y="594" x="562">action · old/new</text>
+
+  
+  <rect stroke-width="2.5" stroke="#34D399" fill="#052E16" rx="9" height="40" width="590" y="622" x="52"></rect>
+  <text font-weight="600" font-size="13.5" font-family="system-ui" fill="#A7F3D0" text-anchor="middle" y="642" x="347">Local Filesystem Storage</text>
+  <text font-size="10.5" font-family="system-ui" fill="#6EE7B7" text-anchor="middle" y="657" x="347">%APPDATA%/com.flowboard.app/attachments/</text>
+
+  
+  <line stroke-linecap="round" stroke-width="3" stroke="#FACC15" marker-end="url(#arrow)" y2="289" x2="220" y1="256" x1="220"></line>
+  <text font-weight="500" font-size="11.5" fill="#FACC15" y="275" x="235">invoke()</text>
+
+  <line stroke-linecap="round" stroke-width="3" stroke="#FACC15" marker-end="url(#arrow)" y2="256" x2="340" y1="289" x1="340"></line>
+  <text font-weight="500" font-size="11.5" fill="#FACC15" y="275" x="355">JSON Response</text>
+
+  <line stroke-linecap="round" stroke-width="3" stroke="#34D399" marker-end="url(#arrow)" y2="428" x2="220" y1="392" x1="220"></line>
+  <line stroke-linecap="round" stroke-width="3" stroke="#34D399" marker-end="url(#arrow)" y2="392" x2="460" y1="428" x1="460"></line>
+
+  
+  <text letter-spacing="-0.8px" font-weight="700" font-size="22" font-family="system-ui" fill="#E0F2FE" text-anchor="middle" y="22" x="340">FlowBoard Architecture</text>
+</svg>

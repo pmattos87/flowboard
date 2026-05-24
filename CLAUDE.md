@@ -16,6 +16,11 @@ Logo with no background: `/assets/logo_background.png`
 
 ## Coding Behavior Guidelines
 
+### 0. Pre-flight (do this before every task)
+- Read `/docs/LESSONS.md` in full.
+- Check if any entry is relevant to this task's scope.
+- If yes, state which lessons apply and how you'll avoid repeating them. 
+
 ### 1. Think Before Coding
 
 **Don't assume. Don't hide confusion. Surface tradeoffs.**
@@ -129,7 +134,11 @@ Commits must be granular (one per sub-task) and use the following semantic prefi
 *Example:* `feat(sqlite): init sqlite schema and migration helpers (task 1.3)`
 
 ### 3. Agent Safety & Error Recovery Rule
-If a command execution fails (`tsc` throws compilation errors, or a test breaks) and cannot be resolved cleanly within 2 iterations, the agent must stop, notify the user, and **must not** commit broken code. If instructed to abort, use `git reset --hard HEAD` to restore the last clean commit state.
+
+- If a command execution fails (`tsc` throws compilation errors, or a test breaks) and cannot be resolved cleanly within 2 iterations, the agent must stop, notify the user, and **must not** commit broken code. If instructed to abort, use `git reset --hard HEAD` to restore the last clean commit state.
+- Any task that triggers the 2-iteration error recovery rule (git reset --hard) 
+MUST produce a LESSONS.md entry before the task is re-attempted.
+- If a LESSONS.md entry invalidates a prior decision, also update DECISIONS.md.
 
 ---
 
@@ -210,5 +219,6 @@ src-tauri/
 5. Feature matches the visual reference in this document or its specific handoff prompt.
 6. All Phases must pass through testing.
 7. **Git Verification:** Code compiles, tests pass, and changes are committed to the local feature/phase branch using proper semantic commit prefixes. Never leave unstaged changes upon task completion.
+8. **Lessons log:** If this task required a `git reset`, a constraint violation was caught in review, or a doc gap forced a guess — append one row to `LESSONS.md` before committing. If nothing went wrong, skip it.
 
 ---
