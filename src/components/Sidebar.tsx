@@ -44,12 +44,12 @@ export function Sidebar() {
   const openCreateProject = useUiStore((s) => s.setCreateProjectModalOpen);
 
   return (
-    <aside className="w-[220px] shrink-0 bg-gray-950 border-r border-gray-900 flex flex-col">
+    <aside className="w-[256px] shrink-0 bg-gray-950 border-r border-gray-900 flex flex-col">
       <div className="h-14 flex items-center gap-3 px-4 border-b border-gray-900">
         <img src="/logo.png" alt="FlowBoard" className="h-8 w-8" />
         <div className="leading-tight">
           <div className="text-sm font-semibold text-white">FlowBoard</div>
-          <div className="text-[10px] tracking-[0.18em] text-gray-500">
+          <div className="text-[10px] tracking-[0.18em] text-gray-500 whitespace-nowrap">
             PLAN • FLOW • DELIVER
           </div>
         </div>
