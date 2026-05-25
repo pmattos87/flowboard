@@ -1,19 +1,19 @@
 # FlowBoard — Progress
 
-**Last Updated:** May 21, 2026
+**Last Updated:** May 25, 2026
 
-**Current Phase:** Phase 1 — Scaffold & Infrastructure  
-**Overall Completion:** 0% (0/25 tasks)
+**Current Phase:** Phase 1 — Scaffold & Infrastructure (complete, pending merge)
+**Overall Completion:** 16% (4/25 tasks)
 
 ---
 
 ## Phase Progress
 
 ### Phase 1 — Scaffold & Infrastructure
-- [ ] **1.1** Init Tauri v2 + React + TypeScript + Vite → `backend-engineer`
-- [ ] **1.2** Configure Tailwind, shadcn/ui, Zustand, React Query, `@/` alias → `backend-engineer`
-- [ ] **1.3** Initialize SQLite schema with migrations → `backend-engineer`
-- [ ] **1.4** Tauri Rust CRUD commands for all entities → `backend-engineer`
+- [x] **1.1** Init Tauri v2 + React + TypeScript + Vite → `backend-engineer`
+- [x] **1.2** Configure Tailwind, shadcn/ui, Zustand, React Query, `@/` alias → `backend-engineer`
+- [x] **1.3** Initialize SQLite schema with migrations → `backend-engineer`
+- [x] **1.4** Tauri Rust CRUD commands for all entities → `backend-engineer`
 
 ### Phase 2 — Core Data Layer & Navigation
 - [ ] **2.1** Zustand UI stores + React Query hooks for all entities → `skill:data-layer`
@@ -62,13 +62,16 @@
 ---
 
 ## Current Focus / In Progress
-- **Starting Phase 1** — Project initialization and core infrastructure setup.
+- **Phase 1 complete on `phase/1-infrastructure`** — awaiting push, PR, and merge to `main` per PLAN.md Phase Exit Criteria.
 
 ## Blockers / Notes
 - None
 
 ## Recent Completions
-- None yet. Development starting.
+- 1.4 (Rust CRUD commands, 31 invoke handlers across 8 entities)
+- 1.3 (SQLite schema + migrations; SCHEMA.md FK rules clarified)
+- 1.2 (shadcn foundation, React Query, Zustand, types, staging build profile)
+- 1.1 (Tauri v2 scaffold; Tailwind v4 dark-mode; `@/` alias)
 
 ---
 
