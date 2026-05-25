@@ -2,8 +2,8 @@
 
 **Last Updated:** May 25, 2026
 
-**Current Phase:** Phase 1 — Scaffold & Infrastructure (complete, pending merge)
-**Overall Completion:** 16% (4/25 tasks)
+**Current Phase:** Phase 2 — Core Data Layer & Navigation (complete, pending merge)
+**Overall Completion:** 28% (7/25 tasks)
 
 ---
 
@@ -16,9 +16,9 @@
 - [x] **1.4** Tauri Rust CRUD commands for all entities → `backend-engineer`
 
 ### Phase 2 — Core Data Layer & Navigation
-- [ ] **2.1** Zustand UI stores + React Query hooks for all entities → `skill:data-layer`
-- [ ] **2.2** App shell: sidebar, top bar, routing → `skill:frontend-design`
-- [ ] **2.3** Projects CRUD UI → `skill:frontend-design`
+- [x] **2.1** Zustand UI stores + React Query hooks for all entities → `skill:data-layer`
+- [x] **2.2** App shell: sidebar, top bar, routing → `skill:frontend-design`
+- [x] **2.3** Projects CRUD UI → `skill:frontend-design`
 
 ### Phase 3 — People & Sprint Management
 - [ ] **3.1** People page → `skill:frontend-design`
@@ -62,12 +62,15 @@
 ---
 
 ## Current Focus / In Progress
-- **Phase 1 complete on `phase/1-infrastructure`** — awaiting push, PR, and merge to `main` per PLAN.md Phase Exit Criteria.
+- **Phase 2 complete on `phase/2-core-layers`** — awaiting push, PR, and merge to `main` per PLAN.md Phase Exit Criteria.
 
 ## Blockers / Notes
 - None
 
 ## Recent Completions
+- 2.3 (Create Project modal + Settings page with edit/delete; shadcn ui primitives added)
+- 2.2 (App shell: 220px sidebar, 48px top bar, HashRouter + route stubs for all nav targets)
+- 2.1 (Typed Tauri command wrappers + React Query hooks for all 8 entities + UI store extension)
 - 1.4 (Rust CRUD commands, 31 invoke handlers across 8 entities)
 - 1.3 (SQLite schema + migrations; SCHEMA.md FK rules clarified)
 - 1.2 (shadcn foundation, React Query, Zustand, types, staging build profile)
