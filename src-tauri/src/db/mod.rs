@@ -1,8 +1,10 @@
-use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
+use std::str::FromStr;
 use tauri::{AppHandle, Manager};
 
 /// Open (and create on first run) the SQLite pool at `<appDataDir>/flowboard.db`.
+/// `PRAGMA foreign_keys = ON` is set on every connection so CASCADE DELETE works.
 pub async fn init_pool(app: &AppHandle) -> Result<SqlitePool, String> {
     let app_data_dir = app
         .path()
@@ -17,9 +19,13 @@ pub async fn init_pool(app: &AppHandle) -> Result<SqlitePool, String> {
         full_path.to_string_lossy().replace('\\', "/")
     );
 
+    let options = SqliteConnectOptions::from_str(&url)
+        .map_err(|e| e.to_string())?
+        .foreign_keys(true);
+
     SqlitePoolOptions::new()
         .max_connections(5)
-        .connect(&url)
+        .connect_with(options)
         .await
         .map_err(|e| format!("failed to open sqlite pool: {e}"))
 }
