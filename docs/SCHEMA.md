@@ -23,8 +23,15 @@ activity_log  (id, task_id, person_id, action, old_value, new_value, created_at)
 -------------------------
 Important Rules
 
--All nullable foreign keys (sprint_id, parent_id, assignee_id, person_id) must be handled as Option<i64> in Rust and number | null in TypeScript.
--updated_at must be automatically updated on any task modification.
--Labels are stored as comma-separated string.
--Timestamps use ISO strings.
--created_at / updated_at should be set in the backend.
+- Nullable foreign keys (handled as `Option<i64>` in Rust, `number | null` in TypeScript):
+  - `tasks.sprint_id`   → ON DELETE SET NULL (task survives sprint deletion)
+  - `tasks.parent_id`   → ON DELETE SET NULL (sub-tasks survive parent deletion)
+  - `tasks.assignee_id` → ON DELETE SET NULL (task survives assignee deletion)
+- All other foreign keys are NOT NULL with ON DELETE CASCADE:
+  - `sprints.project_id`, `tasks.project_id`, `comments.task_id`, `comments.author_id`,
+    `time_logs.task_id`, `time_logs.person_id`, `attachments.task_id`,
+    `activity_log.task_id`, `activity_log.person_id`
+- `updated_at` must be automatically updated on any task modification.
+- Labels are stored as comma-separated string.
+- Timestamps use ISO strings.
+- `created_at` / `updated_at` should be set in the backend.
