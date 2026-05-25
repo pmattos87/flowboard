@@ -40,7 +40,7 @@ or silent, forcing an assumption that turned out to be wrong.
 
 | Phase/Task | File | What Was Unclear | Assumption Made | Correct Behavior | Doc Updated? |
 |---|---|---|---|---|---|
-| — | — | — | — | — | — |
+| Phase 1 / Task 1.3 | SCHEMA.md vs TYPES.md | SCHEMA.md listed `person_id` generically as nullable; TYPES.md declared `TimeLog.person_id: number` and `ActivityLog.person_id: number` (non-null). Conflict on nullability. | Surfaced the conflict to the user before writing the migration; chose TYPES.md interpretation (person_id NOT NULL on both tables, ON DELETE CASCADE). | Only `tasks.sprint_id`, `tasks.parent_id`, `tasks.assignee_id` are nullable. All other FKs are NOT NULL with CASCADE. | Yes — SCHEMA.md updated with explicit per-column FK rules. |
 
 ---
 
