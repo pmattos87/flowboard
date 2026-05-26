@@ -3,6 +3,12 @@ import { AppShell } from "@/components/AppShell";
 import { CreateProjectModal } from "@/components/CreateProjectModal";
 import { CreateTaskModal } from "@/components/CreateTaskModal";
 import { TaskDetailPanel } from "@/components/TaskDetailPanel";
+import {
+  DiscoveryBoard,
+  SprintPlanningBoard,
+  TaskBoard,
+  UserStoryBoard,
+} from "@/features/boards";
 import People from "@/pages/People";
 import Settings from "@/pages/Settings";
 import Sprints from "@/pages/Sprints";
@@ -22,10 +28,10 @@ function App() {
       <Routes>
         <Route element={<AppShell />}>
           <Route path="/" element={<Navigate to="/board/user-story" replace />} />
-          <Route path="/board/discovery" element={<Placeholder title="Discovery Board" />} />
-          <Route path="/board/user-story" element={<Placeholder title="User Story Board" />} />
-          <Route path="/board/task" element={<Placeholder title="Task Board" />} />
-          <Route path="/board/sprint-planning" element={<Placeholder title="Sprint Planning Board" />} />
+          <Route path="/board/discovery" element={<DiscoveryBoard />} />
+          <Route path="/board/user-story" element={<UserStoryBoard />} />
+          <Route path="/board/task" element={<TaskBoard />} />
+          <Route path="/board/sprint-planning" element={<SprintPlanningBoard />} />
           <Route path="/sprints" element={<Sprints />} />
           <Route path="/roadmap" element={<Placeholder title="Roadmap" />} />
           <Route path="/reports" element={<Placeholder title="Reports" />} />
