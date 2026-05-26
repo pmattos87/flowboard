@@ -9,6 +9,7 @@ import {
   listSprints,
   listTasks,
   createTask,
+  updateTask,
   deleteTask,
   createPerson,
   listPeople,
@@ -93,6 +94,27 @@ describe("task commands", () => {
     mockInvoke.mockResolvedValueOnce(undefined);
     await deleteTask(7);
     expect(mockInvoke).toHaveBeenCalledWith("delete_task", { id: 7 });
+  });
+
+  it("updateTask preserves explicit null for sprint_id (clear to backlog)", async () => {
+    mockInvoke.mockResolvedValueOnce({ id: 5 });
+    await updateTask(5, { sprint_id: null });
+    const [, args] = mockInvoke.mock.calls[0];
+    expect(args).toEqual({ id: 5, payload: { sprint_id: null } });
+    expect((args as { payload: { sprint_id: unknown } }).payload.sprint_id).toBeNull();
+  });
+
+  it("updateTask preserves explicit null for assignee_id, parent_id, due_date", async () => {
+    mockInvoke.mockResolvedValueOnce({ id: 5 });
+    await updateTask(5, {
+      assignee_id: null,
+      parent_id: null,
+      due_date: null,
+    });
+    expect(mockInvoke).toHaveBeenCalledWith("update_task", {
+      id: 5,
+      payload: { assignee_id: null, parent_id: null, due_date: null },
+    });
   });
 });
 
