@@ -12,6 +12,9 @@ interface UiState {
 
   selectedTaskId: number | null;
   setSelectedTaskId: (id: number | null) => void;
+
+  selectedSprintId: number | null;
+  setSelectedSprintId: (id: number | null) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -26,4 +29,7 @@ export const useUiStore = create<UiState>((set) => ({
 
   selectedTaskId: null,
   setSelectedTaskId: (id) => set({ selectedTaskId: id }),
+
+  selectedSprintId: null,
+  setSelectedSprintId: (id) => set({ selectedSprintId: id }),
 }));
