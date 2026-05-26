@@ -1,9 +1,9 @@
 # FlowBoard — Progress
 
-**Last Updated:** May 25, 2026
+**Last Updated:** May 26, 2026
 
-**Current Phase:** Phase 5 — Board Views (complete, pending merge)
-**Overall Completion:** 72% (18/25 tasks)
+**Current Phase:** Phase 7 — Reports
+**Overall Completion:** 80% (20/25 tasks)
 
 ---
 
@@ -39,8 +39,8 @@
 - [x] **5.5** Drag & drop between columns → `skill:frontend-design`
 
 ### Phase 6 — Roadmap
-- [ ] **6.1** Gantt-style roadmap → `skill:backend-engineer`
-- [ ] **6.2** Draggable bars + today indicator → `skill:backend-engineer`
+- [x] **6.1** Gantt-style roadmap → `skill:backend-engineer`
+- [x] **6.2** Draggable bars + today indicator → `skill:backend-engineer`
 
 ### Phase 7 — Reports
 - [ ] **7.1** Burndown chart → `skill:frontend-design`
@@ -62,12 +62,13 @@
 ---
 
 ## Current Focus / In Progress
-- **Phase 5 complete on `phase/5-boards`** — awaiting PR and merge to `main`.
+- **Phase 7 — Reports** not yet started. Next up: burndown, velocity, status distribution, and workload charts.
 
 ## Blockers / Notes
-- None
+- **Phase 6 leftover:** `src/__tests__/features/KanbanBoard.dnd.test.tsx` has one `it.skip` on the cross-column regression test (see `LESSONS.md` → "Stale jsdom rect-mock in KanbanBoard DnD test" and `PLAN-KANBAN-DND-TEST-FIX.md`). Must be repaired before Phase 7 ships.
 
 ## Recent Completions
+- 6.1–6.2 (Roadmap page: read-only Gantt timeline, draggable bars, today indicator; `SprintFormDialog` extracted for reuse; dateMath + page tests)
 - 5.1–5.5 (UserStoryBoard, TaskBoard, DiscoveryBoard, SprintPlanningBoard — all with @dnd-kit drag-and-drop)
 - 4.1–4.5 (CreateTaskModal + TaskDetailPanel with Comments, Attachments, Time Logs; tauri-plugin-dialog added)
 - 3.2 (Sprints page: list/create/edit/delete, scoped to active project, status badges + date range)
