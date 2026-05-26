@@ -1,6 +1,17 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use tauri::State;
+
+/// Distinguishes "field absent" from "field present and null" when deserializing
+/// into `Option<Option<T>>`. Without this, serde's default impl collapses both
+/// cases to `None`, making it impossible to clear a nullable column via JSON null.
+fn deserialize_optional_field<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
 
 #[derive(Debug, FromRow, Serialize)]
 pub struct Task {
@@ -42,7 +53,9 @@ pub struct TaskCreate {
 
 #[derive(Debug, Deserialize)]
 pub struct TaskUpdate {
+    #[serde(default, deserialize_with = "deserialize_optional_field")]
     pub sprint_id: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "deserialize_optional_field")]
     pub parent_id: Option<Option<i64>>,
     pub title: Option<String>,
     pub description: Option<String>,
@@ -50,8 +63,10 @@ pub struct TaskUpdate {
     pub r#type: Option<String>,
     pub status: Option<String>,
     pub priority: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_field")]
     pub assignee_id: Option<Option<i64>>,
     pub story_points: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_optional_field")]
     pub due_date: Option<Option<String>>,
     pub labels: Option<String>,
 }
@@ -204,4 +219,40 @@ pub async fn delete_task(pool: State<'_, SqlitePool>, id: i64) -> Result<(), Str
         .await
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TaskUpdate;
+
+    #[test]
+    fn absent_sprint_id_deserializes_to_none() {
+        let json = r#"{}"#;
+        let u: TaskUpdate = serde_json::from_str(json).unwrap();
+        assert!(u.sprint_id.is_none(), "absent field must be outer None");
+    }
+
+    #[test]
+    fn null_sprint_id_deserializes_to_some_none() {
+        let json = r#"{"sprint_id": null}"#;
+        let u: TaskUpdate = serde_json::from_str(json).unwrap();
+        assert_eq!(u.sprint_id, Some(None), "null must be Some(None) to clear column");
+    }
+
+    #[test]
+    fn value_sprint_id_deserializes_to_some_some() {
+        let json = r#"{"sprint_id": 7}"#;
+        let u: TaskUpdate = serde_json::from_str(json).unwrap();
+        assert_eq!(u.sprint_id, Some(Some(7)));
+    }
+
+    #[test]
+    fn null_handling_applies_to_all_nullable_fields() {
+        let json = r#"{"sprint_id": null, "parent_id": null, "assignee_id": null, "due_date": null}"#;
+        let u: TaskUpdate = serde_json::from_str(json).unwrap();
+        assert_eq!(u.sprint_id, Some(None));
+        assert_eq!(u.parent_id, Some(None));
+        assert_eq!(u.assignee_id, Some(None));
+        assert_eq!(u.due_date, Some(None));
+    }
 }
