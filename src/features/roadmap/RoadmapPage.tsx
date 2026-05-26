@@ -1,8 +1,15 @@
 import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
 import { Button } from "@/components/ui/button";
 import { SprintFormDialog } from "@/features/sprints/SprintFormDialog";
-import { useSprints } from "@/hooks/useSprints";
+import { useSprints, useUpdateSprint } from "@/hooks/useSprints";
 import { useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
 import type { Sprint, SprintStatus } from "@/types";
@@ -15,6 +22,7 @@ import {
   dateToPx,
   daysBetween,
   originForScale,
+  pxToDays,
   todayIso,
   type Scale,
 } from "./utils/dateMath";
@@ -44,9 +52,14 @@ const SCALES: { value: Scale; label: string }[] = [
 export default function RoadmapPage() {
   const activeProjectId = useUiStore((s) => s.activeProjectId);
   const { data: sprints, isLoading } = useSprints(activeProjectId ?? undefined);
+  const updateSprint = useUpdateSprint();
   const [scale, setScale] = useState<Scale>("week");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Sprint | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
 
   const today = todayIso();
 
@@ -83,6 +96,42 @@ export default function RoadmapPage() {
   const handleModalClose = (open: boolean) => {
     setModalOpen(open);
     if (!open) setEditing(null);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const id = String(event.active.id);
+    const colonAt = id.indexOf(":");
+    if (colonAt < 0) return;
+    const type = id.slice(0, colonAt);
+    const sprintId = Number(id.slice(colonAt + 1));
+    const sprint = (sprints ?? []).find((s) => s.id === sprintId);
+    if (!sprint) return;
+    const days = pxToDays(event.delta.x, scale);
+    if (days === 0) return;
+
+    if (type === "move") {
+      updateSprint.mutate({
+        id: sprint.id,
+        payload: {
+          start_date: addDays(sprint.start_date, days),
+          end_date: addDays(sprint.end_date, days),
+        },
+      });
+    } else if (type === "left") {
+      const newStart = addDays(sprint.start_date, days);
+      if (newStart > sprint.end_date) return;
+      updateSprint.mutate({
+        id: sprint.id,
+        payload: { start_date: newStart },
+      });
+    } else if (type === "right") {
+      const newEnd = addDays(sprint.end_date, days);
+      if (newEnd < sprint.start_date) return;
+      updateSprint.mutate({
+        id: sprint.id,
+        payload: { end_date: newEnd },
+      });
+    }
   };
 
   if (activeProjectId == null) {
@@ -142,6 +191,7 @@ export default function RoadmapPage() {
           </Button>
         </div>
       ) : (
+        <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <div className="flex-1 min-h-0 overflow-auto bg-gray-900 rounded-lg border border-gray-800">
           <div
             className="relative"
@@ -197,6 +247,7 @@ export default function RoadmapPage() {
             </div>
           </div>
         </div>
+        </DndContext>
       )}
 
       <SprintFormDialog
