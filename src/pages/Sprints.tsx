@@ -1,40 +1,11 @@
 import { useState } from "react";
 import { CalendarDays, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  useCreateSprint,
-  useDeleteSprint,
-  useSprints,
-  useUpdateSprint,
-} from "@/hooks/useSprints";
+import { SprintFormDialog } from "@/features/sprints/SprintFormDialog";
+import { useDeleteSprint, useSprints } from "@/hooks/useSprints";
 import { useUiStore } from "@/stores/uiStore";
 import type { Sprint, SprintStatus } from "@/types";
 import { cn } from "@/lib/utils";
-
-type SprintForm = {
-  name: string;
-  goal: string;
-  start_date: string;
-  end_date: string;
-  status: SprintStatus;
-};
-
-const emptyForm = (): SprintForm => ({
-  name: "",
-  goal: "",
-  start_date: "",
-  end_date: "",
-  status: "backlog",
-});
 
 const STATUS_STYLES: Record<SprintStatus, string> = {
   backlog: "bg-gray-700 text-gray-300",
@@ -60,75 +31,25 @@ function formatDate(d: string) {
 export default function Sprints() {
   const activeProjectId = useUiStore((s) => s.activeProjectId);
   const { data: sprints, isLoading } = useSprints(activeProjectId ?? undefined);
-  const createSprint = useCreateSprint();
-  const updateSprint = useUpdateSprint();
   const deleteSprint = useDeleteSprint();
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Sprint | null>(null);
-  const [form, setForm] = useState<SprintForm>(emptyForm());
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const openCreate = () => {
     setEditing(null);
-    setForm(emptyForm());
-    setError(null);
     setModalOpen(true);
   };
 
   const openEdit = (sprint: Sprint) => {
     setEditing(sprint);
-    setForm({
-      name: sprint.name,
-      goal: sprint.goal ?? "",
-      start_date: sprint.start_date,
-      end_date: sprint.end_date,
-      status: sprint.status as SprintStatus,
-    });
-    setError(null);
     setModalOpen(true);
   };
 
   const handleModalClose = (open: boolean) => {
-    if (!open) {
-      setModalOpen(false);
-      setEditing(null);
-      setError(null);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    const name = form.name.trim();
-    if (!name || !form.start_date || !form.end_date || activeProjectId == null) return;
-    try {
-      if (editing) {
-        await updateSprint.mutateAsync({
-          id: editing.id,
-          payload: {
-            name,
-            goal: form.goal.trim(),
-            start_date: form.start_date,
-            end_date: form.end_date,
-            status: form.status,
-          },
-        });
-      } else {
-        await createSprint.mutateAsync({
-          project_id: activeProjectId,
-          name,
-          goal: form.goal.trim(),
-          start_date: form.start_date,
-          end_date: form.end_date,
-          status: form.status,
-        });
-      }
-      setModalOpen(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
+    setModalOpen(open);
+    if (!open) setEditing(null);
   };
 
   const handleDelete = async (sprint: Sprint) => {
@@ -143,8 +64,6 @@ export default function Sprints() {
       setDeletingId(sprint.id);
     }
   };
-
-  const isPending = createSprint.isPending || updateSprint.isPending;
 
   if (activeProjectId == null) {
     return (
@@ -258,97 +177,12 @@ export default function Sprints() {
         </div>
       )}
 
-      <Dialog open={modalOpen} onOpenChange={handleModalClose}>
-        <DialogContent className="bg-gray-900 border-gray-800 text-white sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{editing ? "Edit sprint" : "Create sprint"}</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4 mt-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="sprint-name" className="text-gray-300">Name</Label>
-              <Input
-                id="sprint-name"
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Sprint 1"
-                className="bg-gray-800 border-gray-700 text-gray-100"
-                required
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="sprint-goal" className="text-gray-300">
-                Goal{" "}
-                <span className="text-gray-500 font-normal">(optional)</span>
-              </Label>
-              <Textarea
-                id="sprint-goal"
-                value={form.goal}
-                onChange={(e) => setForm((f) => ({ ...f, goal: e.target.value }))}
-                placeholder="What will you achieve this sprint?"
-                rows={2}
-                className="bg-gray-800 border-gray-700 text-gray-100"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="sprint-start" className="text-gray-300">Start date</Label>
-                <Input
-                  id="sprint-start"
-                  type="date"
-                  value={form.start_date}
-                  onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))}
-                  className="bg-gray-800 border-gray-700 text-gray-100"
-                  required
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="sprint-end" className="text-gray-300">End date</Label>
-                <Input
-                  id="sprint-end"
-                  type="date"
-                  value={form.end_date}
-                  onChange={(e) => setForm((f) => ({ ...f, end_date: e.target.value }))}
-                  className="bg-gray-800 border-gray-700 text-gray-100"
-                  required
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="sprint-status" className="text-gray-300">Status</Label>
-              <select
-                id="sprint-status"
-                value={form.status}
-                onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as SprintStatus }))}
-                className="w-full rounded-md bg-gray-800 border border-gray-700 text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="backlog">Backlog</option>
-                <option value="active">Active</option>
-                <option value="completed">Completed</option>
-              </select>
-            </div>
-            {error && (
-              <p className="text-sm text-red-400" role="alert">{error}</p>
-            )}
-            <div className="flex justify-end gap-2 pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setModalOpen(false)}
-                className="bg-transparent border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={!form.name.trim() || !form.start_date || !form.end_date || isPending}
-                className="bg-blue-600 hover:bg-blue-500 text-white"
-              >
-                {isPending ? "Saving…" : editing ? "Save changes" : "Create sprint"}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <SprintFormDialog
+        open={modalOpen}
+        onOpenChange={handleModalClose}
+        projectId={activeProjectId}
+        editing={editing}
+      />
     </div>
   );
 }

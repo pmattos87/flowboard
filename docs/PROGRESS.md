@@ -39,8 +39,8 @@
 - [x] **5.5** Drag & drop between columns → `skill:frontend-design`
 
 ### Phase 6 — Roadmap
-- [ ] **6.1** Gantt-style roadmap → `skill:frontend-design`
-- [ ] **6.2** Draggable bars + today indicator → `skill:frontend-design`
+- [ ] **6.1** Gantt-style roadmap → `skill:backend-engineer`
+- [ ] **6.2** Draggable bars + today indicator → `skill:backend-engineer`
 
 ### Phase 7 — Reports
 - [ ] **7.1** Burndown chart → `skill:frontend-design`
