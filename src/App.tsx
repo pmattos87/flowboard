@@ -1,7 +1,9 @@
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { CreateProjectModal } from "@/components/CreateProjectModal";
+import People from "@/pages/People";
 import Settings from "@/pages/Settings";
+import Sprints from "@/pages/Sprints";
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -22,10 +24,10 @@ function App() {
           <Route path="/board/user-story" element={<Placeholder title="User Story Board" />} />
           <Route path="/board/task" element={<Placeholder title="Task Board" />} />
           <Route path="/board/sprint-planning" element={<Placeholder title="Sprint Planning Board" />} />
-          <Route path="/sprints" element={<Placeholder title="Sprints" />} />
+          <Route path="/sprints" element={<Sprints />} />
           <Route path="/roadmap" element={<Placeholder title="Roadmap" />} />
           <Route path="/reports" element={<Placeholder title="Reports" />} />
-          <Route path="/people" element={<Placeholder title="People" />} />
+          <Route path="/people" element={<People />} />
           <Route path="/inbox" element={<Placeholder title="Inbox" />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Placeholder title="Not Found" />} />

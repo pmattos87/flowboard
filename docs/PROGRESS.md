@@ -2,8 +2,8 @@
 
 **Last Updated:** May 25, 2026
 
-**Current Phase:** Phase 2 — Core Data Layer & Navigation (complete, pending merge)
-**Overall Completion:** 28% (7/25 tasks)
+**Current Phase:** Phase 3 — People & Sprint Management (complete, pending merge)
+**Overall Completion:** 36% (9/25 tasks)
 
 ---
 
@@ -21,8 +21,8 @@
 - [x] **2.3** Projects CRUD UI → `skill:frontend-design`
 
 ### Phase 3 — People & Sprint Management
-- [ ] **3.1** People page → `skill:frontend-design`
-- [ ] **3.2** Sprints page → `skill:frontend-design`
+- [x] **3.1** People page → `skill:frontend-design`
+- [x] **3.2** Sprints page → `skill:frontend-design`
 
 ### Phase 4 — Task Management
 - [ ] **4.1** Task creation modal → `skill:frontend-design`
@@ -62,12 +62,14 @@
 ---
 
 ## Current Focus / In Progress
-- **Phase 2 complete on `phase/2-core-layers`** — awaiting push, PR, and merge to `main` per PLAN.md Phase Exit Criteria.
+- **Phase 3 complete on `phase/3-management`** — awaiting push, PR, and merge to `main` per PLAN.md Phase Exit Criteria.
 
 ## Blockers / Notes
 - None
 
 ## Recent Completions
+- 3.2 (Sprints page: list/create/edit/delete, scoped to active project, status badges + date range)
+- 3.1 (People page: team roster with avatar, role, email; full CRUD with inline delete confirmation)
 - 2.3 (Create Project modal + Settings page with edit/delete; shadcn ui primitives added)
 - 2.2 (App shell: 220px sidebar, 48px top bar, HashRouter + route stubs for all nav targets)
 - 2.1 (Typed Tauri command wrappers + React Query hooks for all 8 entities + UI store extension)
