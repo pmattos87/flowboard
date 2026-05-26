@@ -217,7 +217,7 @@ src-tauri/
 3. React Query cache invalidated after every mutation.
 4. No TypeScript errors (`tsc --noEmit` passes).
 5. Feature matches the visual reference in this document or its specific handoff prompt.
-6. All Phases must pass through testing.
+6. **Automated test suite passes:** `npx vitest run` exits with zero failures. New behavior must be covered by a test in `src/__tests__/`.
 7. **Git Verification:** Code compiles, tests pass, and changes are committed to the local feature/phase branch using proper semantic commit prefixes. Never leave unstaged changes upon task completion.
 8. **Lessons log:** If this task required a `git reset`, a constraint violation was caught in review, or a doc gap forced a guess — append one row to `LESSONS.md` before committing. If nothing went wrong, skip it.
 

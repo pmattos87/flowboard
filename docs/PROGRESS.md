@@ -2,8 +2,8 @@
 
 **Last Updated:** May 25, 2026
 
-**Current Phase:** Phase 4 — Task Management (complete, pending merge)
-**Overall Completion:** 52% (13/25 tasks)
+**Current Phase:** Phase 5 — Board Views (complete, pending merge)
+**Overall Completion:** 72% (18/25 tasks)
 
 ---
 
@@ -32,11 +32,11 @@
 - [x] **4.5** Time tracking → `skill:frontend-design`
 
 ### Phase 5 — Board Views
-- [ ] **5.1** User Story Board → `skill:frontend-design`
-- [ ] **5.2** Task Board → `skill:frontend-design`
-- [ ] **5.3** Discovery Board → `skill:frontend-design`
-- [ ] **5.4** Sprint Planning Board → `skill:frontend-design`
-- [ ] **5.5** Drag & drop between columns → `skill:frontend-design`
+- [x] **5.1** User Story Board → `skill:frontend-design`
+- [x] **5.2** Task Board → `skill:frontend-design`
+- [x] **5.3** Discovery Board → `skill:frontend-design`
+- [x] **5.4** Sprint Planning Board → `skill:frontend-design`
+- [x] **5.5** Drag & drop between columns → `skill:frontend-design`
 
 ### Phase 6 — Roadmap
 - [ ] **6.1** Gantt-style roadmap → `skill:frontend-design`
@@ -62,12 +62,13 @@
 ---
 
 ## Current Focus / In Progress
-- **Phase 4 complete on `phase/4-task-management`** — awaiting PR and merge to `main`.
+- **Phase 5 complete on `phase/5-boards`** — awaiting PR and merge to `main`.
 
 ## Blockers / Notes
 - None
 
 ## Recent Completions
+- 5.1–5.5 (UserStoryBoard, TaskBoard, DiscoveryBoard, SprintPlanningBoard — all with @dnd-kit drag-and-drop)
 - 4.1–4.5 (CreateTaskModal + TaskDetailPanel with Comments, Attachments, Time Logs; tauri-plugin-dialog added)
 - 3.2 (Sprints page: list/create/edit/delete, scoped to active project, status badges + date range)
 - 3.1 (People page: team roster with avatar, role, email; full CRUD with inline delete confirmation)
