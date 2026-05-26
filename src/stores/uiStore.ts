@@ -6,6 +6,12 @@ interface UiState {
 
   createProjectModalOpen: boolean;
   setCreateProjectModalOpen: (open: boolean) => void;
+
+  createTaskModalOpen: boolean;
+  setCreateTaskModalOpen: (open: boolean) => void;
+
+  selectedTaskId: number | null;
+  setSelectedTaskId: (id: number | null) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -14,4 +20,10 @@ export const useUiStore = create<UiState>((set) => ({
 
   createProjectModalOpen: false,
   setCreateProjectModalOpen: (open) => set({ createProjectModalOpen: open }),
+
+  createTaskModalOpen: false,
+  setCreateTaskModalOpen: (open) => set({ createTaskModalOpen: open }),
+
+  selectedTaskId: null,
+  setSelectedTaskId: (id) => set({ selectedTaskId: id }),
 }));

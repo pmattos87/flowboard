@@ -16,7 +16,7 @@ function initials(name: string) {
 
 export function TopBar() {
   const activeProjectId = useUiStore((s) => s.activeProjectId);
-  const setCreateProjectModalOpen = useUiStore((s) => s.setCreateProjectModalOpen);
+  const setCreateTaskModalOpen = useUiStore((s) => s.setCreateTaskModalOpen);
   const { data: activeProject } = useProject(activeProjectId);
   const { data: people } = usePeople();
   const avatars = (people ?? []).slice(0, 4);
@@ -54,7 +54,7 @@ export function TopBar() {
         <button
           type="button"
           className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-md px-3 py-1.5 transition-colors"
-          onClick={() => setCreateProjectModalOpen(true)}
+          onClick={() => setCreateTaskModalOpen(true)}
         >
           <Plus className="h-3.5 w-3.5" />
           Create

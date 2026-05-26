@@ -2,8 +2,8 @@
 
 **Last Updated:** May 25, 2026
 
-**Current Phase:** Phase 3 — People & Sprint Management (complete, pending merge)
-**Overall Completion:** 36% (9/25 tasks)
+**Current Phase:** Phase 4 — Task Management (complete, pending merge)
+**Overall Completion:** 52% (13/25 tasks)
 
 ---
 
@@ -25,11 +25,11 @@
 - [x] **3.2** Sprints page → `skill:frontend-design`
 
 ### Phase 4 — Task Management
-- [ ] **4.1** Task creation modal → `skill:frontend-design`
-- [ ] **4.2** Task detail panel → `skill:frontend-design`
-- [ ] **4.3** Comments section → `skill:frontend-design`
-- [ ] **4.4** File attachments → `backend-engineer`
-- [ ] **4.5** Time tracking → `skill:frontend-design`
+- [x] **4.1** Task creation modal → `skill:frontend-design`
+- [x] **4.2** Task detail panel → `skill:frontend-design`
+- [x] **4.3** Comments section → `skill:frontend-design`
+- [x] **4.4** File attachments → `backend-engineer`
+- [x] **4.5** Time tracking → `skill:frontend-design`
 
 ### Phase 5 — Board Views
 - [ ] **5.1** User Story Board → `skill:frontend-design`
@@ -62,12 +62,13 @@
 ---
 
 ## Current Focus / In Progress
-- **Phase 3 complete on `phase/3-management`** — awaiting push, PR, and merge to `main` per PLAN.md Phase Exit Criteria.
+- **Phase 4 complete on `phase/4-task-management`** — awaiting PR and merge to `main`.
 
 ## Blockers / Notes
 - None
 
 ## Recent Completions
+- 4.1–4.5 (CreateTaskModal + TaskDetailPanel with Comments, Attachments, Time Logs; tauri-plugin-dialog added)
 - 3.2 (Sprints page: list/create/edit/delete, scoped to active project, status badges + date range)
 - 3.1 (People page: team roster with avatar, role, email; full CRUD with inline delete confirmation)
 - 2.3 (Create Project modal + Settings page with edit/delete; shadcn ui primitives added)
