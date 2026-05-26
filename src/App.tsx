@@ -1,6 +1,7 @@
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { CreateProjectModal } from "@/components/CreateProjectModal";
+import { CreateTaskModal } from "@/components/CreateTaskModal";
 import People from "@/pages/People";
 import Settings from "@/pages/Settings";
 import Sprints from "@/pages/Sprints";
@@ -34,6 +35,7 @@ function App() {
         </Route>
       </Routes>
       <CreateProjectModal />
+      <CreateTaskModal />
     </HashRouter>
   );
 }
