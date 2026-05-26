@@ -13,8 +13,7 @@
       "Bash(git push origin dev)",
       "Bash(git merge *)",
       "Bash(git rebase *)",
-      "Bash(git reset --hard *)",
-      "Bash(git tag *)"
+      "Bash(git reset --hard *)"
     ]
   }
 }
