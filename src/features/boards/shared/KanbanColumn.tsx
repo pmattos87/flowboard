@@ -1,5 +1,4 @@
 import { useDroppable } from "@dnd-kit/core";
-import type { UniqueIdentifier } from "@dnd-kit/core";
 import type { Person, Task, TaskStatus } from "@/types";
 import { TaskCard } from "./TaskCard";
 
@@ -10,7 +9,6 @@ interface KanbanColumnProps {
   tasks: Task[];
   people: Person[];
   projectKey: string;
-  activeTaskId: UniqueIdentifier | null;
 }
 
 export function KanbanColumn({
@@ -20,7 +18,6 @@ export function KanbanColumn({
   tasks,
   people,
   projectKey,
-  activeTaskId,
 }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
 
@@ -44,21 +41,14 @@ export function KanbanColumn({
           isOver ? "bg-gray-800/40" : "bg-gray-900/50"
         }`}
       >
-        {tasks.map((task) =>
-          task.id === activeTaskId ? (
-            <div
-              key={task.id}
-              className="rounded-lg border border-dashed border-gray-600 bg-gray-700/30 h-[80px]"
-            />
-          ) : (
-            <TaskCard
-              key={task.id}
-              task={task}
-              people={people}
-              projectKey={projectKey}
-            />
-          )
-        )}
+        {tasks.map((task) => (
+          <TaskCard
+            key={task.id}
+            task={task}
+            people={people}
+            projectKey={projectKey}
+          />
+        ))}
       </div>
     </div>
   );

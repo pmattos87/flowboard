@@ -24,7 +24,6 @@ function DroppablePanel({
   tasks,
   people,
   projectKey,
-  activeTaskId,
 }: {
   id: string;
   label: string;
@@ -32,7 +31,6 @@ function DroppablePanel({
   tasks: Task[];
   people: ReturnType<typeof usePeople>["data"];
   projectKey: string;
-  activeTaskId: number | null;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   const peopleList = people ?? [];
@@ -56,21 +54,14 @@ function DroppablePanel({
           isOver ? "bg-gray-800/40" : "bg-gray-900/50"
         }`}
       >
-        {tasks.map((task) =>
-          task.id === activeTaskId ? (
-            <div
-              key={task.id}
-              className="rounded-lg border border-dashed border-gray-600 bg-gray-700/30 h-[80px]"
-            />
-          ) : (
-            <TaskCard
-              key={task.id}
-              task={task}
-              people={peopleList}
-              projectKey={projectKey}
-            />
-          )
-        )}
+        {tasks.map((task) => (
+          <TaskCard
+            key={task.id}
+            task={task}
+            people={peopleList}
+            projectKey={projectKey}
+          />
+        ))}
       </div>
     </div>
   );
@@ -128,20 +119,22 @@ export function SprintPlanningBoard() {
   const projectKey = project?.key ?? "FB";
 
   function handleDragStart(event: DragStartEvent) {
-    setActiveTask((event.active.data.current as { task: Task }).task);
+    const dragged = (event.active.data.current as { task: Task } | undefined)?.task;
+    if (!dragged) return;
+    setActiveTask(dragged);
   }
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
-    if (over && activeTask) {
-      const task = (active.data.current as { task: Task }).task;
-      if (over.id === "backlog" && task.sprint_id !== null) {
-        updateTask.mutate({ id: task.id, payload: { sprint_id: null } });
-      } else if (over.id === "sprint" && activeSprint && task.sprint_id !== activeSprint.id) {
-        updateTask.mutate({ id: task.id, payload: { sprint_id: activeSprint.id } });
-      }
-    }
+    const task = (active.data.current as { task: Task } | undefined)?.task;
     setActiveTask(null);
+    if (!over || !task) return;
+
+    if (over.id === "backlog" && task.sprint_id !== null) {
+      updateTask.mutate({ id: task.id, payload: { sprint_id: null } });
+    } else if (over.id === "sprint" && activeSprint && task.sprint_id !== activeSprint.id) {
+      updateTask.mutate({ id: task.id, payload: { sprint_id: activeSprint.id } });
+    }
   }
 
   function handleDragCancel() {
@@ -182,7 +175,6 @@ export function SprintPlanningBoard() {
             tasks={backlogTasks}
             people={people}
             projectKey={projectKey}
-            activeTaskId={activeTask?.id ?? null}
           />
           <div className="w-px bg-gray-800 shrink-0" />
           <DroppablePanel
@@ -192,7 +184,6 @@ export function SprintPlanningBoard() {
             tasks={sprintTasks}
             people={people}
             projectKey={projectKey}
-            activeTaskId={activeTask?.id ?? null}
           />
         </div>
 
@@ -202,7 +193,7 @@ export function SprintPlanningBoard() {
               task={activeTask}
               people={people ?? []}
               projectKey={projectKey}
-              isDragging
+              isOverlay
             />
           ) : null}
         </DragOverlay>

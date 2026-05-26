@@ -9,18 +9,29 @@ interface TaskCardProps {
   task: Task;
   people: Person[];
   projectKey: string;
-  isDragging?: boolean;
+  isOverlay?: boolean;
 }
 
-export function TaskCard({ task, people, projectKey, isDragging = false }: TaskCardProps) {
+export function TaskCard({ task, people, projectKey, isOverlay = false }: TaskCardProps) {
   const setSelectedTaskId = useUiStore((s) => s.setSelectedTaskId);
   const accMove = useRef(0);
 
-  const { attributes, listeners, setNodeRef, transform } = useDraggable({
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: task.id,
     data: { task },
-    disabled: isDragging,
+    disabled: isOverlay,
   });
+
+  // While being dragged, render a placeholder *inside* the same setNodeRef element so
+  // useDraggable stays mounted and its data.current registration survives until drop.
+  if (isDragging && !isOverlay) {
+    return (
+      <div
+        ref={setNodeRef}
+        className="rounded-lg border border-dashed border-gray-600 bg-gray-700/30 h-[80px]"
+      />
+    );
+  }
 
   const style =
     transform
@@ -29,8 +40,10 @@ export function TaskCard({ task, people, projectKey, isDragging = false }: TaskC
 
   const assignee = people.find((p) => p.id === task.assignee_id);
   const labels = task.labels ? task.labels.split(",").filter(Boolean) : [];
-  const { Icon: TypeIcon, colorClass: typeColor } = TYPE_META[task.type];
-  const { Icon: PriorityIcon, colorClass: priorityColor } = PRIORITY_META[task.priority];
+  const typeMeta = TYPE_META[task.type];
+  const priorityMeta = PRIORITY_META[task.priority];
+  const { Icon: TypeIcon, colorClass: typeColor } = typeMeta ?? TYPE_META.task;
+  const { Icon: PriorityIcon, colorClass: priorityColor } = priorityMeta ?? PRIORITY_META.medium;
   const ticketId = `${projectKey}-${task.id}`;
 
   return (
@@ -39,7 +52,7 @@ export function TaskCard({ task, people, projectKey, isDragging = false }: TaskC
       style={style}
       {...attributes}
       {...listeners}
-      className={`bg-gray-800 rounded-lg p-3 border border-gray-700/50 hover:border-gray-600 transition-colors select-none ${isDragging ? "shadow-2xl ring-1 ring-blue-500/40" : "cursor-grab"}`}
+      className={`bg-gray-800 rounded-lg p-3 border border-gray-700/50 hover:border-gray-600 transition-colors select-none ${isOverlay ? "shadow-2xl ring-1 ring-blue-500/40" : "cursor-grab"}`}
       onMouseDown={() => { accMove.current = 0; }}
       onMouseMove={(e) => { accMove.current += Math.abs(e.movementX) + Math.abs(e.movementY); }}
       onClick={() => {
