@@ -61,3 +61,20 @@ pub async fn list_activity_log(
     .await
     .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn list_activity_log_by_sprint(
+    pool: State<'_, SqlitePool>,
+    sprint_id: i64,
+) -> Result<Vec<ActivityLog>, String> {
+    sqlx::query_as::<_, ActivityLog>(
+        r#"SELECT a.* FROM activity_log a
+           JOIN tasks t ON t.id = a.task_id
+           WHERE t.sprint_id = ?
+           ORDER BY a.created_at ASC"#,
+    )
+    .bind(sprint_id)
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
