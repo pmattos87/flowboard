@@ -4,14 +4,43 @@
 
 ## [Unreleased]
 
-### Added
-- 
+---
 
-### Changed
-- 
+## [0.9-polish] - 2026-05-27 — Phase 9: Polish & UX
+
+### Added
+- **Task 9.1** Loading skeletons — animated `<SkeletonRow>` component replaces plain "Loading…" text in People, Sprints, and Inbox pages
+- **Task 9.1** Error toasts — `sonner` library wired into all mutation `onError` callbacks (tasks, people, sprints, projects, comments); dark-theme `<Toaster>` mounted in `App.tsx`
+- **Task 9.2** Keyboard shortcuts — global `keydown` listener in `AppShell`: `n` opens Create Task modal, `/` focuses the search input; no-ops when an input is focused
+- **Task 9.3** Global search — TopBar search input is now fully functional; filters active project's tasks client-side (≥ 2 chars, max 8 results) in a floating dropdown; clicking a result opens the Task Detail panel
+- **Task 9.4** About page at `/about` — app name, version, description, tech stack badges; linked from sidebar footer alongside Settings
 
 ### Fixed
-- 
+- Sidebar logo `src="/logo.png"` was already correctly served from `public/logo.png` — confirmed working, no change needed
+
+---
+
+## [0.8-alerts] - 2026-05-27 — Phase 8: Inbox & Notifications
+
+### Added
+- **Task 8.1** Inbox page at `/inbox` — reverse-chronological activity feed powered by new `list_all_activity_log` Rust command; unread entries highlighted with a blue left border; read state tracked via `localStorage.lastInboxVisit`
+- **Task 8.2** Native OS notifications — `src/lib/notifications.ts` wraps `@tauri-apps/plugin-notification` JS API; fires on task create, task status update, and comment add; silently no-ops if permission denied
+- **Task 8.3** Notification bell badge — TopBar bell shows red unread count badge (capped at "9+"); clears after visiting Inbox; click navigates to `/inbox`
+- New Rust command `list_all_activity_log` — returns the 200 most recent activity log entries across all tasks, DESC
+- `useAllActivityLog()` React Query hook
+
+---
+
+## [0.7-reports] - 2026-05-27 — Phase 7: Reports
+
+### Added
+- **Task 7.1** Burndown chart — ideal vs actual remaining tasks per day, derived from `activity_log` status-change entries
+- **Task 7.2** Velocity chart — story points completed per completed sprint (bar chart)
+- **Task 7.3** Status Distribution chart — donut chart of tasks by status (todo / in_progress / in_review / done)
+- **Task 7.4** Workload chart — horizontal bar chart of task count + story points per team member
+- `ReportsPage` at `/reports` — sprint selector, 2×2 responsive chart grid; replaces placeholder
+- New Rust command `list_activity_log_by_sprint` (Prep-0) and `useSprintActivityLog` hook
+- All charts built with Recharts (already in dependency tree); dark-mode palette throughout
 
 ---
 
