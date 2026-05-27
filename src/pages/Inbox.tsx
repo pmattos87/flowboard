@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { SkeletonRow } from "@/components/Skeleton";
 import { MessageSquare, GitCommitHorizontal, UserCheck } from "lucide-react";
 import { useAllActivityLog } from "@/hooks/useActivityLog";
 import { useTasks } from "@/hooks/useTasks";
@@ -81,7 +82,7 @@ export default function Inbox() {
       <h1 className="text-xl font-semibold text-white">Inbox</h1>
 
       {isLoading ? (
-        <p className="text-sm text-gray-500">Loading…</p>
+        <div className="space-y-1">{Array.from({ length: 4 }).map((_, i) => <SkeletonRow key={i} />)}</div>
       ) : logs.length === 0 ? (
         <p className="text-sm text-gray-500">No activity yet.</p>
       ) : (

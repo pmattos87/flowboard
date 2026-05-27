@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   createProject,
   deleteProject,
@@ -34,9 +35,8 @@ export function useCreateProject() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (payload: ProjectCreatePayload) => createProject(payload),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: projectKeys.all });
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: projectKeys.all }); },
+    onError: (err) => toast.error(`Failed to create project: ${String(err)}`),
   });
 }
 
@@ -45,9 +45,8 @@ export function useUpdateProject() {
   return useMutation({
     mutationFn: ({ id, payload }: { id: number; payload: ProjectUpdatePayload }) =>
       updateProject(id, payload),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: projectKeys.all });
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: projectKeys.all }); },
+    onError: (err) => toast.error(`Failed to update project: ${String(err)}`),
   });
 }
 
@@ -55,8 +54,7 @@ export function useDeleteProject() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => deleteProject(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: projectKeys.all });
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: projectKeys.all }); },
+    onError: (err) => toast.error(`Failed to delete project: ${String(err)}`),
   });
 }
