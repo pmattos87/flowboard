@@ -206,8 +206,8 @@ function AttachmentsSection({ taskId }: { taskId: number }) {
     setAttaching(true);
     try {
       const result = await openFilePicker({ multiple: false });
-      if (!result || Array.isArray(result)) return;
-      const filepath = result;
+      if (!result) return;
+      const filepath = Array.isArray(result) ? result[0] : result;
       const filename = filepath.split(/[\\/]/).pop() ?? filepath;
       const info = await stat(filepath);
       await createAttachment.mutateAsync({
@@ -216,6 +216,8 @@ function AttachmentsSection({ taskId }: { taskId: number }) {
         filepath,
         size: info.size,
       });
+    } catch (err) {
+      console.error("[attachment] failed:", err);
     } finally {
       setAttaching(false);
     }
