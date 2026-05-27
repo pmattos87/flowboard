@@ -19,8 +19,12 @@ pub async fn seed_demo_data(
     pool: State<'_, SqlitePool>,
     force: bool,
 ) -> Result<String, String> {
+    seed_demo_data_inner(pool.inner(), force).await
+}
+
+pub async fn seed_demo_data_inner(pool: &SqlitePool, force: bool) -> Result<String, String> {
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM projects")
-        .fetch_one(pool.inner())
+        .fetch_one(pool)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -30,7 +34,7 @@ pub async fn seed_demo_data(
         );
     }
 
-    let mut tx = pool.inner().begin().await.map_err(|e| e.to_string())?;
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
 
     if force {
         // Delete in reverse FK dependency order so cascades don't interfere.
@@ -223,9 +227,9 @@ pub async fn seed_demo_data(
     let ts = "2025-01-06T09:00:00.000Z";
 
     let t1: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(fbp_id).bind(fbp_s1)
+    .bind(fbp_id).bind(fbp_id).bind(fbp_s1)
     .bind("Set up Tauri + Vite project")
     .bind("Bootstrap the monorepo with Tauri v2, React 18, Vite, Tailwind, and shadcn/ui.")
     .bind("epic").bind("done").bind("high")
@@ -233,9 +237,9 @@ pub async fn seed_demo_data(
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
     let t2: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(fbp_id).bind(fbp_s1)
+    .bind(fbp_id).bind(fbp_id).bind(fbp_s1)
     .bind("Design SQLite schema and migrations")
     .bind("Define all tables, indices, FK rules, and write the initial sqlx migration.")
     .bind("task").bind("done").bind("high")
@@ -243,9 +247,9 @@ pub async fn seed_demo_data(
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
     let t3: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(fbp_id).bind(fbp_s1)
+    .bind(fbp_id).bind(fbp_id).bind(fbp_s1)
     .bind("Implement project CRUD Tauri commands")
     .bind("create_project, list_projects, get_project, update_project, delete_project.")
     .bind("story").bind("done").bind("medium")
@@ -253,9 +257,9 @@ pub async fn seed_demo_data(
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
     let t4: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(fbp_id).bind(fbp_s1)
+    .bind(fbp_id).bind(fbp_id).bind(fbp_s1)
     .bind("Add CI pipeline with tsc + vitest")
     .bind("GitHub Actions workflow that runs tsc --noEmit and npx vitest run on every PR.")
     .bind("task").bind("done").bind("medium")
@@ -266,9 +270,9 @@ pub async fn seed_demo_data(
     let ts2 = "2025-05-12T09:00:00.000Z";
 
     let t5: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(fbp_id).bind(fbp_s2)
+    .bind(fbp_id).bind(fbp_id).bind(fbp_s2)
     .bind("Kanban board with column layout")
     .bind("Implement the four-column Kanban board with task cards and status groups.")
     .bind("story").bind("in_progress").bind("high")
@@ -276,9 +280,9 @@ pub async fn seed_demo_data(
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
     let t6: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(fbp_id).bind(fbp_s2)
+    .bind(fbp_id).bind(fbp_id).bind(fbp_s2)
     .bind("Drag-and-drop cards between columns")
     .bind("Cards should be draggable across status columns using @dnd-kit. Status must update in DB on drop.")
     .bind("bug").bind("todo").bind("critical")
@@ -286,9 +290,9 @@ pub async fn seed_demo_data(
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
     let t7: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(fbp_id).bind(fbp_s2)
+    .bind(fbp_id).bind(fbp_id).bind(fbp_s2)
     .bind("Sprint planning board")
     .bind("Two-panel board: backlog on the left, sprint tasks on the right. Drag to assign.")
     .bind("story").bind("in_review").bind("medium")
@@ -296,9 +300,9 @@ pub async fn seed_demo_data(
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
     let t8: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(fbp_id).bind(fbp_s2)
+    .bind(fbp_id).bind(fbp_id).bind(fbp_s2)
     .bind("Sprint burndown chart")
     .bind("Line chart showing remaining story points per day across the sprint duration.")
     .bind("task").bind("todo").bind("medium")
@@ -307,9 +311,9 @@ pub async fn seed_demo_data(
 
     // ── Tasks — FBP Sprint 3 (backlog) ───────────────────────────────────────
     let t9: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(fbp_id).bind(fbp_s3)
+    .bind(fbp_id).bind(fbp_id).bind(fbp_s3)
     .bind("Global search bar")
     .bind("Search across tasks, sprints, projects, and people from the top bar.")
     .bind("story").bind("todo").bind("high")
@@ -317,9 +321,9 @@ pub async fn seed_demo_data(
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
     let t10: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(fbp_id).bind(fbp_s3)
+    .bind(fbp_id).bind(fbp_id).bind(fbp_s3)
     .bind("Keyboard shortcuts reference in Settings")
     .bind("Add a Keyboard Shortcuts tab to the Settings page.")
     .bind("task").bind("todo").bind("low")
@@ -328,9 +332,9 @@ pub async fn seed_demo_data(
 
     // ── Tasks — FBP Backlog (no sprint) ──────────────────────────────────────
     let t11: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(fbp_id).bind(Option::<i64>::None)
+    .bind(fbp_id).bind(fbp_id).bind(Option::<i64>::None)
     .bind("Roadmap / timeline view")
     .bind("Gantt-style horizontal timeline showing sprints and epics across months.")
     .bind("epic").bind("todo").bind("medium")
@@ -338,9 +342,9 @@ pub async fn seed_demo_data(
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
     let t12: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(fbp_id).bind(Option::<i64>::None)
+    .bind(fbp_id).bind(fbp_id).bind(Option::<i64>::None)
     .bind("Reports dashboard")
     .bind("Burndown, velocity, and workload charts on the Reports page.")
     .bind("story").bind("todo").bind("medium")
@@ -348,9 +352,9 @@ pub async fn seed_demo_data(
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
     let t13: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(fbp_id).bind(Option::<i64>::None)
+    .bind(fbp_id).bind(fbp_id).bind(Option::<i64>::None)
     .bind("File attachments on tasks")
     .bind("Allow users to attach local files to tasks, stored with absolute paths in SQLite.")
     .bind("task").bind("todo").bind("low")
@@ -358,9 +362,9 @@ pub async fn seed_demo_data(
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
     let t14: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(fbp_id).bind(Option::<i64>::None)
+    .bind(fbp_id).bind(fbp_id).bind(Option::<i64>::None)
     .bind("Export board to CSV")
     .bind("Allow exporting the current board view to a CSV file.")
     .bind("story").bind("todo").bind("low")
@@ -374,9 +378,9 @@ pub async fn seed_demo_data(
     let ts3 = "2025-01-13T09:00:00.000Z";
 
     let t15: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(mob_id).bind(mob_s1)
+    .bind(mob_id).bind(mob_id).bind(mob_s1)
     .bind("React Native project setup")
     .bind("Bootstrap Expo + TypeScript project, configure ESLint, Prettier, and testing.")
     .bind("epic").bind("done").bind("high")
@@ -384,9 +388,9 @@ pub async fn seed_demo_data(
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
     let t16: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(mob_id).bind(mob_s1)
+    .bind(mob_id).bind(mob_id).bind(mob_s1)
     .bind("App navigation structure")
     .bind("Set up React Navigation with bottom tabs and stack navigator.")
     .bind("task").bind("done").bind("medium")
@@ -394,9 +398,9 @@ pub async fn seed_demo_data(
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
     let t17: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(mob_id).bind(mob_s1)
+    .bind(mob_id).bind(mob_id).bind(mob_s1)
     .bind("REST API client setup")
     .bind("Configure axios with interceptors, base URL, and typed response models.")
     .bind("task").bind("done").bind("high")
@@ -407,9 +411,9 @@ pub async fn seed_demo_data(
     let ts4 = "2025-05-12T09:00:00.000Z";
 
     let t18: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(mob_id).bind(mob_s2)
+    .bind(mob_id).bind(mob_id).bind(mob_s2)
     .bind("Login screen UI")
     .bind("Email + password login form with error states and loading indicator.")
     .bind("story").bind("in_progress").bind("high")
@@ -417,9 +421,9 @@ pub async fn seed_demo_data(
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
     let t19: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(mob_id).bind(mob_s2)
+    .bind(mob_id).bind(mob_id).bind(mob_s2)
     .bind("Registration flow")
     .bind("Multi-step registration: email → password → profile name → email verify.")
     .bind("story").bind("in_review").bind("high")
@@ -427,9 +431,9 @@ pub async fn seed_demo_data(
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
     let t20: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(mob_id).bind(mob_s2)
+    .bind(mob_id).bind(mob_id).bind(mob_s2)
     .bind("Password reset via email")
     .bind("Forgot password flow: enter email, receive OTP, set new password.")
     .bind("story").bind("todo").bind("medium")
@@ -437,9 +441,9 @@ pub async fn seed_demo_data(
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
     let t21: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(mob_id).bind(mob_s2)
+    .bind(mob_id).bind(mob_id).bind(mob_s2)
     .bind("Biometric authentication")
     .bind("Allow TouchID/FaceID login after initial password authentication.")
     .bind("story").bind("todo").bind("low")
@@ -448,9 +452,9 @@ pub async fn seed_demo_data(
 
     // ── Tasks — MOB Sprint 3 (backlog) ────────────────────────────────────────
     let t22: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(mob_id).bind(mob_s3)
+    .bind(mob_id).bind(mob_id).bind(mob_s3)
     .bind("Push notifications integration")
     .bind("Integrate FCM for Android and APNS for iOS. Show in-app notification toasts.")
     .bind("story").bind("todo").bind("high")
@@ -458,9 +462,9 @@ pub async fn seed_demo_data(
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
     let t23: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(mob_id).bind(mob_s3)
+    .bind(mob_id).bind(mob_id).bind(mob_s3)
     .bind("Offline mode with local caching")
     .bind("Cache key API responses in AsyncStorage. Show stale banner when offline.")
     .bind("epic").bind("todo").bind("critical")
@@ -469,9 +473,9 @@ pub async fn seed_demo_data(
 
     // ── Tasks — MOB Backlog ───────────────────────────────────────────────────
     let t24: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(mob_id).bind(Option::<i64>::None)
+    .bind(mob_id).bind(mob_id).bind(Option::<i64>::None)
     .bind("Dark mode support")
     .bind("Respect system dark-mode preference and allow manual override.")
     .bind("task").bind("todo").bind("medium")
@@ -479,9 +483,9 @@ pub async fn seed_demo_data(
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
     let t25: i64 = sqlx::query_scalar(
-        "INSERT INTO tasks (project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        "INSERT INTO tasks (project_id, task_number, sprint_id, title, description, type, status, priority, assignee_id, story_points, created_at, updated_at, labels) VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(mob_id).bind(Option::<i64>::None)
+    .bind(mob_id).bind(mob_id).bind(Option::<i64>::None)
     .bind("App Store submission checklist")
     .bind("Prepare screenshots, privacy policy, and metadata for App Store Connect.")
     .bind("task").bind("todo").bind("high")
@@ -602,4 +606,51 @@ pub async fn seed_demo_data(
     Ok(format!(
         "Seeded: 2 projects, 5 people, 6 sprints, 25 tasks, 7 comments, 7 time logs, 5 activity entries"
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::seed_demo_data_inner;
+    use sqlx::SqlitePool;
+
+    async fn new_test_pool() -> SqlitePool {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        pool
+    }
+
+    #[tokio::test]
+    async fn seed_populates_task_number_per_project() {
+        let pool = new_test_pool().await;
+        seed_demo_data_inner(&pool, false).await.unwrap();
+
+        // Every task has a non-zero task_number.
+        let zero_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE task_number = 0")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(zero_count, 0, "no task may keep the DEFAULT 0");
+
+        // Numbers per project form the contiguous range 1..=N.
+        let projects: Vec<(i64, String)> =
+            sqlx::query_as("SELECT id, key FROM projects ORDER BY id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        for (project_id, key) in projects {
+            let numbers: Vec<i64> = sqlx::query_scalar(
+                "SELECT task_number FROM tasks WHERE project_id = ? ORDER BY task_number",
+            )
+            .bind(project_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+            let expected: Vec<i64> = (1..=numbers.len() as i64).collect();
+            assert_eq!(
+                numbers, expected,
+                "project {key} must have contiguous 1..N numbering"
+            );
+        }
+    }
 }
