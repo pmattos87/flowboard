@@ -561,7 +561,7 @@ export function TaskDetailPanel() {
     save({ [key]: patchValue } as TaskUpdatePayload);
   };
 
-  const taskKey = project ? `${project.key}-${task?.id}` : task ? `#${task.id}` : "";
+  const taskKey = project && task ? `${project.key}-${task.task_number}` : task ? `#${task.id}` : "";
   const typeBadge = task ? TYPE_BADGE[task.type] : null;
   const peopleSafe = people ?? [];
   const sprintsSafe = sprints ?? [];

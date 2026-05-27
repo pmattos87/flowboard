@@ -10,6 +10,7 @@ import {
 function makeTask(overrides: Partial<Task> & { id: number }): Task {
   return {
     project_id: 1,
+    task_number: 1,
     sprint_id: null,
     parent_id: null,
     title: `Task ${overrides.id}`,
