@@ -68,6 +68,20 @@
 **Rationale:** Core product value is privacy, simplicity, and offline-first experience.  
 **Consequences:** Feature scope limited to what works well locally.
 
+### D-009: Per-Project Task Numbering (2026-05)
+**Status:** Accepted
+**Context:** `tasks.id` is a globally-unique SQLite rowid and makes a poor user-facing identifier (gaps between projects, large numbers, no project context). Users expect Jira-style keys like `P1-1`, `P1-2`.
+**Decision:** Introduce a second column `tasks.task_number INTEGER NOT NULL` assigned per-project on insert, with `UNIQUE(project_id, task_number)` enforced by `idx_tasks_project_number` (migration `002_task_number.sql`). The internal primary key `tasks.id` is unchanged; all foreign keys continue to reference `tasks.id`. The UI renders keys as `{projects.key}-{tasks.task_number}`.
+**Rationale:** Cleanest separation between internal identity and user-facing identity. Doesn't disturb any existing FK. Uniqueness scoped to `project_id` matches how users think about keys.
+**Consequences:** `seed_demo_data` and any future bulk insert must compute the next per-project sequence. Existing rows were backfilled by the migration via a self-join count.
+
+### D-010: Story → Child Sprint Cascade (2026-05)
+**Status:** Accepted
+**Context:** Phase 10 introduced the Project > Sprint > Story > Task hierarchy on boards. If a story's `sprint_id` could change independently of its children, board groupings and the Sprint Planning backlog would tear (a story in Sprint A with task children in Sprint B is meaningless to the user).
+**Decision:** When `update_task` sets `tasks.sprint_id` on a row whose `type = 'story'`, the same SQL transaction also runs `UPDATE tasks SET sprint_id = ?, updated_at = ? WHERE parent_id = ?` to move all direct children. Atomic — either both update or neither.
+**Rationale:** Keeps the hierarchy invariant enforced at the data layer rather than relying on the UI to remember to cascade. Cheap (one extra UPDATE per story mutation) and impossible to forget at higher layers.
+**Consequences:** Story mutations now write to all of a story's children. Rust unit tests in `commands::tasks::tests` lock the cascade behavior (fires for stories, does not fire for non-story types, atomic on failure). Children of a non-story task are not cascaded — only stories cascade.
+
 ## Rejected Decisions
 
 - **Electron** — heavier runtime and larger distribution size.

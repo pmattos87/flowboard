@@ -25,17 +25,18 @@ FlowBoard is a Jira-inspired project management tool built as a native Windows d
 
 ---
 
-## Features (Planned)
+## Features
 
 - **Board Views** — User Story Board, Task Board, Discovery Board, Sprint Planning Board
-- **Task Management** — Full CRUD with types (Story, Bug, Task, Epic), priorities, labels, assignees, story points
+- **Hierarchy Pipeline** — Project > Sprint > Story > Task; sprint filter, story grouping on Task Board, story-children sprint cascade
+- **Task Management** — Full CRUD with types (Story, Bug, Task, Epic), priorities, labels, assignees, story points; user-facing per-project task keys (`P1-1`, `P1-2`, …)
 - **Sprint Management** — Create and manage sprints with goals, dates, and status tracking
 - **Roadmap** — Gantt-style timeline with draggable bars and a today indicator
 - **Reports** — Burndown chart, velocity chart, status distribution, workload per member
 - **Comments & Time Tracking** — Per-task collaboration and time logging
 - **File Attachments** — Local file storage linked to tasks
 - **Inbox & Notifications** — In-app inbox with native OS notification support
-- **Global Search** — Command palette (Cmd/Ctrl+K)
+- **Global Search** — Searches tasks, sprints, projects, and people
 - **Keyboard Shortcuts** — Full keyboard navigation support
 
 ---
@@ -123,7 +124,7 @@ File attachments are stored at:
 
 ## Build Phases
 
-The project is built in 9 phases:
+The project shipped v1.0.0 across 10 phases:
 
 | Phase | Focus |
 |---|---|
@@ -136,16 +137,17 @@ The project is built in 9 phases:
 | 7 | Reports and charts |
 | 8 | Inbox and native OS notifications |
 | 9 | Polish, keyboard shortcuts, global search, app icon |
+| 10 | Hierarchy (sprint filter, story grouping, backlog pipeline, story → child sprint cascade) |
 
-See [`PROGRESS.md`](./PROGRESS.md) for current status.
+See [`docs/PROGRESS.md`](./docs/PROGRESS.md) for the per-task status and [`docs/CHANGELOG.md`](./docs/CHANGELOG.md) for the release history.
 
 ---
 
 ## Contributing & Development Notes
 
 - See [`CLAUDE.md`](./CLAUDE.md) for the full project reference (coding standards, constraints, agent system).
-- See [`DECISIONS.md`](./DECISIONS.md) for architectural decision rationale.
-- See [`SCHEMA.md`](./SCHEMA.md) for the SQLite schema.
-- See [`VISUAL.md`](./VISUAL.md) for design specifications.
+- See [`docs/DECISIONS.md`](./docs/DECISIONS.md) for architectural decision rationale.
+- See [`docs/SCHEMA.md`](./docs/SCHEMA.md) for the SQLite schema.
+- See [`docs/VISUAL.md`](./docs/VISUAL.md) for design specifications.
 
 Branches follow the convention `phase-N/task-N.N-short-description`. Never commit directly to `main`.

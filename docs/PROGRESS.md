@@ -2,8 +2,8 @@
 
 **Last Updated:** May 27, 2026
 
-**Current Phase:** Phase 10 — Hierarchy (complete; awaiting PR)
-**Overall Completion:** 31/31 tasks shipped
+**Status:** v1.0.0 shipped — 2026-05-27
+**Overall Completion:** 31/31 tasks shipped across 10 phases
 
 ---
 
@@ -71,10 +71,10 @@
 ---
 
 ## Current Focus / In Progress
-- Phase 10 implementation complete on `phase/10-hierarchy`. Ready to open PR.
+- None — v1.0.0 cut. Phase 10 merged via PR #26; staging-badge gate landed via PR #27; per-project task numbering shipped on `main`.
 
 ## Blockers / Notes
-- None. 231 Vitest tests pass; 13 Rust tests pass; `tsc --noEmit` clean.
+- None. 231 Vitest tests pass; 13 Rust tests pass; `tsc --noEmit` clean as of release.
 
 ## Recent Completions
 - 10.1–10.6 (Hierarchy: boardSprintFilter store + SprintFilterSelect; User Story Board / Task Board / Discovery / Sprint Planning narrowed to the Project > Sprint > Story > Task pipeline; backend cascade so story children follow their parent in/out of a sprint atomically)

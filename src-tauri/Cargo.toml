@@ -1,6 +1,6 @@
 [package]
 name = "flowboard"
-version = "0.9.0"
+version = "1.0.0"
 description = "FlowBoard — local-first project management"
 authors = ["Pedro"]
 edition = "2021"
