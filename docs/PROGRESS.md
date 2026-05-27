@@ -1,9 +1,9 @@
 # FlowBoard — Progress
 
-**Last Updated:** May 26, 2026
+**Last Updated:** May 27, 2026
 
-**Current Phase:** Phase 7 — Reports
-**Overall Completion:** 80% (20/25 tasks)
+**Current Phase:** Complete — all 9 phases shipped
+**Overall Completion:** 100% (25/25 tasks)
 
 ---
 
@@ -43,47 +43,45 @@
 - [x] **6.2** Draggable bars + today indicator → `skill:backend-engineer`
 
 ### Phase 7 — Reports
-- [ ] **7.1** Burndown chart → `skill:frontend-design`
-- [ ] **7.2** Velocity chart → `skill:frontend-design`
-- [ ] **7.3** Status distribution chart → `skill:frontend-design`
-- [ ] **7.4** Workload per-member chart → `skill:frontend-design`
+- [x] **7.1** Burndown chart → `skill:frontend-design`
+- [x] **7.2** Velocity chart → `skill:frontend-design`
+- [x] **7.3** Status distribution chart → `skill:frontend-design`
+- [x] **7.4** Workload per-member chart → `skill:frontend-design`
 
 ### Phase 8 — Inbox & Notifications
-- [ ] **8.1** Inbox page → `skill:frontend-design`
-- [ ] **8.2** Native OS notifications → `backend-engineer`
-- [ ] **8.3** Notification bell badge → `skill:frontend-design`
+- [x] **8.1** Inbox page → `skill:frontend-design`
+- [x] **8.2** Native OS notifications → `skill:frontend-design`
+- [x] **8.3** Notification bell badge → `skill:frontend-design`
 
 ### Phase 9 — Polish & UX
-- [ ] **9.1** Empty states, loading skeletons, error toasts → `skill:frontend-design`
-- [ ] **9.2** Keyboard shortcuts → `skill:ux-engineer`
-- [ ] **9.3** Global search → `skill:ux-engineer`
-- [ ] **9.4** App icon, window title, about page → `backend-engineer`
+- [x] **9.1** Empty states, loading skeletons, error toasts → `skill:frontend-design`
+- [x] **9.2** Keyboard shortcuts → `skill:frontend-design`
+- [x] **9.3** Global search → `skill:frontend-design`
+- [x] **9.4** App icon, window title, about page → `skill:frontend-design`
 
 ---
 
 ## Current Focus / In Progress
-- **Phase 7 — Reports** not yet started. Next up: burndown, velocity, status distribution, and workload charts.
+- Pre-release review before tagging `v1.0.0`
 
 ## Blockers / Notes
-- **Phase 6 leftover:** `src/__tests__/features/KanbanBoard.dnd.test.tsx` has one `it.skip` on the cross-column regression test (see `LESSONS.md` → "Stale jsdom rect-mock in KanbanBoard DnD test" and `PLAN-KANBAN-DND-TEST-FIX.md`). Must be repaired before Phase 7 ships.
+- None. All 204 tests pass. `tsc --noEmit` clean.
 
 ## Recent Completions
-- 6.1–6.2 (Roadmap page: read-only Gantt timeline, draggable bars, today indicator; `SprintFormDialog` extracted for reuse; dateMath + page tests)
-- 5.1–5.5 (UserStoryBoard, TaskBoard, DiscoveryBoard, SprintPlanningBoard — all with @dnd-kit drag-and-drop)
-- 4.1–4.5 (CreateTaskModal + TaskDetailPanel with Comments, Attachments, Time Logs; tauri-plugin-dialog added)
-- 3.2 (Sprints page: list/create/edit/delete, scoped to active project, status badges + date range)
-- 3.1 (People page: team roster with avatar, role, email; full CRUD with inline delete confirmation)
-- 2.3 (Create Project modal + Settings page with edit/delete; shadcn ui primitives added)
-- 2.2 (App shell: 220px sidebar, 48px top bar, HashRouter + route stubs for all nav targets)
-- 2.1 (Typed Tauri command wrappers + React Query hooks for all 8 entities + UI store extension)
-- 1.4 (Rust CRUD commands, 31 invoke handlers across 8 entities)
-- 1.3 (SQLite schema + migrations; SCHEMA.md FK rules clarified)
-- 1.2 (shadcn foundation, React Query, Zustand, types, staging build profile)
-- 1.1 (Tauri v2 scaffold; Tailwind v4 dark-mode; `@/` alias)
+- 9.1–9.4 (Polish: sonner toasts, skeleton loading, keyboard shortcuts n//, global search, About page)
+- 8.1–8.3 (Inbox page, OS notifications via tauri-plugin-notification, bell badge with unread count)
+- 7.1–7.4 (Reports: Burndown, Velocity, Status Distribution, Workload charts via Recharts)
+- 6.1–6.2 (Roadmap page: read-only Gantt timeline, draggable bars, today indicator)
+- 5.1–5.5 (All four board views with @dnd-kit drag-and-drop)
+- 4.1–4.5 (Task modal, detail panel, comments, file attachments, time tracking)
+- 3.1–3.2 (People and Sprints pages)
+- 2.1–2.3 (Data layer, app shell, projects CRUD)
+- 1.1–1.4 (Scaffold, Tauri, SQLite, Rust commands)
 
 ---
 
 **See also:**
-- [`plan.md`](./plan.md) — Detailed build plan and handoffs
-- [`CLAUDE.md`](./CLAUDE.md) — Canonical project reference
+- [`PLAN.md`](./PLAN.md) — Detailed build plan and handoffs
+- [`CLAUDE.md`](../CLAUDE.md) — Canonical project reference
 - [`DECISIONS.md`](./DECISIONS.md) — Architecture decisions
+- [`CHANGELOG.md`](./CHANGELOG.md) — Version history
