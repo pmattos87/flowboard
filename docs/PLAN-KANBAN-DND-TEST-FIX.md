@@ -1,7 +1,7 @@
 # Plan — Repair the Skipped KanbanBoard DnD Regression Test
 
-> **Status:** Not started.
-> **Owner:** TBD (assign before Phase 7 ships).
+> **Status:** Done — merged via PR #17 (fix/kanban-dnd-test-mock → main).
+> **Owner:** claude-sonnet-4-6.
 > **Source of truth:** `docs/LESSONS.md` → Execution Mistakes → "Stale jsdom rect-mock in KanbanBoard DnD test".
 
 This document is a **plan only**. Do not execute steps below without explicit
