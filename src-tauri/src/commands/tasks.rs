@@ -17,6 +17,7 @@ where
 pub struct Task {
     pub id: i64,
     pub project_id: i64,
+    pub task_number: i64,
     pub sprint_id: Option<i64>,
     pub parent_id: Option<i64>,
     pub title: String,
@@ -112,18 +113,30 @@ pub async fn create_task_inner(
 
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
 
+    // Per-project task number: MAX+1 inside the same transaction. The
+    // UNIQUE(project_id, task_number) index guarantees no duplicate slips
+    // through if two concurrent transactions race — the second commit fails.
+    let next_task_number: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?",
+    )
+    .bind(payload.project_id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+
     let id: i64 = sqlx::query_scalar(
         r#"INSERT INTO tasks (
-            project_id, sprint_id, parent_id, title, description,
+            project_id, task_number, sprint_id, parent_id, title, description,
             type, status, priority, assignee_id, story_points,
             due_date, created_at, updated_at, labels
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
             strftime('%Y-%m-%dT%H:%M:%fZ','now'),
             strftime('%Y-%m-%dT%H:%M:%fZ','now'),
             ?)
         RETURNING id"#,
     )
     .bind(payload.project_id)
+    .bind(next_task_number)
     .bind(payload.sprint_id)
     .bind(payload.parent_id)
     .bind(&payload.title)
@@ -810,5 +823,71 @@ mod tests {
         .unwrap();
 
         assert_eq!(sprint_of(&pool, child_id).await, None);
+    }
+
+    // ─── Per-project task numbering ─────────────────────────────────────────
+
+    async fn seed_named_project(pool: &SqlitePool, key: &str) -> i64 {
+        sqlx::query_scalar::<_, i64>(
+            r#"INSERT INTO projects (name, key, created_at)
+               VALUES (?, ?, '2026-01-01T00:00:00.000Z')
+               RETURNING id"#,
+        )
+        .bind(key)
+        .bind(key)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn task_number_restarts_per_project() {
+        let pool = new_test_pool().await;
+        let p1 = seed_named_project(&pool, "P1").await;
+        let p2 = seed_named_project(&pool, "P2").await;
+        let person_id = seed_person(&pool, "Alice").await;
+
+        let p1_first = create_typed(&pool, p1, person_id, "task", None, None).await;
+        let p1_second = create_typed(&pool, p1, person_id, "task", None, None).await;
+        let p2_first = create_typed(&pool, p2, person_id, "task", None, None).await;
+
+        let n: (i64, i64, i64) = sqlx::query_as(
+            "SELECT
+               (SELECT task_number FROM tasks WHERE id = ?),
+               (SELECT task_number FROM tasks WHERE id = ?),
+               (SELECT task_number FROM tasks WHERE id = ?)",
+        )
+        .bind(p1_first)
+        .bind(p1_second)
+        .bind(p2_first)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(n, (1, 2, 1));
+    }
+
+    #[tokio::test]
+    async fn deleting_task_leaves_gap_does_not_reuse_number() {
+        // Documents the chosen behavior: MAX+1, not "first free slot".
+        let pool = new_test_pool().await;
+        let project_id = seed_project(&pool).await;
+        let person_id = seed_person(&pool, "Alice").await;
+
+        let first = create_typed(&pool, project_id, person_id, "task", None, None).await;
+        let _second = create_typed(&pool, project_id, person_id, "task", None, None).await;
+
+        sqlx::query("DELETE FROM tasks WHERE id = ?")
+            .bind(first)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let third = create_typed(&pool, project_id, person_id, "task", None, None).await;
+        let n: i64 = sqlx::query_scalar("SELECT task_number FROM tasks WHERE id = ?")
+            .bind(third)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(n, 3, "deleted number 1 is not reused");
     }
 }

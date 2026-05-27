@@ -12,6 +12,7 @@ beforeEach(() => {
 const fakeTask: Task = {
   id: 42,
   project_id: 1,
+  task_number: 1,
   sprint_id: null,
   parent_id: null,
   title: "Build kanban board",

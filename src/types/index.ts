@@ -33,6 +33,7 @@ export interface Sprint {
 export interface Task {
   id: number;
   project_id: number;
+  task_number: number;
   sprint_id: number | null;
   parent_id: number | null;
   title: string;

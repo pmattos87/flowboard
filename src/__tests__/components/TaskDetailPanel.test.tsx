@@ -18,6 +18,7 @@ const mockStat = vi.mocked(stat);
 const fakeTask = {
   id: 7,
   project_id: 1,
+  task_number: 3,
   sprint_id: null,
   parent_id: null,
   title: "Fix login bug",
@@ -92,13 +93,14 @@ describe("TaskDetailPanel — open state", () => {
     });
   });
 
-  it("shows task key badge in header", async () => {
+  it("shows task key badge using per-project task_number, not internal id", async () => {
     setupInvoke();
     useUiStore.setState({ selectedTaskId: 7 });
     renderPanel();
     await waitFor(() => {
-      expect(screen.getByText("AL-7")).toBeInTheDocument();
+      expect(screen.getByText("AL-3")).toBeInTheDocument();
     });
+    expect(screen.queryByText("AL-7")).not.toBeInTheDocument();
   });
 
   it("shows 'No comments yet' when comments list is empty", async () => {

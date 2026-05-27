@@ -35,7 +35,7 @@ import type { Task } from "@/types";
 const mockInvoke = vi.mocked(invoke);
 
 const todoTask: Task = {
-  id: 42, project_id: 1, sprint_id: null, parent_id: null,
+  id: 42, project_id: 1, task_number: 1, sprint_id: null, parent_id: null,
   title: "Drag me", description: "", type: "task", status: "todo",
   priority: "medium", assignee_id: null, story_points: 1, due_date: null,
   created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "",
