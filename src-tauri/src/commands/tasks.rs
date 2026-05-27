@@ -228,6 +228,7 @@ pub async fn update_task_inner(
     let current = get_task_inner(pool, id).await?;
 
     let new_sprint_id = payload.sprint_id.unwrap_or(current.sprint_id);
+    let sprint_id_changed = new_sprint_id != current.sprint_id;
     let new_parent_id = payload.parent_id.unwrap_or(current.parent_id);
     let new_title = payload.title.unwrap_or(current.title.clone());
     let new_description = payload.description.unwrap_or(current.description.clone());
@@ -294,6 +295,22 @@ pub async fn update_task_inner(
         .bind(actor)
         .bind(&current.status)
         .bind(&new_status)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+
+    // When a story moves into or out of a sprint, its child tasks/bugs follow.
+    // Same transaction so parent and children commit atomically.
+    if sprint_id_changed && current.r#type == "story" {
+        sqlx::query(
+            r#"UPDATE tasks
+                  SET sprint_id  = ?,
+                      updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                WHERE parent_id = ?"#,
+        )
+        .bind(new_sprint_id)
+        .bind(id)
         .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
@@ -629,5 +646,169 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(task_count, 0);
+    }
+
+    // ─── Sprint cascade (Phase 10 / Task 10.5) ─────────────────────────────
+
+    async fn seed_sprint(pool: &SqlitePool, project_id: i64, name: &str) -> i64 {
+        sqlx::query_scalar::<_, i64>(
+            r#"INSERT INTO sprints (project_id, name, goal, start_date, end_date, status)
+               VALUES (?, ?, '', '2026-01-01', '2026-01-14', 'backlog')
+               RETURNING id"#,
+        )
+        .bind(project_id)
+        .bind(name)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    async fn sprint_of(pool: &SqlitePool, task_id: i64) -> Option<i64> {
+        sqlx::query_scalar("SELECT sprint_id FROM tasks WHERE id = ?")
+            .bind(task_id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    async fn create_typed(
+        pool: &SqlitePool,
+        project_id: i64,
+        person_id: i64,
+        t: &str,
+        parent_id: Option<i64>,
+        sprint_id: Option<i64>,
+    ) -> i64 {
+        create_task_inner(
+            pool,
+            TaskCreate {
+                project_id,
+                sprint_id,
+                parent_id,
+                title: t.into(),
+                description: None,
+                r#type: Some(t.into()),
+                status: None,
+                priority: None,
+                assignee_id: Some(person_id),
+                story_points: None,
+                due_date: None,
+                labels: None,
+            },
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    #[tokio::test]
+    async fn propagates_sprint_id_to_children_when_story_moved() {
+        let pool = new_test_pool().await;
+        let project_id = seed_project(&pool).await;
+        let person_id = seed_person(&pool, "Alice").await;
+        let sprint_id = seed_sprint(&pool, project_id, "S1").await;
+
+        let story_id = create_typed(&pool, project_id, person_id, "story", None, None).await;
+        let child_task = create_typed(&pool, project_id, person_id, "task", Some(story_id), None).await;
+        let child_bug = create_typed(&pool, project_id, person_id, "bug", Some(story_id), None).await;
+
+        // Move story into sprint.
+        update_task_inner(
+            &pool,
+            story_id,
+            TaskUpdate { sprint_id: Some(Some(sprint_id)), ..empty_update() },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(sprint_of(&pool, story_id).await, Some(sprint_id));
+        assert_eq!(sprint_of(&pool, child_task).await, Some(sprint_id));
+        assert_eq!(sprint_of(&pool, child_bug).await, Some(sprint_id));
+
+        // Clear story sprint — children should clear too.
+        update_task_inner(
+            &pool,
+            story_id,
+            TaskUpdate { sprint_id: Some(None), ..empty_update() },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(sprint_of(&pool, story_id).await, None);
+        assert_eq!(sprint_of(&pool, child_task).await, None);
+        assert_eq!(sprint_of(&pool, child_bug).await, None);
+    }
+
+    #[tokio::test]
+    async fn does_not_propagate_when_non_story_sprint_changed() {
+        let pool = new_test_pool().await;
+        let project_id = seed_project(&pool).await;
+        let person_id = seed_person(&pool, "Alice").await;
+        let sprint_id = seed_sprint(&pool, project_id, "S1").await;
+
+        // A plain task with no children of its own.
+        let task_id = create_typed(&pool, project_id, person_id, "task", None, None).await;
+        // Sibling task that should not be touched.
+        let sibling_id = create_typed(&pool, project_id, person_id, "task", None, None).await;
+
+        update_task_inner(
+            &pool,
+            task_id,
+            TaskUpdate { sprint_id: Some(Some(sprint_id)), ..empty_update() },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(sprint_of(&pool, task_id).await, Some(sprint_id));
+        assert_eq!(sprint_of(&pool, sibling_id).await, None);
+    }
+
+    #[tokio::test]
+    async fn does_not_clobber_grandchildren() {
+        // tasks today don't nest below a task, but defend the invariant: the
+        // cascade is a single UPDATE on rows whose parent_id == story.id. A
+        // grandchild (parent_id == child_task_id) must not be moved.
+        let pool = new_test_pool().await;
+        let project_id = seed_project(&pool).await;
+        let person_id = seed_person(&pool, "Alice").await;
+        let sprint_id = seed_sprint(&pool, project_id, "S1").await;
+
+        let story_id = create_typed(&pool, project_id, person_id, "story", None, None).await;
+        let child_id = create_typed(&pool, project_id, person_id, "task", Some(story_id), None).await;
+        let grandchild_id = create_typed(&pool, project_id, person_id, "task", Some(child_id), None).await;
+
+        update_task_inner(
+            &pool,
+            story_id,
+            TaskUpdate { sprint_id: Some(Some(sprint_id)), ..empty_update() },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(sprint_of(&pool, child_id).await, Some(sprint_id));
+        assert_eq!(sprint_of(&pool, grandchild_id).await, None);
+    }
+
+    #[tokio::test]
+    async fn no_op_sprint_update_does_not_touch_children() {
+        let pool = new_test_pool().await;
+        let project_id = seed_project(&pool).await;
+        let person_id = seed_person(&pool, "Alice").await;
+        let sprint_id = seed_sprint(&pool, project_id, "S1").await;
+
+        // Story already in the sprint; child has been manually pulled out into backlog.
+        let story_id = create_typed(&pool, project_id, person_id, "story", None, Some(sprint_id)).await;
+        let child_id = create_typed(&pool, project_id, person_id, "task", Some(story_id), None).await;
+
+        // Re-apply the same sprint_id — sprint_id_changed is false, so no cascade fires.
+        update_task_inner(
+            &pool,
+            story_id,
+            TaskUpdate { sprint_id: Some(Some(sprint_id)), ..empty_update() },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(sprint_of(&pool, child_id).await, None);
     }
 }
