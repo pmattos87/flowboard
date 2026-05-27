@@ -2,7 +2,8 @@ import { useUiStore } from "@/stores/uiStore";
 import { useTasks } from "@/hooks/useTasks";
 import { usePeople } from "@/hooks/usePeople";
 import { useProject } from "@/hooks/useProjects";
-import { KanbanBoard } from "./shared/KanbanBoard";
+import { TaskBoardGroupedKanban } from "./shared/TaskBoardGroupedKanban";
+import { SprintFilterSelect } from "./shared/SprintFilterSelect";
 
 export function TaskBoard() {
   const activeProjectId = useUiStore((s) => s.activeProjectId);
@@ -20,8 +21,13 @@ export function TaskBoard() {
 
   return (
     <div className="flex flex-col h-full">
-      <h1 className="text-lg font-semibold text-white mb-6">Task Board</h1>
-      <KanbanBoard
+      <div className="flex items-center gap-4 mb-6">
+        <h1 className="text-lg font-semibold text-white">Task Board</h1>
+        <div className="ml-auto">
+          <SprintFilterSelect projectId={activeProjectId} />
+        </div>
+      </div>
+      <TaskBoardGroupedKanban
         tasks={allTasks ?? []}
         people={people}
         projectKey={project?.key ?? "FB"}

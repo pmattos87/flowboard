@@ -50,7 +50,12 @@ function renderBoard() {
 
 beforeEach(() => {
   mockInvoke.mockReset();
-  useUiStore.setState({ activeProjectId: null, selectedTaskId: null, selectedSprintId: null });
+  useUiStore.setState({
+    activeProjectId: null,
+    selectedTaskId: null,
+    selectedSprintId: null,
+    boardSprintFilter: "all",
+  });
 });
 
 describe("TaskBoard — no project", () => {
@@ -66,6 +71,7 @@ describe("TaskBoard — with project", () => {
     mockInvoke.mockImplementation((cmd) => {
       if (cmd === "list_tasks") return Promise.resolve(allTypeTasks);
       if (cmd === "list_people") return Promise.resolve([]);
+      if (cmd === "list_sprints") return Promise.resolve([]);
       if (cmd === "get_project") return Promise.resolve(fakeProject);
       return Promise.resolve(null);
     });
@@ -76,11 +82,15 @@ describe("TaskBoard — with project", () => {
     await waitFor(() => expect(screen.getByText("Task Board")).toBeInTheDocument());
   });
 
-  it("shows all task types", async () => {
+  it("renders stories as row headers and tasks/bugs as Unparented children; excludes epics", async () => {
     renderBoard();
+    // Story shows up as a row header.
     await waitFor(() => expect(screen.getByText("A story task")).toBeInTheDocument());
+    // Tasks and bugs with parent_id=null go into the Unparented row.
+    expect(screen.getByText("Unparented")).toBeInTheDocument();
     expect(screen.getByText("A bug task")).toBeInTheDocument();
     expect(screen.getByText("A regular task")).toBeInTheDocument();
-    expect(screen.getByText("An epic task")).toBeInTheDocument();
+    // Epics are not surfaced on the Task Board at all (they live on Discovery).
+    expect(screen.queryByText("An epic task")).not.toBeInTheDocument();
   });
 });
