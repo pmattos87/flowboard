@@ -9,7 +9,7 @@
     "fs:default",
     { "identifier": "fs:allow-stat", "allow": [{ "path": "$HOME/**" }] },
     "notification:default",
-    "opener:allow-open-path",
+    { "identifier": "opener:allow-open-path", "allow": [{ "path": "$HOME/**" }] },
     "sql:default"
   ]
 }
