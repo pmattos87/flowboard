@@ -1,8 +1,18 @@
 import { Bell, Plus, Search } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { usePeople } from "@/hooks/usePeople";
 import { useProject } from "@/hooks/useProjects";
+import { useAllActivityLog } from "@/hooks/useActivityLog";
 import { useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
+
+const LAST_VISIT_KEY = "lastInboxVisit";
+
+function getUnreadCount(logs: { created_at: string }[]): number {
+  const lastVisit =
+    localStorage.getItem(LAST_VISIT_KEY) ?? new Date(0).toISOString();
+  return logs.filter((e) => e.created_at > lastVisit).length;
+}
 
 function initials(name: string) {
   return name
@@ -15,11 +25,14 @@ function initials(name: string) {
 }
 
 export function TopBar() {
+  const navigate = useNavigate();
   const activeProjectId = useUiStore((s) => s.activeProjectId);
   const setCreateTaskModalOpen = useUiStore((s) => s.setCreateTaskModalOpen);
   const { data: activeProject } = useProject(activeProjectId);
   const { data: people } = usePeople();
+  const { data: activityLogs = [] } = useAllActivityLog();
   const avatars = (people ?? []).slice(0, 4);
+  const unreadCount = getUnreadCount(activityLogs);
 
   return (
     <header className="h-12 shrink-0 bg-gray-900 border-b border-gray-900 flex items-center px-4 gap-4">
@@ -63,9 +76,15 @@ export function TopBar() {
         <button
           type="button"
           aria-label="Notifications"
-          className="text-gray-400 hover:text-gray-200 transition-colors"
+          onClick={() => navigate("/inbox")}
+          className="relative text-gray-400 hover:text-gray-200 transition-colors"
         >
           <Bell className="h-4 w-4" />
+          {unreadCount > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-red-600 text-[10px] font-bold text-white flex items-center justify-center leading-none">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
         </button>
 
         {avatars.length > 0 && (

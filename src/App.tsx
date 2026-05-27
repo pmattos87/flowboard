@@ -11,6 +11,7 @@ import {
 } from "@/features/boards";
 import RoadmapPage from "@/features/roadmap/RoadmapPage";
 import ReportsPage from "@/features/reports/ReportsPage";
+import Inbox from "@/pages/Inbox";
 import People from "@/pages/People";
 import Settings from "@/pages/Settings";
 import Sprints from "@/pages/Sprints";
@@ -38,7 +39,7 @@ function App() {
           <Route path="/roadmap" element={<RoadmapPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/people" element={<People />} />
-          <Route path="/inbox" element={<Placeholder title="Inbox" />} />
+          <Route path="/inbox" element={<Inbox />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Placeholder title="Not Found" />} />
         </Route>

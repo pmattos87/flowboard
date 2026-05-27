@@ -9,6 +9,7 @@ import {
   type TaskListFilters,
   type TaskUpdatePayload,
 } from "@/lib/commands";
+import { notify } from "@/lib/notifications";
 
 export const taskKeys = {
   all: ["tasks"] as const,
@@ -35,8 +36,9 @@ export function useCreateTask() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (payload: TaskCreatePayload) => createTask(payload),
-    onSuccess: () => {
+    onSuccess: (task) => {
       qc.invalidateQueries({ queryKey: taskKeys.all });
+      void notify("Task Created", task.title);
     },
   });
 }
@@ -46,8 +48,11 @@ export function useUpdateTask() {
   return useMutation({
     mutationFn: ({ id, payload }: { id: number; payload: TaskUpdatePayload }) =>
       updateTask(id, payload),
-    onSuccess: () => {
+    onSuccess: (task, { payload }) => {
       qc.invalidateQueries({ queryKey: taskKeys.all });
+      if (payload.status != null) {
+        void notify("Task Updated", `"${task.title}" → ${payload.status.replace("_", " ")}`);
+      }
     },
   });
 }

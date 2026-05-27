@@ -204,3 +204,5 @@ export const listActivityLog = (taskId: number) =>
   invoke<ActivityLog[]>("list_activity_log", { taskId });
 export const listActivityLogBySprint = (sprintId: number) =>
   invoke<ActivityLog[]>("list_activity_log_by_sprint", { sprintId });
+export const listAllActivityLog = () =>
+  invoke<ActivityLog[]>("list_all_activity_log");

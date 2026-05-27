@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { TopBar } from "@/components/TopBar";
@@ -14,9 +15,11 @@ function makePerson(id: number, name: string) {
 function renderTopBar() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={qc}>
-      <TopBar />
-    </QueryClientProvider>
+    <MemoryRouter>
+      <QueryClientProvider client={qc}>
+        <TopBar />
+      </QueryClientProvider>
+    </MemoryRouter>
   );
 }
 
@@ -88,5 +91,38 @@ describe("TopBar", () => {
     renderTopBar();
     await waitFor(() => expect(mockInvoke).toHaveBeenCalled());
     expect(screen.queryByTitle(/person/i)).not.toBeInTheDocument();
+  });
+
+  it("renders the notifications bell button", async () => {
+    mockInvoke.mockResolvedValue([]);
+    renderTopBar();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /notifications/i })).toBeInTheDocument(),
+    );
+  });
+
+  it("shows no badge when there are no unread entries", async () => {
+    localStorage.setItem("lastInboxVisit", new Date().toISOString());
+    mockInvoke.mockResolvedValue([]);
+    renderTopBar();
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalled());
+    // Badge element should not be present
+    expect(screen.queryByText(/^\d+$|^9\+$/)).not.toBeInTheDocument();
+  });
+
+  it("shows badge count when there are unread activity entries", async () => {
+    localStorage.removeItem("lastInboxVisit");
+    const fakeLog = [
+      { id: 1, task_id: 1, person_id: 1, action: "created", old_value: "", new_value: "", created_at: "2099-01-01T00:00:00.000Z" },
+      { id: 2, task_id: 2, person_id: 1, action: "status_changed", old_value: "todo", new_value: "done", created_at: "2099-01-01T00:00:01.000Z" },
+    ];
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "list_all_activity_log") return Promise.resolve(fakeLog);
+      return Promise.resolve([]);
+    });
+    renderTopBar();
+    await waitFor(() =>
+      expect(screen.getByText("2")).toBeInTheDocument(),
+    );
   });
 });
