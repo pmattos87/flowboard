@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { SkeletonRow } from "@/components/Skeleton";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -179,7 +180,7 @@ export default function People() {
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-gray-500">Loading…</p>
+        <div className="space-y-1">{Array.from({ length: 3 }).map((_, i) => <SkeletonRow key={i} />)}</div>
       ) : people && people.length > 0 ? (
         <div className="space-y-2">
           {people.map((p) =>

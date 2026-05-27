@@ -3,6 +3,7 @@ import {
   BarChart3,
   BookOpen,
   ClipboardList,
+  Info,
   Inbox,
   Kanban,
   Lightbulb,
@@ -108,10 +109,14 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="mt-auto p-2 border-t border-gray-900">
+      <div className="mt-auto p-2 border-t border-gray-900 space-y-0.5">
         <NavLink to="/settings" className={navClasses}>
           <SettingsIcon className="h-4 w-4" />
           <span>Settings</span>
+        </NavLink>
+        <NavLink to="/about" className={navClasses}>
+          <Info className="h-4 w-4" />
+          <span>About</span>
         </NavLink>
       </div>
     </aside>

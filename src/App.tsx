@@ -1,4 +1,5 @@
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
+import { Toaster } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { CreateProjectModal } from "@/components/CreateProjectModal";
 import { CreateTaskModal } from "@/components/CreateTaskModal";
@@ -11,19 +12,11 @@ import {
 } from "@/features/boards";
 import RoadmapPage from "@/features/roadmap/RoadmapPage";
 import ReportsPage from "@/features/reports/ReportsPage";
+import About from "@/pages/About";
 import Inbox from "@/pages/Inbox";
 import People from "@/pages/People";
 import Settings from "@/pages/Settings";
 import Sprints from "@/pages/Sprints";
-
-function Placeholder({ title }: { title: string }) {
-  return (
-    <div>
-      <h1 className="text-xl font-semibold text-white">{title}</h1>
-      <p className="mt-2 text-sm text-gray-500">Coming in a later phase.</p>
-    </div>
-  );
-}
 
 function App() {
   return (
@@ -41,12 +34,14 @@ function App() {
           <Route path="/people" element={<People />} />
           <Route path="/inbox" element={<Inbox />} />
           <Route path="/settings" element={<Settings />} />
-          <Route path="*" element={<Placeholder title="Not Found" />} />
+          <Route path="/about" element={<About />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
       <CreateProjectModal />
       <CreateTaskModal />
       <TaskDetailPanel />
+      <Toaster theme="dark" position="bottom-right" richColors />
     </HashRouter>
   );
 }

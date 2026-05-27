@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { SkeletonRow } from "@/components/Skeleton";
 import { CalendarDays, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SprintFormDialog } from "@/features/sprints/SprintFormDialog";
@@ -87,7 +88,7 @@ export default function Sprints() {
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-gray-500">Loading…</p>
+        <div className="space-y-1">{Array.from({ length: 3 }).map((_, i) => <SkeletonRow key={i} />)}</div>
       ) : sprints && sprints.length > 0 ? (
         <div className="space-y-2">
           {sprints.map((s) =>

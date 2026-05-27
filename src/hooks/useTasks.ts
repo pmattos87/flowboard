@@ -9,6 +9,7 @@ import {
   type TaskListFilters,
   type TaskUpdatePayload,
 } from "@/lib/commands";
+import { toast } from "sonner";
 import { notify } from "@/lib/notifications";
 
 export const taskKeys = {
@@ -40,6 +41,7 @@ export function useCreateTask() {
       qc.invalidateQueries({ queryKey: taskKeys.all });
       void notify("Task Created", task.title);
     },
+    onError: (err) => toast.error(`Failed to create task: ${String(err)}`),
   });
 }
 
@@ -54,6 +56,7 @@ export function useUpdateTask() {
         void notify("Task Updated", `"${task.title}" → ${payload.status.replace("_", " ")}`);
       }
     },
+    onError: (err) => toast.error(`Failed to update task: ${String(err)}`),
   });
 }
 
@@ -61,8 +64,7 @@ export function useDeleteTask() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => deleteTask(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: taskKeys.all });
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: taskKeys.all }); },
+    onError: (err) => toast.error(`Failed to delete task: ${String(err)}`),
   });
 }
