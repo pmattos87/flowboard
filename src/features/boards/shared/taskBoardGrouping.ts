@@ -73,3 +73,53 @@ export function parseDroppableId(
   if (group !== "unparented" && Number.isNaN(group)) return null;
   return { status, group };
 }
+
+/**
+ * Decide the patch + optimistic override for a Task Board drop.
+ *
+ * `target` is the parsed droppable id (column + group). The new parent comes
+ * from the group key; when joining a story the child inherits that story's
+ * `sprint_id` so parent and child never diverge across sprints.
+ *
+ * Returns `null` when the drop is a no-op (same status, same parent, same
+ * sprint). When non-null, every field present in `payload` is also present in
+ * `override` so the UI repositions immediately.
+ */
+export function computeDropPayload(
+  task: Task,
+  target: { status: TaskStatus; group: StoryGroupKey },
+  allTasks: Task[],
+): {
+  payload: {
+    status?: TaskStatus;
+    parent_id?: number | null;
+    sprint_id?: number | null;
+  };
+  override: {
+    status?: TaskStatus;
+    parent_id?: number | null;
+    sprint_id?: number | null;
+  };
+} | null {
+  const newParentId: number | null =
+    target.group === "unparented" ? null : target.group;
+  const newParent =
+    newParentId != null ? allTasks.find((t) => t.id === newParentId) ?? null : null;
+  const newSprintId = newParent ? newParent.sprint_id : task.sprint_id;
+
+  const sameStatus = task.status === target.status;
+  const sameParent = task.parent_id === newParentId;
+  const sameSprint = task.sprint_id === newSprintId;
+  if (sameStatus && sameParent && sameSprint) return null;
+
+  const payload: {
+    status?: TaskStatus;
+    parent_id?: number | null;
+    sprint_id?: number | null;
+  } = {};
+  if (!sameStatus) payload.status = target.status;
+  if (!sameParent) payload.parent_id = newParentId;
+  if (!sameSprint) payload.sprint_id = newSprintId;
+
+  return { payload, override: { ...payload } };
+}

@@ -13,10 +13,12 @@ import { ChevronDown, ChevronRight, Plus } from "lucide-react";
 import type { Person, Task, TaskStatus } from "@/types";
 import { useUiStore } from "@/stores/uiStore";
 import { useUpdateTask } from "@/hooks/useTasks";
+import type { TaskUpdatePayload } from "@/lib/commands";
 import { COLUMNS, PRIORITY_META, TYPE_META } from "./boardConstants";
 import { TaskCard } from "./TaskCard";
 import {
   buildTaskBoardRows,
+  computeDropPayload,
   droppableId,
   parseDroppableId,
   progressOf,
@@ -289,9 +291,15 @@ export function TaskBoardGroupedKanban({
   const boardSprintFilter = useUiStore((s) => s.boardSprintFilter);
   const updateTask = useUpdateTask();
   const [activeTask, setActiveTask] = useState<Task | null>(null);
-  const [statusOverrides, setStatusOverrides] = useState<
-    Record<number, TaskStatus>
-  >({});
+  // Optimistic post-drop overrides — kept until the React Query refetch agrees.
+  // Tracks status, parent_id, and sprint_id together so reparenting + status
+  // changes from a single drop both render immediately.
+  type DragOverride = {
+    status?: TaskStatus;
+    parent_id?: number | null;
+    sprint_id?: number | null;
+  };
+  const [overrides, setOverrides] = useState<Record<number, DragOverride>>({});
   // Collapse state keyed by activeProjectId — reset when switching projects.
   const [collapsedGroups, setCollapsedGroups] = useState<Set<StoryGroupKey>>(
     new Set(),
@@ -306,24 +314,34 @@ export function TaskBoardGroupedKanban({
 
   const effectiveTasks = useMemo(
     () =>
-      tasks.map((t) =>
-        statusOverrides[t.id] !== undefined
-          ? { ...t, status: statusOverrides[t.id] }
-          : t,
-      ),
-    [tasks, statusOverrides],
+      tasks.map((t) => {
+        const o = overrides[t.id];
+        return o ? { ...t, ...o } : t;
+      }),
+    [tasks, overrides],
   );
 
-  // Clear an override once the server-side data reflects the change.
+  // Clear an override once the server-side data reflects every overridden field.
   useEffect(() => {
-    setStatusOverrides((prev) => {
+    setOverrides((prev) => {
       if (Object.keys(prev).length === 0) return prev;
       const next = { ...prev };
       let changed = false;
       for (const idStr of Object.keys(prev)) {
         const id = Number(idStr);
         const serverTask = tasks.find((t) => t.id === id);
-        if (!serverTask || serverTask.status === prev[id]) {
+        if (!serverTask) {
+          delete next[id];
+          changed = true;
+          continue;
+        }
+        const o = prev[id];
+        const statusOk = o.status === undefined || serverTask.status === o.status;
+        const parentOk =
+          o.parent_id === undefined || serverTask.parent_id === o.parent_id;
+        const sprintOk =
+          o.sprint_id === undefined || serverTask.sprint_id === o.sprint_id;
+        if (statusOk && parentOk && sprintOk) {
           delete next[id];
           changed = true;
         }
@@ -365,14 +383,19 @@ export function TaskBoardGroupedKanban({
 
     const parsed = parseDroppableId(String(over.id));
     if (!parsed) return;
-    if (task.status === parsed.status) return;
 
-    setStatusOverrides((prev) => ({ ...prev, [task.id]: parsed.status }));
+    const decision = computeDropPayload(task, parsed, tasks);
+    if (!decision) return;
+
+    setOverrides((prev) => ({
+      ...prev,
+      [task.id]: { ...prev[task.id], ...decision.override },
+    }));
     updateTask.mutate(
-      { id: task.id, payload: { status: parsed.status } },
+      { id: task.id, payload: decision.payload as TaskUpdatePayload },
       {
         onError: () => {
-          setStatusOverrides((prev) => {
+          setOverrides((prev) => {
             const next = { ...prev };
             delete next[task.id];
             return next;

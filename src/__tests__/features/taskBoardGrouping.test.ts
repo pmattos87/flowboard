@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { Task } from "@/types";
 import {
   buildTaskBoardRows,
+  computeDropPayload,
   parseDroppableId,
   progressOf,
 } from "@/features/boards/shared/taskBoardGrouping";
@@ -131,6 +132,103 @@ describe("progressOf", () => {
 
   it("handles empty child list as 0/0", () => {
     expect(progressOf([])).toEqual({ done: 0, total: 0 });
+  });
+});
+
+describe("computeDropPayload", () => {
+  it("returns null when status, parent, and sprint all match", () => {
+    const story = makeTask({ id: 10, type: "story" });
+    const child = makeTask({ id: 20, type: "task", parent_id: 10, status: "todo" });
+    expect(
+      computeDropPayload(child, { status: "todo", group: 10 }, [story, child]),
+    ).toBeNull();
+  });
+
+  it("emits status only on a same-row column change", () => {
+    const story = makeTask({ id: 10, type: "story" });
+    const child = makeTask({ id: 20, type: "task", parent_id: 10, status: "todo" });
+    const out = computeDropPayload(
+      child,
+      { status: "in_progress", group: 10 },
+      [story, child],
+    );
+    expect(out).not.toBeNull();
+    expect(out!.payload).toEqual({ status: "in_progress" });
+    expect(out!.override).toEqual({ status: "in_progress" });
+  });
+
+  it("reparents to a new story and inherits the story's sprint", () => {
+    const sourceStory = makeTask({ id: 10, type: "story", sprint_id: null });
+    const targetStory = makeTask({ id: 11, type: "story", sprint_id: 5 });
+    const child = makeTask({
+      id: 20, type: "task", parent_id: 10, status: "todo", sprint_id: null,
+    });
+
+    const out = computeDropPayload(
+      child,
+      { status: "in_progress", group: 11 },
+      [sourceStory, targetStory, child],
+    );
+
+    expect(out).not.toBeNull();
+    expect(out!.payload).toEqual({
+      status: "in_progress",
+      parent_id: 11,
+      sprint_id: 5,
+    });
+  });
+
+  it("does not change sprint when target story is in the same sprint", () => {
+    const sourceStory = makeTask({ id: 10, type: "story", sprint_id: 5 });
+    const targetStory = makeTask({ id: 11, type: "story", sprint_id: 5 });
+    const child = makeTask({
+      id: 20, type: "task", parent_id: 10, status: "todo", sprint_id: 5,
+    });
+
+    const out = computeDropPayload(
+      child,
+      { status: "todo", group: 11 },
+      [sourceStory, targetStory, child],
+    );
+
+    expect(out).not.toBeNull();
+    expect(out!.payload).toEqual({ parent_id: 11 });
+  });
+
+  it("unparenting clears parent_id and keeps the task's existing sprint", () => {
+    const story = makeTask({ id: 10, type: "story", sprint_id: 5 });
+    const child = makeTask({
+      id: 20, type: "task", parent_id: 10, status: "in_progress", sprint_id: 5,
+    });
+
+    const out = computeDropPayload(
+      child,
+      { status: "in_progress", group: "unparented" },
+      [story, child],
+    );
+
+    expect(out).not.toBeNull();
+    expect(out!.payload).toEqual({ parent_id: null });
+  });
+
+  it("dropping an orphan onto a story sets both parent_id and sprint_id", () => {
+    const story = makeTask({ id: 10, type: "story", sprint_id: 7 });
+    const orphan = makeTask({
+      id: 20, type: "task", parent_id: null, status: "todo", sprint_id: null,
+    });
+
+    const out = computeDropPayload(
+      orphan,
+      { status: "done", group: 10 },
+      [story, orphan],
+    );
+
+    expect(out).not.toBeNull();
+    expect(out!.payload).toEqual({
+      status: "done",
+      parent_id: 10,
+      sprint_id: 7,
+    });
   });
 });
 
