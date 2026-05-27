@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useTask, useUpdateTask } from "@/hooks/useTasks";
+import { useTask, useTasks, useUpdateTask } from "@/hooks/useTasks";
 import { useComments, useCreateComment, useDeleteComment } from "@/hooks/useComments";
 import { useTimeLogs, useCreateTimeLog, useDeleteTimeLog } from "@/hooks/useTimeLogs";
 import { useAttachments, useCreateAttachment, useDeleteAttachment } from "@/hooks/useAttachments";
@@ -493,6 +493,7 @@ type PanelDraft = {
   priority: TaskPriority;
   assignee_id: number | null;
   sprint_id: number | null;
+  parent_id: number | null;
   story_points: number;
   due_date: string;
   labels: string;
@@ -510,6 +511,9 @@ export function TaskDetailPanel() {
   const { data: people } = usePeople();
   const { data: sprints } = useSprints(task?.project_id);
   const { data: project } = useProject(task?.project_id);
+  const { data: projectTasks } = useTasks(
+    task?.project_id != null ? { project_id: task.project_id } : undefined,
+  );
 
   const [draft, setDraft] = useState<PanelDraft>({
     title: "",
@@ -518,6 +522,7 @@ export function TaskDetailPanel() {
     priority: "medium",
     assignee_id: null,
     sprint_id: null,
+    parent_id: null,
     story_points: 0,
     due_date: "",
     labels: "",
@@ -533,6 +538,7 @@ export function TaskDetailPanel() {
         priority: task.priority,
         assignee_id: task.assignee_id,
         sprint_id: task.sprint_id,
+        parent_id: task.parent_id,
         story_points: task.story_points,
         due_date: task.due_date ?? "",
         labels: task.labels ?? "",
@@ -559,6 +565,26 @@ export function TaskDetailPanel() {
   const typeBadge = task ? TYPE_BADGE[task.type] : null;
   const peopleSafe = people ?? [];
   const sprintsSafe = sprints ?? [];
+  const storyOptions = (projectTasks ?? []).filter((t) => t.type === "story");
+  const showParent = task?.type === "task" || task?.type === "bug";
+
+  // Reparenting to a story inherits the story's sprint so the child stays in the
+  // same sprint as its parent (matches the Task Board DnD reparent behavior).
+  const handleParentChange = (value: string) => {
+    if (!task) return;
+    const newParentId = value ? Number(value) : null;
+    const newParent =
+      newParentId != null
+        ? storyOptions.find((s) => s.id === newParentId) ?? null
+        : null;
+    const newSprintId = newParent ? newParent.sprint_id : draft.sprint_id;
+    setDraft((d) => ({ ...d, parent_id: newParentId, sprint_id: newSprintId }));
+    const patch: TaskUpdatePayload = { parent_id: newParentId };
+    if (newParent && newParent.sprint_id !== task.sprint_id) {
+      patch.sprint_id = newParent.sprint_id;
+    }
+    save(patch);
+  };
 
   return (
     <>
@@ -686,6 +712,26 @@ export function TaskDetailPanel() {
                   </select>
                 </div>
               </div>
+
+              {/* Parent story (only meaningful for task/bug) */}
+              {showParent && (
+                <div>
+                  <Label className="text-gray-500 text-[11px]">Parent story</Label>
+                  <select
+                    aria-label="Parent story"
+                    value={draft.parent_id ?? ""}
+                    onChange={(e) => handleParentChange(e.target.value)}
+                    className={SELECT_CLS}
+                  >
+                    <option value="">No parent</option>
+                    {storyOptions.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Secondary row */}
               <div className="grid grid-cols-3 gap-2">

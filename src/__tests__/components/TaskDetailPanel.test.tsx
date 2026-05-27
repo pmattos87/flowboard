@@ -123,6 +123,104 @@ describe("TaskDetailPanel — open state", () => {
   });
 });
 
+describe("TaskDetailPanel — Parent story", () => {
+  const story = {
+    id: 100, project_id: 1, sprint_id: 5, parent_id: null,
+    title: "Login flow story", description: "", type: "story", status: "todo",
+    priority: "medium", assignee_id: null, story_points: 5, due_date: null,
+    created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "",
+  };
+  const otherStory = {
+    id: 101, project_id: 1, sprint_id: null, parent_id: null,
+    title: "Signup story", description: "", type: "story", status: "todo",
+    priority: "medium", assignee_id: null, story_points: 3, due_date: null,
+    created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "",
+  };
+
+  function setupInvokeWithStories(
+    taskOverride: Partial<Record<keyof typeof fakeTask, unknown>> = {},
+  ) {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "get_task") return Promise.resolve({ ...fakeTask, ...taskOverride });
+      if (cmd === "get_project") return Promise.resolve(fakeProject);
+      if (cmd === "list_tasks")
+        return Promise.resolve([{ ...fakeTask, ...taskOverride }, story, otherStory]);
+      if (cmd === "list_people") return Promise.resolve([]);
+      if (cmd === "list_sprints") return Promise.resolve([]);
+      if (cmd === "list_comments") return Promise.resolve([]);
+      if (cmd === "list_time_logs") return Promise.resolve([]);
+      if (cmd === "list_attachments") return Promise.resolve([]);
+      if (cmd === "update_task") return Promise.resolve({ ...fakeTask, ...taskOverride });
+      return Promise.resolve(null);
+    });
+  }
+
+  it("renders the Parent story dropdown for a bug task", async () => {
+    setupInvokeWithStories();
+    useUiStore.setState({ selectedTaskId: 7 });
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByLabelText(/parent story/i)).toBeInTheDocument(),
+    );
+    const select = screen.getByLabelText(/parent story/i) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.text)).toEqual([
+      "No parent",
+      "Login flow story",
+      "Signup story",
+    ]);
+  });
+
+  it("does not render the Parent story dropdown for a story task", async () => {
+    setupInvokeWithStories({ type: "story" });
+    useUiStore.setState({ selectedTaskId: 7 });
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByDisplayValue("Fix login bug")).toBeInTheDocument(),
+    );
+    expect(screen.queryByLabelText(/parent story/i)).not.toBeInTheDocument();
+  });
+
+  it("changing parent invokes update_task with parent_id and inherits parent's sprint_id", async () => {
+    setupInvokeWithStories();
+    const user = userEvent.setup();
+    useUiStore.setState({ selectedTaskId: 7 });
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByLabelText(/parent story/i)).toBeInTheDocument(),
+    );
+
+    const select = screen.getByLabelText(/parent story/i);
+    await user.selectOptions(select, "100");
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("update_task", {
+        id: 7,
+        payload: { parent_id: 100, sprint_id: 5 },
+      }),
+    );
+  });
+
+  it("clearing parent invokes update_task with parent_id=null and does not touch sprint_id", async () => {
+    setupInvokeWithStories({ parent_id: 100, sprint_id: 5 });
+    const user = userEvent.setup();
+    useUiStore.setState({ selectedTaskId: 7 });
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByLabelText(/parent story/i)).toBeInTheDocument(),
+    );
+
+    const select = screen.getByLabelText(/parent story/i);
+    await user.selectOptions(select, "");
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("update_task", {
+        id: 7,
+        payload: { parent_id: null },
+      }),
+    );
+  });
+});
+
 describe("AttachmentsSection — handleAttach (regression)", () => {
   const filepath = "C:\\Users\\Pedro\\Downloads\\report.pdf";
 
