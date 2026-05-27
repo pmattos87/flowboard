@@ -42,8 +42,10 @@ export default function About() {
           </div>
         </div>
 
-        <p className="text-xs text-gray-600">
-          © {new Date().getFullYear()} Pedro. All rights reserved.
+        <p className="text-xs text-gray-600 leading-relaxed">
+          Released under the{" "}
+          <span className="text-gray-400">MIT Licence</span>. Free to use,
+          modify, and distribute with attribution.
         </p>
       </div>
     </div>
