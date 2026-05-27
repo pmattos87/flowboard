@@ -46,11 +46,11 @@ export function Sidebar() {
 
   return (
     <aside className="w-[256px] shrink-0 bg-gray-950 border-r border-gray-900 flex flex-col">
-      <div className="h-14 flex items-center justify-center px-4 border-b border-gray-900">
+      <div className="h-18 flex items-center justify-center px-4 border-b border-gray-900">
         <img
           src="/logo.png"
           alt="FlowBoard"
-          className="h-10 w-auto object-contain"
+          className="h-32 w-auto object-contain"
         />
       </div>
       {import.meta.env.DEV && (

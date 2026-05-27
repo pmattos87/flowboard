@@ -71,6 +71,17 @@
 - **Task 9.4** App icon, window title, about page → `skill:backend-engineer`
 > **Phase Exit Criteria:** Push the phase branch (`git push origin phase/9-polish`), open a Pull Request into `main`, and merge it via the GitHub UI. After merge: `git checkout main && git pull && git tag -a v1.0.0 -m "FlowBoard MVP Launch Release" && git push origin v1.0.0`
 
+### Phase 10 — Hierarchy: Sprint Filters, Story Grouping, Backlog Pipeline
+> **Design doc:** [`HIERARCHY.md`](./HIERARCHY.md)
+> **Git Setup:** git checkout main && git pull && git checkout -b phase/10-hierarchy
+- **Task 10.1** Shared `boardSprintFilter` in `uiStore` + `SprintFilterSelect` component → `skill:data-layer` + `skill:frontend-design`
+- **Task 10.2** Sprint filter wired into User Story Board → `skill:frontend-design`
+- **Task 10.3** Task Board: sprint filter + grouping by parent story (collapsible rows, per-group droppables) → `skill:frontend-design`
+- **Task 10.4** Discovery Board narrowed to `sprint_id IS NULL` backlog → `skill:frontend-design`
+- **Task 10.5** Sprint Planning backlog panel narrowed to stories; backend cascade on story `sprint_id` change (children follow parent) → `skill:backend-engineer`
+- **Task 10.6** Tests: Rust cascade unit tests; Vitest for filter store, grouping reducer, Discovery filter; re-verify `KanbanBoard.dnd.test.tsx` rect-mock if column classes changed → `skill:qa-engineer`
+> **Phase Exit Criteria:** Push the phase branch (`git push origin phase/10-hierarchy`), open a PR into `main`, and merge it via the GitHub UI. After merge: `git checkout main && git pull && git tag -a v0.10-hierarchy -m "Phase 10 Complete: Project > Sprint > Story > Task hierarchy in boards" && git push origin v0.10-hierarchy`
+
 ---
 
 ## Agent Handoff Messages
@@ -207,6 +218,64 @@ Projects list in sidebar, Create Project modal, Project Settings page...
 ### Handoff: Task 9.4 — App Icon, Window Title & About Page
 **Assigned to:** skill:backend-engineer  
 **Depends on:** 1.1
+
+### Handoff: Task 10.1 — Shared sprint filter store + selector
+**Assigned to:** skill:data-layer (+ skill:frontend-design for the select component)
+**Depends on:** 2.1, 3.2
+
+- Add `boardSprintFilter: "all" | "backlog" | number` and `setBoardSprintFilter` to `uiStore`. Default `"all"`. Reset to `"all"` when `activeProjectId` changes or when the previous selection points to a sprint that does not belong to the new project.
+- Create `src/features/boards/shared/SprintFilterSelect.tsx`: a `<select>` matching the existing `SprintPlanningBoard` dropdown styling. Options: `All sprints`, `Backlog (no sprint)`, then each sprint by `sprints[]` order with `(active)` suffix on the active sprint.
+- Unit-test the store: project switch resets stale selection; non-existent sprint id falls back to `"all"`.
+
+### Handoff: Task 10.2 — Sprint filter on User Story Board
+**Assigned to:** skill:frontend-design
+**Depends on:** 10.1
+
+- Render `<SprintFilterSelect />` in the header (right-aligned, same row as `<h1>`).
+- Narrow stories: `t.type === "story"` then apply the active filter (`all` / `backlog` = `sprint_id === null` / numeric id = `sprint_id === id`).
+- Empty-state copy when filter yields zero: `No stories in <filter label>.`
+
+### Handoff: Task 10.3 — Task Board: sprint filter + story rows
+**Assigned to:** skill:frontend-design
+**Depends on:** 10.1
+**Design ref:** `HIERARCHY.md` §3.2 (see screenshot in the linked discussion).
+
+- Header: `<h1>` + `<SprintFilterSelect />`.
+- **Stories are first-class rows, not hidden.** Each story matching the sprint filter renders as a collapsible row. Tasks/bugs are cards rendered *inside* the columns of their parent story's row.
+- Story-row header (left → right): chevron, story type icon, `${projectKey}-${story.id}`, story title, priority icon, progress bar (`doneChildren / totalChildren`), `+ Add` button. Header is clickable (key/title) to open Task Detail Panel; chevron toggles collapse.
+- Per-column sub-headers inside an expanded row: status dot, label, count of children in that status, `+` button (pre-fills `parent_id`, `sprint_id`, `status` in the Create Task modal).
+- A story with zero matching children still renders (shows `0/0`).
+- `Unparented` trailing pseudo-row collects tasks/bugs with `parent_id === null` that match the sprint filter; omitted entirely when empty.
+- Per-row droppable IDs: `${status}:${groupKey}` (groupKey is the story id or `"unparented"`). Drag handler splits on `:` to resolve the new status; never crosses rows (changing `parent_id` is out of scope).
+- Collapse state: component-local `useState` keyed by `activeProjectId`. Collapsed rows hide the column band; the header (including progress bar) stays visible.
+- **DnD safety:** keep the source `TaskCard` mounted with `setNodeRef` for the entire drag (Phase 5 / Recurring Patterns). Any "ghost" placeholder must render inside the dragged card via `useDraggable().isDragging`, never as a sibling swap.
+- Empty states: see `HIERARCHY.md` §3.2.9.
+
+### Handoff: Task 10.4 — Discovery Board → backlog only
+**Assigned to:** skill:frontend-design
+**Depends on:** —
+
+- Filter: `(t.type === "epic" || t.type === "story") && t.sprint_id === null`.
+- Add subtitle under `<h1>`: `Backlog — stories and epics not yet assigned to a sprint.`
+- Update existing Discovery Board tests to assert the `sprint_id === null` narrowing.
+
+### Handoff: Task 10.5 — Sprint Planning backlog → stories only + backend cascade
+**Assigned to:** skill:backend-engineer
+**Depends on:** 1.4
+
+- Frontend: in `SprintPlanningBoard.tsx`, narrow `backlogTasks` to `t.sprint_id === null && t.type === "story"`.
+- Backend: in `src-tauri/src/commands/tasks.rs`, when `update_task` mutates `sprint_id` on a row where `type='story'`, also `UPDATE tasks SET sprint_id = ?, updated_at = ? WHERE parent_id = ?` in the same transaction.
+- Watch the `Option<Option<T>>` deserialization rule (Phase 5 / Documentation Gaps) — `sprint_id` already uses `deserialize_optional_field`; do not regress.
+- Rust unit tests: cascade fires on story `sprint_id` change (both set and clear); does not fire when a non-story task's `sprint_id` changes; transaction atomicity (parent + children either all updated or none).
+
+### Handoff: Task 10.6 — Tests & DoD enforcement
+**Assigned to:** skill:qa-engineer
+**Depends on:** 10.1–10.5
+
+- Verify all Definition of Done items in `HIERARCHY.md` §5.
+- Vitest: store action for `setBoardSprintFilter`; pure grouping reducer used by Task Board (input flat tasks, output ordered groups); Discovery board filter.
+- Re-evaluate the currently-skipped case in `src/__tests__/features/KanbanBoard.dnd.test.tsx`. If column classes (`min-h-[120px]`) or header text changed in 10.3, update `stubBoundingRects()` accordingly and unskip the regression-guard case.
+- Final gate: `npx vitest run` zero failures, `tsc --noEmit` clean.
 
 ---
 

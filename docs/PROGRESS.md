@@ -2,8 +2,8 @@
 
 **Last Updated:** May 27, 2026
 
-**Current Phase:** Complete — all 9 phases shipped
-**Overall Completion:** 100% (25/25 tasks)
+**Current Phase:** Phase 10 — Hierarchy (planned)
+**Overall Completion:** 25/31 tasks (Phases 1–9 shipped; Phase 10 planned)
 
 ---
 
@@ -59,13 +59,23 @@
 - [x] **9.3** Global search → `skill:frontend-design`
 - [x] **9.4** App icon, window title, about page → `skill:frontend-design`
 
+### Phase 10 — Hierarchy: Sprint Filters, Story Grouping, Backlog Pipeline
+> Design doc: [`HIERARCHY.md`](./HIERARCHY.md)
+- [ ] **10.1** Shared `boardSprintFilter` in `uiStore` + `SprintFilterSelect` component → `skill:data-layer` + `skill:frontend-design`
+- [ ] **10.2** Sprint filter wired into User Story Board → `skill:frontend-design`
+- [ ] **10.3** Task Board: sprint filter + grouping by parent story → `skill:frontend-design`
+- [ ] **10.4** Discovery Board narrowed to backlog (`sprint_id IS NULL`) → `skill:frontend-design`
+- [ ] **10.5** Sprint Planning backlog → stories only + backend cascade → `skill:backend-engineer`
+- [ ] **10.6** Tests & DoD enforcement → `skill:qa-engineer`
+
 ---
 
 ## Current Focus / In Progress
-- Pre-release review before tagging `v1.0.0`
+- Phase 10 design approved; ready to branch `phase/10-hierarchy` and start Task 10.1.
 
 ## Blockers / Notes
-- None. All 204 tests pass. `tsc --noEmit` clean.
+- Task 10.3 must respect the Phase 5 lesson: source `TaskCard` stays mounted with `setNodeRef` for the full drag.
+- Task 10.6 should re-check the still-skipped case in `KanbanBoard.dnd.test.tsx` if 10.3 changes any `KanbanColumn` class strings.
 
 ## Recent Completions
 - 9.1–9.4 (Polish: sonner toasts, skeleton loading, keyboard shortcuts n//, global search, About page)
