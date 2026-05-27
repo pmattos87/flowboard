@@ -53,7 +53,7 @@ export function Sidebar() {
           className="h-32 w-auto object-contain"
         />
       </div>
-      {import.meta.env.DEV && (
+      {import.meta.env.VITE_APP_ENV === "staging" && (
         <div className="mx-3 mt-1 px-2 py-0.5 rounded text-[10px] font-semibold tracking-widest text-amber-400 bg-amber-900/30 border border-amber-800/40 text-center">
           STAGING
         </div>

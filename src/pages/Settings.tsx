@@ -54,7 +54,7 @@ export default function Settings() {
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
   // Staging: seed controls
-  const isStaging = import.meta.env.DEV;
+  const isStaging = import.meta.env.VITE_APP_ENV === "staging";
   const [seeding, setSeeding] = useState(false);
   const [seedResult, setSeedResult] = useState<string | null>(null);
 
