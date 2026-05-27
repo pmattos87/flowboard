@@ -63,6 +63,18 @@ pub async fn list_activity_log(
 }
 
 #[tauri::command]
+pub async fn list_all_activity_log(
+    pool: State<'_, SqlitePool>,
+) -> Result<Vec<ActivityLog>, String> {
+    sqlx::query_as::<_, ActivityLog>(
+        "SELECT * FROM activity_log ORDER BY created_at DESC LIMIT 200",
+    )
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn list_activity_log_by_sprint(
     pool: State<'_, SqlitePool>,
     sprint_id: i64,

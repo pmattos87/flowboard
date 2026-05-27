@@ -3,6 +3,7 @@ import {
   createActivityLog,
   listActivityLog,
   listActivityLogBySprint,
+  listAllActivityLog,
   type ActivityLogCreatePayload,
 } from "@/lib/commands";
 
@@ -11,6 +12,7 @@ export const activityLogKeys = {
   list: (taskId: number) => [...activityLogKeys.all, "list", taskId] as const,
   sprint: (sprintId: number) =>
     [...activityLogKeys.all, "sprint", sprintId] as const,
+  inbox: () => [...activityLogKeys.all, "inbox"] as const,
 };
 
 export function useActivityLog(taskId: number | null | undefined) {
@@ -26,6 +28,13 @@ export function useSprintActivityLog(sprintId: number | null | undefined) {
     queryKey: activityLogKeys.sprint(sprintId ?? -1),
     queryFn: () => listActivityLogBySprint(sprintId as number),
     enabled: sprintId != null,
+  });
+}
+
+export function useAllActivityLog() {
+  return useQuery({
+    queryKey: activityLogKeys.inbox(),
+    queryFn: listAllActivityLog,
   });
 }
 
