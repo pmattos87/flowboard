@@ -2,8 +2,8 @@
 
 **Last Updated:** May 27, 2026
 
-**Current Phase:** Complete — all 9 phases shipped
-**Overall Completion:** 100% (25/25 tasks)
+**Current Phase:** Phase 10 — Hierarchy (complete; awaiting PR)
+**Overall Completion:** 31/31 tasks shipped
 
 ---
 
@@ -59,15 +59,25 @@
 - [x] **9.3** Global search → `skill:frontend-design`
 - [x] **9.4** App icon, window title, about page → `skill:frontend-design`
 
+### Phase 10 — Hierarchy: Sprint Filters, Story Grouping, Backlog Pipeline
+> Design doc: [`HIERARCHY.md`](./HIERARCHY.md)
+- [x] **10.1** Shared `boardSprintFilter` in `uiStore` + `SprintFilterSelect` component → `skill:data-layer` + `skill:frontend-design`
+- [x] **10.2** Sprint filter wired into User Story Board → `skill:frontend-design`
+- [x] **10.3** Task Board: sprint filter + grouping by parent story → `skill:frontend-design`
+- [x] **10.4** Discovery Board narrowed to backlog (`sprint_id IS NULL`) → `skill:frontend-design`
+- [x] **10.5** Sprint Planning backlog → stories only + backend cascade → `skill:backend-engineer`
+- [x] **10.6** Tests & DoD enforcement → `skill:qa-engineer`
+
 ---
 
 ## Current Focus / In Progress
-- Pre-release review before tagging `v1.0.0`
+- Phase 10 implementation complete on `phase/10-hierarchy`. Ready to open PR.
 
 ## Blockers / Notes
-- None. All 204 tests pass. `tsc --noEmit` clean.
+- None. 231 Vitest tests pass; 13 Rust tests pass; `tsc --noEmit` clean.
 
 ## Recent Completions
+- 10.1–10.6 (Hierarchy: boardSprintFilter store + SprintFilterSelect; User Story Board / Task Board / Discovery / Sprint Planning narrowed to the Project > Sprint > Story > Task pipeline; backend cascade so story children follow their parent in/out of a sprint atomically)
 - 9.1–9.4 (Polish: sonner toasts, skeleton loading, keyboard shortcuts n//, global search, About page)
 - 8.1–8.3 (Inbox page, OS notifications via tauri-plugin-notification, bell badge with unread count)
 - 7.1–7.4 (Reports: Burndown, Velocity, Status Distribution, Workload charts via Recharts)

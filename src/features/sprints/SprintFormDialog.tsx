@@ -59,6 +59,11 @@ export function SprintFormDialog({ open, onOpenChange, projectId, editing }: Pro
 
   const isPending = createSprint.isPending || updateSprint.isPending;
 
+  const dateError =
+    form.start_date && form.end_date && form.end_date < form.start_date
+      ? "End date must be on or after start date."
+      : null;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -142,6 +147,7 @@ export function SprintFormDialog({ open, onOpenChange, projectId, editing }: Pro
               <Input
                 id="sprint-end"
                 type="date"
+                min={form.start_date || undefined}
                 value={form.end_date}
                 onChange={(e) => setForm((f) => ({ ...f, end_date: e.target.value }))}
                 className="bg-gray-800 border-gray-700 text-gray-100"
@@ -162,6 +168,9 @@ export function SprintFormDialog({ open, onOpenChange, projectId, editing }: Pro
               <option value="completed">Completed</option>
             </select>
           </div>
+          {dateError && (
+            <p className="text-sm text-red-400" role="alert">{dateError}</p>
+          )}
           {error && (
             <p className="text-sm text-red-400" role="alert">{error}</p>
           )}
@@ -176,7 +185,7 @@ export function SprintFormDialog({ open, onOpenChange, projectId, editing }: Pro
             </Button>
             <Button
               type="submit"
-              disabled={!form.name.trim() || !form.start_date || !form.end_date || isPending}
+              disabled={!form.name.trim() || !form.start_date || !form.end_date || !!dateError || isPending}
               className="bg-blue-600 hover:bg-blue-500 text-white"
             >
               {isPending ? "Saving…" : editing ? "Save changes" : "Create sprint"}

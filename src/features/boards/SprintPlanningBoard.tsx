@@ -114,7 +114,9 @@ export function SprintPlanningBoard() {
   }
 
   const activeSprint = sprints.find((s) => s.id === selectedSprintId) ?? null;
-  const backlogTasks = (allTasks ?? []).filter((t) => t.sprint_id === null);
+  const backlogTasks = (allTasks ?? []).filter(
+    (t) => t.sprint_id === null && t.type === "story",
+  );
   const sprintTasks = (allTasks ?? []).filter((t) => t.sprint_id === selectedSprintId);
   const projectKey = project?.key ?? "FB";
 

@@ -1,6 +1,7 @@
 pub mod activity_log;
 pub mod attachments;
 pub mod comments;
+pub mod dev;
 pub mod people;
 pub mod projects;
 pub mod sprints;

@@ -32,6 +32,12 @@ const mixedTasks = [
     priority: "low", assignee_id: null, story_points: 2, due_date: null,
     created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "",
   },
+  {
+    id: 5, project_id: 1, sprint_id: 99, parent_id: null,
+    title: "Story already in sprint", description: "", type: "story", status: "todo",
+    priority: "medium", assignee_id: null, story_points: 2, due_date: null,
+    created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "",
+  },
 ];
 
 const fakeProject = {
@@ -87,5 +93,19 @@ describe("DiscoveryBoard — with project", () => {
     await waitFor(() => expect(screen.getByText("Discovery story")).toBeInTheDocument());
     expect(screen.queryByText("Hidden bug")).not.toBeInTheDocument();
     expect(screen.queryByText("Hidden task")).not.toBeInTheDocument();
+  });
+
+  it("hides stories/epics that have already been assigned to a sprint", async () => {
+    renderBoard();
+    await waitFor(() => expect(screen.getByText("Discovery story")).toBeInTheDocument());
+    // Phase 10: Discovery Board is the backlog — only sprint_id IS NULL.
+    expect(screen.queryByText("Story already in sprint")).not.toBeInTheDocument();
+  });
+
+  it("shows the backlog subtitle", async () => {
+    renderBoard();
+    await waitFor(() =>
+      expect(screen.getByText(/backlog — stories and epics/i)).toBeInTheDocument()
+    );
   });
 });

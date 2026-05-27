@@ -21,7 +21,7 @@ const fakeSprints = [
 const fakeTasks = [
   {
     id: 1, project_id: 1, sprint_id: null, parent_id: null,
-    title: "Backlog item A", description: "", type: "task", status: "todo",
+    title: "Backlog item A", description: "", type: "story", status: "todo",
     priority: "medium", assignee_id: null, story_points: 2, due_date: null,
     created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "",
   },
@@ -29,6 +29,12 @@ const fakeTasks = [
     id: 2, project_id: 1, sprint_id: 11, parent_id: null,
     title: "Sprint item B", description: "", type: "story", status: "in_progress",
     priority: "high", assignee_id: null, story_points: 3, due_date: null,
+    created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "",
+  },
+  {
+    id: 3, project_id: 1, sprint_id: null, parent_id: null,
+    title: "Backlog bug C", description: "", type: "bug", status: "todo",
+    priority: "low", assignee_id: null, story_points: 1, due_date: null,
     created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "",
   },
 ];
@@ -110,6 +116,13 @@ describe("SprintPlanningBoard — with sprints and tasks", () => {
     await waitFor(() => expect(screen.getByText("Sprint item B")).toBeInTheDocument());
     // Both items render, but each is in the correct panel — just verify both are present
     expect(screen.getByText("Backlog item A")).toBeInTheDocument();
+  });
+
+  it("backlog excludes non-story backlog tasks", async () => {
+    renderBoard();
+    await waitFor(() => expect(screen.getByText("Backlog item A")).toBeInTheDocument());
+    // Phase 10: only stories appear in the backlog panel.
+    expect(screen.queryByText("Backlog bug C")).not.toBeInTheDocument();
   });
 
   it("sprint selector renders all sprint options", async () => {

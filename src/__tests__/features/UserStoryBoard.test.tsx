@@ -44,7 +44,12 @@ function renderBoard() {
 
 beforeEach(() => {
   mockInvoke.mockReset();
-  useUiStore.setState({ activeProjectId: null, selectedTaskId: null, selectedSprintId: null });
+  useUiStore.setState({
+    activeProjectId: null,
+    selectedTaskId: null,
+    selectedSprintId: null,
+    boardSprintFilter: "all",
+  });
 });
 
 describe("UserStoryBoard — no project", () => {
@@ -60,6 +65,7 @@ describe("UserStoryBoard — with project", () => {
     mockInvoke.mockImplementation((cmd) => {
       if (cmd === "list_tasks") return Promise.resolve(mixedTasks);
       if (cmd === "list_people") return Promise.resolve([]);
+      if (cmd === "list_sprints") return Promise.resolve([]);
       if (cmd === "get_project") return Promise.resolve(fakeProject);
       return Promise.resolve(null);
     });

@@ -206,3 +206,15 @@ export const listActivityLogBySprint = (sprintId: number) =>
   invoke<ActivityLog[]>("list_activity_log_by_sprint", { sprintId });
 export const listAllActivityLog = () =>
   invoke<ActivityLog[]>("list_all_activity_log");
+
+// ─── Dev / Staging ─────────────────────────────────────────
+
+/** Returns true when running a debug (tauri dev) build. */
+export const isStagingBuild = () => invoke<boolean>("is_staging_build");
+
+/**
+ * Populate the database with demo data.
+ * Pass `force = true` to wipe existing data and re-seed from scratch.
+ */
+export const seedDemoData = (force: boolean) =>
+  invoke<string>("seed_demo_data", { force });

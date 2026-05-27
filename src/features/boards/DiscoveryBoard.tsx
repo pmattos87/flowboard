@@ -19,12 +19,17 @@ export function DiscoveryBoard() {
   }
 
   const tasks = (allTasks ?? []).filter(
-    (t) => t.type === "epic" || t.type === "story"
+    (t) => (t.type === "epic" || t.type === "story") && t.sprint_id === null
   );
 
   return (
     <div className="flex flex-col h-full">
-      <h1 className="text-lg font-semibold text-white mb-6">Discovery Board</h1>
+      <div className="mb-6">
+        <h1 className="text-lg font-semibold text-white">Discovery Board</h1>
+        <p className="text-xs text-gray-500 mt-1">
+          Backlog — stories and epics not yet assigned to a sprint.
+        </p>
+      </div>
       <KanbanBoard
         tasks={tasks}
         people={people}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BookOpen, Bug, CheckSquare, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,7 @@ type TaskForm = {
   status: TaskStatus;
   priority: TaskPriority;
   sprint_id: number | null;
+  parent_id: number | null;
   assignee_id: number | null;
   story_points: number;
   due_date: string;
@@ -36,6 +37,7 @@ const emptyForm = (): TaskForm => ({
   status: "todo",
   priority: "medium",
   sprint_id: null,
+  parent_id: null,
   assignee_id: null,
   story_points: 0,
   due_date: "",
@@ -54,6 +56,7 @@ export function CreateTaskModal() {
   const createTaskModalOpen = useUiStore((s) => s.createTaskModalOpen);
   const setCreateTaskModalOpen = useUiStore((s) => s.setCreateTaskModalOpen);
   const activeProjectId = useUiStore((s) => s.activeProjectId);
+  const createTaskPrefill = useUiStore((s) => s.createTaskPrefill);
 
   const createTask = useCreateTask();
   const { data: people } = usePeople();
@@ -61,6 +64,21 @@ export function CreateTaskModal() {
 
   const [form, setForm] = useState<TaskForm>(emptyForm());
   const [error, setError] = useState<string | null>(null);
+
+  // Apply prefill each time the modal opens with a fresh prefill payload.
+  useEffect(() => {
+    if (!createTaskModalOpen) return;
+    if (createTaskPrefill === null) return;
+    setForm((f) => ({
+      ...f,
+      parent_id: createTaskPrefill.parent_id ?? f.parent_id,
+      sprint_id:
+        createTaskPrefill.sprint_id !== undefined
+          ? createTaskPrefill.sprint_id
+          : f.sprint_id,
+      status: createTaskPrefill.status ?? f.status,
+    }));
+  }, [createTaskModalOpen, createTaskPrefill]);
 
   const handleOpenChange = (open: boolean) => {
     if (!open) {
@@ -83,6 +101,7 @@ export function CreateTaskModal() {
         status: form.status,
         priority: form.priority,
         sprint_id: form.sprint_id,
+        parent_id: form.parent_id,
         assignee_id: form.assignee_id,
         story_points: form.story_points,
         due_date: form.due_date || null,
