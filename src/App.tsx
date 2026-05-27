@@ -10,6 +10,7 @@ import {
   UserStoryBoard,
 } from "@/features/boards";
 import RoadmapPage from "@/features/roadmap/RoadmapPage";
+import ReportsPage from "@/features/reports/ReportsPage";
 import People from "@/pages/People";
 import Settings from "@/pages/Settings";
 import Sprints from "@/pages/Sprints";
@@ -35,7 +36,7 @@ function App() {
           <Route path="/board/sprint-planning" element={<SprintPlanningBoard />} />
           <Route path="/sprints" element={<Sprints />} />
           <Route path="/roadmap" element={<RoadmapPage />} />
-          <Route path="/reports" element={<Placeholder title="Reports" />} />
+          <Route path="/reports" element={<ReportsPage />} />
           <Route path="/people" element={<People />} />
           <Route path="/inbox" element={<Placeholder title="Inbox" />} />
           <Route path="/settings" element={<Settings />} />
