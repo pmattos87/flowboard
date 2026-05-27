@@ -2,7 +2,42 @@
 
 **All notable changes to this project will be documented in this file.**
 
-## [Unreleased]
+## [1.0.0] - 2026-05-27 — Stable Release
+
+First stable release. The MVP defined by Phases 1–9 is complete, and the Phase 10 hierarchy pipeline, per-project task numbering, and staging-environment gating shipped on top.
+
+### Added
+- **Phase 10 — Hierarchy: Sprint Filters, Story Grouping, Backlog Pipeline** (PR #26)
+  - **Task 10.1** Shared `boardSprintFilter` (`"all" | "backlog" | number`) in `uiStore` + `createTaskPrefill`; reusable `SprintFilterSelect` component
+  - **Task 10.2** User Story Board narrowed by the sprint filter
+  - **Task 10.3** Task Board grouped by parent story with sprint filter, collapsible story rows, per-row droppables, and an `Unparented` trailing pseudo-row
+  - **Task 10.4** Discovery Board narrowed to `sprint_id IS NULL` (backlog of epics/stories)
+  - **Task 10.5** Sprint Planning backlog narrowed to stories only + backend cascade: updating a story's `sprint_id` updates all of its task/bug children in the same SQL transaction
+  - **Task 10.6** Tests & DoD enforcement (Rust cascade unit tests; Vitest for filter store, grouping reducer, Discovery filter)
+  - Parent-story dropdown added to the Task Detail panel; Task Board DnD across story rows reparents children
+- **Per-project task numbering** (migration `002_task_number.sql`)
+  - New `tasks.task_number INTEGER NOT NULL` column with `UNIQUE(project_id, task_number)` enforced by `idx_tasks_project_number`
+  - Sequence assigned per-project on insert; existing rows backfilled by migration; `seed_demo_data` populates `task_number`
+  - UI now renders user-facing keys as `{projects.key}-{tasks.task_number}` (e.g., `P1-1`, `P1-2`)
+- **Staging environment scaffolding**
+  - `is_staging_build` + `seed_demo_data` Tauri commands
+  - Sidebar `STAGING` badge and seed controls
+
+### Fixed
+- **#27** STAGING badge and seed controls now gate on `VITE_APP_ENV` rather than `import.meta.env.DEV`, so a production build of the staging configuration no longer leaks the badge into the release-mode UI
+
+### Changed
+- Sidebar logo simplified
+- Global search expanded to tasks, sprints, projects, and people
+
+### Documentation
+- `docs/PLAN.md` marked v1.0.0 shipped
+- `docs/DECISIONS.md` D-009 (per-project task numbering) and D-010 (story → child sprint cascade) appended
+- `docs/SCHEMA.md` updated with `task_number` column and uniqueness rule
+- `chore(repo)`: removed standalone `HIERARCHY.md` planning doc (work captured in PROGRESS/CHANGELOG)
+
+### Version bumps
+- `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, About page → `1.0.0`
 
 ---
 
@@ -153,4 +188,4 @@
 - Use Semantic Versioning
 - Add new entries at the top under `[Unreleased]`
 
-**Last Updated:** May 26, 2026 (Phase 6 close-out)
+**Last Updated:** May 27, 2026 (v1.0.0 release)

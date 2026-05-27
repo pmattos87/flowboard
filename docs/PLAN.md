@@ -2,6 +2,8 @@
 
 **This file contains only the phased task list and agent handoff messages.**
 
+**Status:** v1.0.0 shipped 2026-05-27. All 10 phases merged to `main`.
+
 ---
 
 ## Phased Task List
