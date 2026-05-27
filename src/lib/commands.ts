@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { openPath } from "@tauri-apps/plugin-opener";
 import type {
   ActivityLog,
   Attachment,
@@ -183,6 +184,10 @@ export const listAttachments = (taskId: number) =>
 export const deleteAttachment = (id: number) =>
   invoke<void>("delete_attachment", { id });
 
+// ─── File Opener ───────────────────────────────────────────
+
+export const openAttachment = (filepath: string) => openPath(filepath);
+
 // ─── Activity Log ──────────────────────────────────────────
 
 export interface ActivityLogCreatePayload {
@@ -197,3 +202,5 @@ export const createActivityLog = (payload: ActivityLogCreatePayload) =>
   invoke<ActivityLog>("create_activity_log", { payload });
 export const listActivityLog = (taskId: number) =>
   invoke<ActivityLog[]>("list_activity_log", { taskId });
+export const listActivityLogBySprint = (sprintId: number) =>
+  invoke<ActivityLog[]>("list_activity_log_by_sprint", { sprintId });

@@ -3,6 +3,7 @@ import {
   BookOpen,
   Bug,
   CheckSquare,
+  ExternalLink,
   Layers,
   Paperclip,
   Trash2,
@@ -18,6 +19,7 @@ import { useTask, useUpdateTask } from "@/hooks/useTasks";
 import { useComments, useCreateComment, useDeleteComment } from "@/hooks/useComments";
 import { useTimeLogs, useCreateTimeLog, useDeleteTimeLog } from "@/hooks/useTimeLogs";
 import { useAttachments, useCreateAttachment, useDeleteAttachment } from "@/hooks/useAttachments";
+import { openAttachment } from "@/lib/commands";
 import { usePeople } from "@/hooks/usePeople";
 import { useSprints } from "@/hooks/useSprints";
 import { useProject } from "@/hooks/useProjects";
@@ -60,11 +62,17 @@ function formatDate(d: string): string {
 
 function formatDateTime(dt: string): string {
   if (!dt) return "—";
-  return new Date(dt).toLocaleDateString(undefined, {
+  const d = new Date(dt);
+  const date = d.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
     year: "numeric",
   });
+  const time = d.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${date} ${time}`;
 }
 
 const TYPE_BADGE: Record<TaskType, { label: string; icon: React.ReactNode; cls: string }> = {
@@ -206,8 +214,8 @@ function AttachmentsSection({ taskId }: { taskId: number }) {
     setAttaching(true);
     try {
       const result = await openFilePicker({ multiple: false });
-      if (!result || Array.isArray(result)) return;
-      const filepath = result;
+      if (!result) return;
+      const filepath = Array.isArray(result) ? result[0] : result;
       const filename = filepath.split(/[\\/]/).pop() ?? filepath;
       const info = await stat(filepath);
       await createAttachment.mutateAsync({
@@ -216,6 +224,8 @@ function AttachmentsSection({ taskId }: { taskId: number }) {
         filepath,
         size: info.size,
       });
+    } catch (err) {
+      console.error("[attachment] failed:", err);
     } finally {
       setAttaching(false);
     }
@@ -254,16 +264,31 @@ function AttachmentsSection({ taskId }: { taskId: number }) {
                 <div className="flex items-center gap-2">
                   <Paperclip className="h-3.5 w-3.5 text-gray-500 shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-gray-200 truncate">{a.filename}</p>
+                    <button
+                      type="button"
+                      onClick={() => openAttachment(a.filepath).catch(console.error)}
+                      className="text-sm text-gray-200 truncate hover:text-blue-400 transition-colors text-left w-full"
+                    >
+                      {a.filename}
+                    </button>
                     <p className="text-[11px] text-gray-500">
-                      {formatSize(a.size)} · {formatDate(a.uploaded_at)}
+                      {formatSize(a.size)} · {formatDateTime(a.uploaded_at)}
                     </p>
                     <p className="text-[10px] text-gray-600 truncate">{a.filepath}</p>
                   </div>
                   <button
                     type="button"
+                    onClick={() => openAttachment(a.filepath).catch(console.error)}
+                    className="p-1 rounded text-gray-600 hover:text-blue-400 hover:bg-gray-700 transition-colors shrink-0"
+                    title="Open file"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => handleDelete(a)}
                     className="p-1 rounded text-gray-600 hover:text-red-400 hover:bg-gray-700 transition-colors shrink-0"
+                    title="Delete attachment"
                   >
                     <Trash2 className="h-3 w-3" />
                   </button>

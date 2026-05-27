@@ -3,6 +3,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
+import { open as openFilePicker } from "@tauri-apps/plugin-dialog";
+import { stat } from "@tauri-apps/plugin-fs";
 import { TaskDetailPanel } from "@/components/TaskDetailPanel";
 import { useUiStore } from "@/stores/uiStore";
 
@@ -10,6 +12,8 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("@tauri-apps/plugin-fs", () => ({ stat: vi.fn() }));
 
 const mockInvoke = vi.mocked(invoke);
+const mockOpen = vi.mocked(openFilePicker);
+const mockStat = vi.mocked(stat);
 
 const fakeTask = {
   id: 7,
@@ -116,5 +120,73 @@ describe("TaskDetailPanel — open state", () => {
     const closeBtn = screen.getByRole("button", { name: /close panel/i });
     await user.click(closeBtn);
     expect(useUiStore.getState().selectedTaskId).toBeNull();
+  });
+});
+
+describe("AttachmentsSection — handleAttach (regression)", () => {
+  const filepath = "C:\\Users\\Pedro\\Downloads\\report.pdf";
+
+  beforeEach(() => {
+    mockOpen.mockReset();
+    mockStat.mockReset();
+    setupInvoke();
+    useUiStore.setState({ selectedTaskId: 7 });
+  });
+
+  async function renderAndClickAttach() {
+    const user = userEvent.setup();
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole("button", { name: /attach file/i })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /attach file/i }));
+  }
+
+  it("calls create_attachment when dialog returns a plain string", async () => {
+    mockOpen.mockResolvedValueOnce(filepath);
+    mockStat.mockResolvedValueOnce({ size: 2048 } as never);
+
+    await renderAndClickAttach();
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("create_attachment", {
+        payload: expect.objectContaining({ filepath, task_id: 7, filename: "report.pdf" }),
+      })
+    );
+  });
+
+  it("calls create_attachment when dialog returns string[] — Candidate 1 regression", async () => {
+    // Before the fix, Array.isArray(result) guard would trip on this and return early.
+    mockOpen.mockResolvedValueOnce([filepath] as never);
+    mockStat.mockResolvedValueOnce({ size: 2048 } as never);
+
+    await renderAndClickAttach();
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("create_attachment", {
+        payload: expect.objectContaining({ filepath, task_id: 7, filename: "report.pdf" }),
+      })
+    );
+  });
+
+  it("does not call create_attachment when dialog returns null (user cancelled)", async () => {
+    mockOpen.mockResolvedValueOnce(null);
+
+    await renderAndClickAttach();
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mockInvoke).not.toHaveBeenCalledWith("create_attachment", expect.anything());
+  });
+
+  it("catches stat errors without crashing the UI — Candidate 2 regression", async () => {
+    // Before the fix, no catch block meant the thrown error would be an unhandled rejection.
+    mockOpen.mockResolvedValueOnce(filepath);
+    mockStat.mockRejectedValueOnce(new Error("fs: permission denied"));
+
+    await renderAndClickAttach();
+
+    // UI must survive the error — button still present, no throw propagated
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /attach file/i })).toBeInTheDocument()
+    );
+    expect(mockInvoke).not.toHaveBeenCalledWith("create_attachment", expect.anything());
   });
 });
