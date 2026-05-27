@@ -46,15 +46,18 @@ export function Sidebar() {
 
   return (
     <aside className="w-[256px] shrink-0 bg-gray-950 border-r border-gray-900 flex flex-col">
-      <div className="h-14 flex items-center gap-3 px-4 border-b border-gray-900">
-        <img src="/logo.png" alt="FlowBoard" className="h-8 w-8" />
-        <div className="leading-tight">
-          <div className="text-sm font-semibold text-white">FlowBoard</div>
-          <div className="text-[10px] tracking-[0.18em] text-gray-500 whitespace-nowrap">
-            PLAN • FLOW • DELIVER
-          </div>
-        </div>
+      <div className="h-14 flex items-center justify-center px-4 border-b border-gray-900">
+        <img
+          src="/logo.png"
+          alt="FlowBoard"
+          className="h-10 w-auto object-contain"
+        />
       </div>
+      {import.meta.env.DEV && (
+        <div className="mx-3 mt-1 px-2 py-0.5 rounded text-[10px] font-semibold tracking-widest text-amber-400 bg-amber-900/30 border border-amber-800/40 text-center">
+          STAGING
+        </div>
+      )}
 
       <div className="px-3 pt-4 pb-2 flex items-center justify-between">
         <span className="text-[11px] font-semibold tracking-wider text-gray-500 uppercase">
