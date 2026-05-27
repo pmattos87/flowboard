@@ -25,7 +25,7 @@
  * upgrade, revisit the rect mock first.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { KanbanBoard } from "@/features/boards/shared/KanbanBoard";
@@ -101,19 +101,7 @@ afterEach(() => {
 });
 
 describe("KanbanBoard — DnD lifecycle regression", () => {
-  // SKIPPED 2026-05-26 (phase/6-roadmap pre-commit verification).
-  // This assertion went red BEFORE any Phase 6 work was added — reproduced
-  // by reverting to commit 70894ae (the tip of phase/5-boards). The
-  // production fix it guards (TaskCard keeps setNodeRef mounted during
-  // drag, see LESSONS.md "Never unmount a @dnd-kit draggable…") is still
-  // in place. The failure is in the jsdom rect-mock scaffolding above —
-  // mockInvoke is never called because @dnd-kit collision detection no
-  // longer matches the column drop-zones. Most likely culprits: a class-
-  // string change to KanbanColumn (the mock greps for `min-h-[120px]`),
-  // or a behavior change in a newer @dnd-kit PointerSensor.
-  // See LESSONS.md → "Stale jsdom rect-mock in KanbanBoard DnD test".
-  // TODO: restore (remove .skip) once the rect mock is repaired.
-  it.skip("invokes update_task with the new status after a cross-column drag", async () => {
+  it("invokes update_task with the new status after a cross-column drag", async () => {
     mockInvoke.mockResolvedValue({ ...todoTask, status: "in_progress" });
     stubBoundingRects();
 
@@ -127,19 +115,24 @@ describe("KanbanBoard — DnD lifecycle regression", () => {
       .closest("div.flex.flex-col")!
       .querySelector("[class*='min-h-']") as HTMLElement;
 
-    // PointerSensor has activationConstraint: { distance: 5 } — move > 5px before release.
-    fireEvent.pointerDown(card, { clientX: 50, clientY: 40, pointerId: 1, button: 0 });
+    // PointerSensor requires isPrimary: true — @dnd-kit's activator bails on
+    // event.isPrimary === false, which is jsdom's default for PointerEvent.
+    // @dnd-kit defers DragEnd state through AnimationManager, so the assertion
+    // uses waitFor rather than a synchronous expect.
+    fireEvent.pointerDown(card, { clientX: 50, clientY: 40, pointerId: 1, button: 0, isPrimary: true });
     fireEvent.pointerMove(card, { clientX: 150, clientY: 40, pointerId: 1 });
     fireEvent.pointerMove(inProgressDropZone, { clientX: 400, clientY: 200, pointerId: 1 });
     fireEvent.pointerUp(inProgressDropZone, { clientX: 400, clientY: 200, pointerId: 1 });
 
-    expect(mockInvoke).toHaveBeenCalledWith(
-      "update_task",
-      expect.objectContaining({
-        id: 42,
-        payload: expect.objectContaining({ status: "in_progress" }),
-      })
-    );
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith(
+        "update_task",
+        expect.objectContaining({
+          id: 42,
+          payload: expect.objectContaining({ status: "in_progress" }),
+        })
+      );
+    });
   });
 
   it("does not invoke update_task when the card is dropped back on its own column", async () => {
