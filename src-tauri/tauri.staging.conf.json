@@ -2,6 +2,10 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "FlowBoard Staging",
   "identifier": "com.flowboard.staging",
+  "build": {
+    "beforeDevCommand": "vite --mode staging",
+    "beforeBuildCommand": "vite build --mode staging"
+  },
   "app": {
     "windows": [
       {
