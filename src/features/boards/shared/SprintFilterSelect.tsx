@@ -1,0 +1,42 @@
+import { useUiStore } from "@/stores/uiStore";
+import { useSprints } from "@/hooks/useSprints";
+
+interface SprintFilterSelectProps {
+  projectId: number;
+}
+
+export function SprintFilterSelect({ projectId }: SprintFilterSelectProps) {
+  const { data: sprints } = useSprints(projectId);
+  const boardSprintFilter = useUiStore((s) => s.boardSprintFilter);
+  const setBoardSprintFilter = useUiStore((s) => s.setBoardSprintFilter);
+
+  const value =
+    boardSprintFilter === "all" || boardSprintFilter === "backlog"
+      ? boardSprintFilter
+      : String(boardSprintFilter);
+
+  return (
+    <select
+      value={value}
+      onChange={(e) => {
+        const v = e.target.value;
+        if (v === "all" || v === "backlog") {
+          setBoardSprintFilter(v);
+        } else {
+          setBoardSprintFilter(Number(v));
+        }
+      }}
+      className="bg-gray-800 border border-gray-700 text-white text-sm rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+      aria-label="Sprint filter"
+    >
+      <option value="all">All sprints</option>
+      <option value="backlog">Backlog (no sprint)</option>
+      {(sprints ?? []).map((s) => (
+        <option key={s.id} value={s.id}>
+          {s.name}
+          {s.status === "active" ? " (active)" : ""}
+        </option>
+      ))}
+    </select>
+  );
+}

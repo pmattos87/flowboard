@@ -6,8 +6,10 @@ beforeEach(() => {
     activeProjectId: null,
     createProjectModalOpen: false,
     createTaskModalOpen: false,
+    createTaskPrefill: null,
     selectedTaskId: null,
     selectedSprintId: null,
+    boardSprintFilter: "all",
   });
 });
 
@@ -53,5 +55,58 @@ describe("uiStore", () => {
     useUiStore.getState().setSelectedSprintId(5);
     useUiStore.getState().setSelectedSprintId(null);
     expect(useUiStore.getState().selectedSprintId).toBeNull();
+  });
+
+  // ─── Phase 10: board sprint filter ─────────────────────────────────
+
+  it("boardSprintFilter defaults to 'all'", () => {
+    expect(useUiStore.getState().boardSprintFilter).toBe("all");
+  });
+
+  it("setBoardSprintFilter accepts 'backlog' and a numeric sprint id", () => {
+    useUiStore.getState().setBoardSprintFilter("backlog");
+    expect(useUiStore.getState().boardSprintFilter).toBe("backlog");
+    useUiStore.getState().setBoardSprintFilter(7);
+    expect(useUiStore.getState().boardSprintFilter).toBe(7);
+  });
+
+  it("switching activeProjectId resets boardSprintFilter to 'all'", () => {
+    useUiStore.getState().setActiveProjectId(1);
+    useUiStore.getState().setBoardSprintFilter(7);
+    expect(useUiStore.getState().boardSprintFilter).toBe(7);
+
+    useUiStore.getState().setActiveProjectId(2);
+    expect(useUiStore.getState().boardSprintFilter).toBe("all");
+  });
+
+  it("setting activeProjectId to the same id preserves boardSprintFilter", () => {
+    useUiStore.getState().setActiveProjectId(1);
+    useUiStore.getState().setBoardSprintFilter(7);
+    useUiStore.getState().setActiveProjectId(1);
+    expect(useUiStore.getState().boardSprintFilter).toBe(7);
+  });
+
+  // ─── Phase 10: create-task prefill ─────────────────────────────────
+
+  it("openCreateTaskModal sets prefill and opens the modal in one update", () => {
+    useUiStore.getState().openCreateTaskModal({
+      parent_id: 42,
+      sprint_id: 5,
+      status: "in_progress",
+    });
+    const state = useUiStore.getState();
+    expect(state.createTaskModalOpen).toBe(true);
+    expect(state.createTaskPrefill).toEqual({
+      parent_id: 42,
+      sprint_id: 5,
+      status: "in_progress",
+    });
+  });
+
+  it("setCreateTaskModalOpen(false) clears the prefill", () => {
+    useUiStore.getState().openCreateTaskModal({ parent_id: 42 });
+    useUiStore.getState().setCreateTaskModalOpen(false);
+    expect(useUiStore.getState().createTaskPrefill).toBeNull();
+    expect(useUiStore.getState().createTaskModalOpen).toBe(false);
   });
 });
