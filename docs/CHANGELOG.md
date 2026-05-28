@@ -2,6 +2,18 @@
 
 **All notable changes to this project will be documented in this file.**
 
+## [1.0.1] - 2026-05-27 — Branding Patch
+
+Patch release replacing the default Tauri application icon with the FlowBoard logo across all generated icon sizes (taskbar, window header, installer, Start Menu shortcut, desktop shortcut).
+
+### Changed
+- Regenerated `src-tauri/icons/*` from `assets/logo-noBackground.png` via `npx tauri icon`
+- Added `scripts/pad-icon.ps1` helper that pads a non-square source PNG to a 1024×1024 transparent canvas so it can be consumed by the Tauri icon generator
+- Added `assets/logo-square.png` (1024×1024 padded source used to drive icon generation)
+
+### Version bumps
+- `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`, About page → `1.0.1`
+
 ## [1.0.0] - 2026-05-27 — Stable Release
 
 First stable release. The MVP defined by Phases 1–9 is complete, and the Phase 10 hierarchy pipeline, per-project task numbering, and staging-environment gating shipped on top.
