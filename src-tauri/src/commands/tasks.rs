@@ -345,17 +345,30 @@ pub async fn update_task(
 
 #[tauri::command]
 pub async fn delete_task(pool: State<'_, SqlitePool>, id: i64) -> Result<(), String> {
-    sqlx::query("DELETE FROM tasks WHERE id = ?")
-        .bind(id)
-        .execute(pool.inner())
-        .await
-        .map_err(|e| e.to_string())?;
+    delete_task_inner(pool.inner(), id).await
+}
+
+// Delete a task and all of its descendants (subtasks, sub-subtasks, …). Each
+// removed row's comments/attachments/time_logs/activity cascade via their FKs.
+async fn delete_task_inner(pool: &SqlitePool, id: i64) -> Result<(), String> {
+    sqlx::query(
+        r#"WITH RECURSIVE descendants(id) AS (
+               SELECT id FROM tasks WHERE id = ?
+               UNION ALL
+               SELECT t.id FROM tasks t JOIN descendants d ON t.parent_id = d.id
+           )
+           DELETE FROM tasks WHERE id IN (SELECT id FROM descendants)"#,
+    )
+    .bind(id)
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{create_task_inner, update_task_inner, TaskCreate, TaskUpdate};
+    use super::{create_task_inner, delete_task_inner, update_task_inner, TaskCreate, TaskUpdate};
     use sqlx::SqlitePool;
 
     #[test]
@@ -440,6 +453,48 @@ mod tests {
             story_points: None,
             due_date: None,
             labels: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn delete_task_cascades_to_descendants() {
+        let pool = new_test_pool().await;
+        let project_id = seed_project(&pool).await;
+        let person_id = seed_person(&pool, "Alice").await;
+
+        let mk = |parent_id: Option<i64>, title: &str| TaskCreate {
+            project_id,
+            sprint_id: None,
+            parent_id,
+            title: title.into(),
+            description: None,
+            r#type: None,
+            status: None,
+            priority: None,
+            assignee_id: Some(person_id),
+            story_points: None,
+            due_date: None,
+            labels: None,
+        };
+
+        let parent = create_task_inner(&pool, mk(None, "parent")).await.unwrap();
+        let child = create_task_inner(&pool, mk(Some(parent.id), "child")).await.unwrap();
+        let grandchild = create_task_inner(&pool, mk(Some(child.id), "grandchild")).await.unwrap();
+        // A separate tree that must survive.
+        let other = create_task_inner(&pool, mk(None, "other")).await.unwrap();
+        let other_child = create_task_inner(&pool, mk(Some(other.id), "other-child")).await.unwrap();
+
+        delete_task_inner(&pool, parent.id).await.unwrap();
+
+        let remaining: Vec<i64> =
+            sqlx::query_scalar::<_, i64>("SELECT id FROM tasks ORDER BY id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(remaining, vec![other.id, other_child.id]);
+        // The whole deleted subtree is gone.
+        for gone in [parent.id, child.id, grandchild.id] {
+            assert!(!remaining.contains(&gone));
         }
     }
 

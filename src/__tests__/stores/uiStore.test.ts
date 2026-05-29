@@ -10,6 +10,7 @@ beforeEach(() => {
     selectedTaskId: null,
     selectedSprintId: null,
     boardSprintFilter: "all",
+    boardSprintFilterFor: null,
   });
 });
 
@@ -84,6 +85,38 @@ describe("uiStore", () => {
     useUiStore.getState().setBoardSprintFilter(7);
     useUiStore.getState().setActiveProjectId(1);
     expect(useUiStore.getState().boardSprintFilter).toBe(7);
+  });
+
+  // ─── FB-2: default board sprint filter to active sprint ───────────
+
+  it("ensureDefaultSprintFilter defaults to the active sprint id", () => {
+    useUiStore.getState().ensureDefaultSprintFilter(1, 7);
+    expect(useUiStore.getState().boardSprintFilter).toBe(7);
+    expect(useUiStore.getState().boardSprintFilterFor).toBe(1);
+  });
+
+  it("ensureDefaultSprintFilter falls back to 'all' when no active sprint", () => {
+    useUiStore.getState().ensureDefaultSprintFilter(1, null);
+    expect(useUiStore.getState().boardSprintFilter).toBe("all");
+    expect(useUiStore.getState().boardSprintFilterFor).toBe(1);
+  });
+
+  it("ensureDefaultSprintFilter does not clobber a manual choice for the same project", () => {
+    useUiStore.getState().ensureDefaultSprintFilter(1, 7);
+    useUiStore.getState().setBoardSprintFilter("all"); // user picks All sprints
+    // A remount re-runs the effect for the same project — must be a no-op.
+    useUiStore.getState().ensureDefaultSprintFilter(1, 7);
+    expect(useUiStore.getState().boardSprintFilter).toBe("all");
+  });
+
+  it("ensureDefaultSprintFilter re-applies after switching projects", () => {
+    useUiStore.getState().setActiveProjectId(1);
+    useUiStore.getState().ensureDefaultSprintFilter(1, 7);
+    expect(useUiStore.getState().boardSprintFilter).toBe(7);
+
+    useUiStore.getState().setActiveProjectId(2); // resets the flag
+    useUiStore.getState().ensureDefaultSprintFilter(2, 9);
+    expect(useUiStore.getState().boardSprintFilter).toBe(9);
   });
 
   // ─── Phase 10: create-task prefill ─────────────────────────────────

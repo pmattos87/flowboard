@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useUiStore } from "@/stores/uiStore";
 import { useSprints } from "@/hooks/useSprints";
 
@@ -9,6 +10,14 @@ export function SprintFilterSelect({ projectId }: SprintFilterSelectProps) {
   const { data: sprints } = useSprints(projectId);
   const boardSprintFilter = useUiStore((s) => s.boardSprintFilter);
   const setBoardSprintFilter = useUiStore((s) => s.setBoardSprintFilter);
+  const ensureDefaultSprintFilter = useUiStore((s) => s.ensureDefaultSprintFilter);
+
+  // Default the filter to the active sprint, once per project.
+  useEffect(() => {
+    if (!sprints) return;
+    const activeSprintId = sprints.find((s) => s.status === "active")?.id ?? null;
+    ensureDefaultSprintFilter(projectId, activeSprintId);
+  }, [projectId, sprints, ensureDefaultSprintFilter]);
 
   const value =
     boardSprintFilter === "all" || boardSprintFilter === "backlog"

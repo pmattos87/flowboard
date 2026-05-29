@@ -223,6 +223,38 @@ describe("TaskDetailPanel — Parent story", () => {
   });
 });
 
+describe("TaskDetailPanel — delete task (FB-3)", () => {
+  it("trash → confirm invokes delete_task and closes the panel", async () => {
+    setupInvoke();
+    const user = userEvent.setup();
+    useUiStore.setState({ selectedTaskId: 7 });
+    renderPanel();
+    await waitFor(() => expect(screen.getByDisplayValue("Fix login bug")).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: /delete task/i }));
+    // Confirmation popup appears, then confirm.
+    const confirmBtn = await screen.findByRole("button", { name: /^delete$/i });
+    await user.click(confirmBtn);
+
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith("delete_task", { id: 7 }));
+    expect(useUiStore.getState().selectedTaskId).toBeNull();
+  });
+
+  it("cancel in the confirmation popup does not delete", async () => {
+    setupInvoke();
+    const user = userEvent.setup();
+    useUiStore.setState({ selectedTaskId: 7 });
+    renderPanel();
+    await waitFor(() => expect(screen.getByDisplayValue("Fix login bug")).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: /delete task/i }));
+    await user.click(await screen.findByRole("button", { name: /cancel/i }));
+
+    expect(mockInvoke).not.toHaveBeenCalledWith("delete_task", expect.anything());
+    expect(useUiStore.getState().selectedTaskId).toBe(7);
+  });
+});
+
 describe("AttachmentsSection — handleAttach (regression)", () => {
   const filepath = "C:\\Users\\Pedro\\Downloads\\report.pdf";
 
