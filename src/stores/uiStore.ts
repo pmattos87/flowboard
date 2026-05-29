@@ -31,16 +31,22 @@ interface UiState {
 
   boardSprintFilter: SprintFilter;
   setBoardSprintFilter: (f: SprintFilter) => void;
+
+  // Which project the current boardSprintFilter was resolved for. Used to apply
+  // the "default to active sprint" rule once per project without clobbering a
+  // later manual choice when SprintFilterSelect remounts (e.g. switching boards).
+  boardSprintFilterFor: number | null;
+  ensureDefaultSprintFilter: (projectId: number, activeSprintId: number | null) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
   activeProjectId: null,
   setActiveProjectId: (id) =>
-    set((state) => ({
-      activeProjectId: id,
-      boardSprintFilter:
-        state.activeProjectId === id ? state.boardSprintFilter : "all",
-    })),
+    set((state) =>
+      state.activeProjectId === id
+        ? { activeProjectId: id }
+        : { activeProjectId: id, boardSprintFilter: "all", boardSprintFilterFor: null }
+    ),
 
   createProjectModalOpen: false,
   setCreateProjectModalOpen: (open) => set({ createProjectModalOpen: open }),
@@ -66,4 +72,15 @@ export const useUiStore = create<UiState>((set) => ({
 
   boardSprintFilter: "all",
   setBoardSprintFilter: (f) => set({ boardSprintFilter: f }),
+
+  boardSprintFilterFor: null,
+  ensureDefaultSprintFilter: (projectId, activeSprintId) =>
+    set((state) =>
+      state.boardSprintFilterFor === projectId
+        ? state
+        : {
+            boardSprintFilter: activeSprintId ?? "all",
+            boardSprintFilterFor: projectId,
+          }
+    ),
 }));
