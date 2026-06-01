@@ -1,6 +1,7 @@
 import type { Task, TaskStatus } from "@/types";
 import type { SprintFilter } from "@/stores/uiStore";
 import { matchesSprintFilter } from "./sprintFilter";
+import { sortByPriority } from "./boardConstants";
 
 export type StoryGroupKey = number | "unparented";
 
@@ -24,10 +25,13 @@ export function buildTaskBoardRows(
   tasks: Task[],
   filter: SprintFilter,
 ): TaskBoardRow[] {
-  const stories = tasks
-    .filter((t) => t.type === "story")
-    .filter((t) => matchesSprintFilter(t, filter))
-    .sort((a, b) => a.id - b.id);
+  // Highest priority first; ascending id breaks ties (stable sort over id-sorted input).
+  const stories = sortByPriority(
+    tasks
+      .filter((t) => t.type === "story")
+      .filter((t) => matchesSprintFilter(t, filter))
+      .sort((a, b) => a.id - b.id),
+  );
 
   const children = tasks.filter((t) => t.type === "task" || t.type === "bug");
 
