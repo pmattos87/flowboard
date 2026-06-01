@@ -33,6 +33,7 @@ import { useSprints } from "@/hooks/useSprints";
 import { useProject } from "@/hooks/useProjects";
 import { useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
+import { Avatar } from "@/components/Avatar";
 import type {
   Attachment,
   Comment,
@@ -149,12 +150,10 @@ function CommentsSection({ taskId, people }: { taskId: number; people: Person[] 
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
-                        <div
-                          className="h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-semibold text-white shrink-0"
-                          style={{ backgroundColor: author?.avatar_color ?? "#6366f1" }}
-                        >
-                          {(author?.name ?? "?").charAt(0).toUpperCase()}
-                        </div>
+                        <Avatar
+                          person={author ?? { name: "?", avatar_color: "#6366f1", avatar_data: null }}
+                          className="h-5 w-5 text-[10px]"
+                        />
                         <span className="text-xs font-medium text-gray-300">{author?.name ?? "Unknown"}</span>
                         <span className="text-[11px] text-gray-500">{formatDateTime(c.created_at)}</span>
                       </div>
