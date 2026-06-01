@@ -716,6 +716,53 @@ mod tests {
         assert_eq!(task_count, 0);
     }
 
+    // ─── Canceled status (FB-36) ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn canceled_status_is_accepted_after_migration() {
+        let pool = new_test_pool().await;
+        let project_id = seed_project(&pool).await;
+        seed_person(&pool, "Alice").await;
+
+        let task = create_task_inner(
+            &pool,
+            TaskCreate {
+                project_id,
+                sprint_id: None,
+                parent_id: None,
+                title: "Cancel me".into(),
+                description: None,
+                r#type: None,
+                status: None,
+                priority: None,
+                assignee_id: None,
+                story_points: None,
+                due_date: None,
+                labels: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        update_task_inner(
+            &pool,
+            task.id,
+            TaskUpdate {
+                status: Some("canceled".into()),
+                ..empty_update()
+            },
+        )
+        .await
+        .expect("the migrated CHECK constraint must accept 'canceled'");
+
+        let status: String = sqlx::query_scalar("SELECT status FROM tasks WHERE id = ?")
+            .bind(task.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(status, "canceled");
+    }
+
     // ─── Sprint cascade (Phase 10 / Task 10.5) ─────────────────────────────
 
     async fn seed_sprint(pool: &SqlitePool, project_id: i64, name: &str) -> i64 {
