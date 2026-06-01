@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import {
   DndContext,
@@ -60,6 +60,20 @@ export default function RoadmapPage() {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // The roadmap's long axis is horizontal, so redirect vertical wheel input to
+  // horizontal scroll. Leave it alone when there are enough rows to actually
+  // need vertical scrolling.
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    const el = scrollRef.current;
+    if (!el || e.deltaY === 0) return;
+    if (el.scrollHeight <= el.clientHeight) {
+      el.scrollLeft += e.deltaY;
+      e.preventDefault();
+    }
+  };
 
   const today = todayIso();
 
@@ -192,7 +206,11 @@ export default function RoadmapPage() {
         </div>
       ) : (
         <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-        <div className="flex-1 min-h-0 overflow-auto bg-gray-900 rounded-lg border border-gray-800">
+        <div
+          ref={scrollRef}
+          onWheel={handleWheel}
+          className="flex-1 min-h-0 overflow-auto bg-gray-900 rounded-lg border border-gray-800"
+        >
           <div
             className="relative"
             style={{ width: LABEL_WIDTH + totalPx, minWidth: "100%" }}
