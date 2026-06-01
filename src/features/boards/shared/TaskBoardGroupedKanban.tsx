@@ -14,7 +14,7 @@ import type { Person, Task, TaskStatus } from "@/types";
 import { useUiStore } from "@/stores/uiStore";
 import { useUpdateTask } from "@/hooks/useTasks";
 import type { TaskUpdatePayload } from "@/lib/commands";
-import { COLUMNS, PRIORITY_META, TYPE_META } from "./boardConstants";
+import { COLUMNS, PRIORITY_META, TYPE_META, sortByPriority } from "./boardConstants";
 import { TaskCard } from "./TaskCard";
 import {
   buildTaskBoardRows,
@@ -260,7 +260,9 @@ function StoryRow({
       {!collapsed && (
         <div className="grid grid-cols-4 gap-3 p-3">
           {COLUMNS.map((col) => {
-            const colTasks = row.children.filter((c) => c.status === col.status);
+            const colTasks = sortByPriority(
+              row.children.filter((c) => c.status === col.status)
+            );
             return (
               <GroupedColumn
                 key={col.status}
