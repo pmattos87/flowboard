@@ -13,7 +13,7 @@ tasks         (id, project_id, task_number, sprint_id, parent_id, title, descrip
                type, status, priority, assignee_id, story_points,
                due_date, created_at, updated_at, labels)
               -- type:        'story' | 'bug' | 'task' | 'epic'
-              -- status:      'todo' | 'in_progress' | 'in_review' | 'done'
+              -- status:      'todo' | 'in_progress' | 'in_review' | 'canceled' | 'done'
               -- priority:    'low' | 'medium' | 'high' | 'critical'
               -- task_number: per-project sequence (see Important Rules)
 comments      (id, task_id, author_id, body, created_at)

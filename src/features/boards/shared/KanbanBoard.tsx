@@ -105,6 +105,7 @@ export function KanbanBoard({ tasks, people, projectKey }: KanbanBoardProps) {
               status={col.status}
               label={col.label}
               dotClass={col.dotClass}
+              Icon={col.Icon}
               tasks={colTasks}
               people={people}
               projectKey={projectKey}

@@ -63,14 +63,16 @@ export function BurndownChart({ sprint }: Props) {
     const days = eachDayBetween(sprint.start_date, sprint.end_date);
     const total = tasks.length;
     return days.map((day, i) => {
-      const done = tasks.filter((t) => {
+      // 'done' and 'canceled' both leave the remaining-work line: done is
+      // completed, canceled is dropped from scope.
+      const removed = tasks.filter((t) => {
         const status = lastStatusAtOrBefore(t.id, day, logs) ?? t.status;
-        return status === "done";
+        return status === "done" || status === "canceled";
       }).length;
       const idealRaw = total * (1 - i / Math.max(days.length - 1, 1));
       return {
         day: day.slice(5), // "MM-DD"
-        actual: total - done,
+        actual: total - removed,
         ideal: Math.round(idealRaw),
       };
     });

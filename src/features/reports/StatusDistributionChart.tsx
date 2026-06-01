@@ -19,6 +19,7 @@ const STATUS_CONFIG = [
   { key: "todo", label: "To Do", color: "#6b7280" },
   { key: "in_progress", label: "In Progress", color: "#60a5fa" },
   { key: "in_review", label: "In Review", color: "#fbbf24" },
+  { key: "canceled", label: "Canceled", color: "#475569" },
   { key: "done", label: "Done", color: "#34d399" },
 ] as const;
 

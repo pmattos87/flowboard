@@ -31,6 +31,7 @@ const STATUS_LABELS: Record<string, string> = {
   todo: "To Do",
   in_progress: "In Progress",
   in_review: "In Review",
+  canceled: "Canceled",
   done: "Done",
 };
 
