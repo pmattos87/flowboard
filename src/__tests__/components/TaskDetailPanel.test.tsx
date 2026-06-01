@@ -223,6 +223,40 @@ describe("TaskDetailPanel — Parent story", () => {
   });
 });
 
+describe("TaskDetailPanel — Time Logs visibility (FB-31)", () => {
+  function setupInvokeWithType(type: string) {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "get_task") return Promise.resolve({ ...fakeTask, type });
+      if (cmd === "get_project") return Promise.resolve(fakeProject);
+      if (cmd === "list_people") return Promise.resolve([]);
+      if (cmd === "list_sprints") return Promise.resolve([]);
+      if (cmd === "list_comments") return Promise.resolve([]);
+      if (cmd === "list_time_logs") return Promise.resolve([]);
+      if (cmd === "list_attachments") return Promise.resolve([]);
+      return Promise.resolve(null);
+    });
+  }
+
+  it("hides the Time Logs section for non-task types", async () => {
+    setupInvokeWithType("bug");
+    useUiStore.setState({ selectedTaskId: 7 });
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByDisplayValue("Fix login bug")).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Time Logs")).not.toBeInTheDocument();
+  });
+
+  it("shows the Time Logs section for task type", async () => {
+    setupInvokeWithType("task");
+    useUiStore.setState({ selectedTaskId: 7 });
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByText("Time Logs")).toBeInTheDocument(),
+    );
+  });
+});
+
 describe("TaskDetailPanel — delete task (FB-3)", () => {
   it("trash → confirm invokes delete_task and closes the panel", async () => {
     setupInvoke();

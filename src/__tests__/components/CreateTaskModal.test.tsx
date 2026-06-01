@@ -22,6 +22,7 @@ beforeEach(() => {
   useUiStore.setState({
     activeProjectId: null,
     createTaskModalOpen: false,
+    createTaskPrefill: null,
     selectedTaskId: null,
     selectedSprintId: null,
   });
@@ -66,6 +67,59 @@ describe("CreateTaskModal — form", () => {
     expect(screen.getByRole("button", { name: "Bug" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Task" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Epic" })).toBeInTheDocument();
+  });
+});
+
+describe("CreateTaskModal — locked type (story boards)", () => {
+  beforeEach(() => {
+    mockInvoke.mockResolvedValue([]);
+    useUiStore.setState({
+      createTaskModalOpen: true,
+      activeProjectId: 1,
+      createTaskPrefill: { type: "story", lockType: true },
+    });
+  });
+
+  it("shows only the Story type option and hides the others", async () => {
+    renderModal();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Story" })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Bug" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Task" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Epic" })).not.toBeInTheDocument();
+  });
+
+  it("relabels the title and submit button to story", async () => {
+    renderModal();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /create story/i })).toBeInTheDocument();
+    });
+  });
+
+  it("creates a task of type story", async () => {
+    const user = userEvent.setup();
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "list_people") return Promise.resolve([]);
+      if (cmd === "list_sprints") return Promise.resolve([]);
+      if (cmd === "list_tasks") return Promise.resolve([]);
+      if (cmd === "create_task") return Promise.resolve(null);
+      return Promise.resolve(null);
+    });
+    renderModal();
+
+    await waitFor(() => expect(screen.getByLabelText(/title/i)).toBeInTheDocument());
+    await user.type(screen.getByLabelText(/title/i), "A story");
+    await user.click(screen.getByRole("button", { name: /create story/i }));
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith(
+        "create_task",
+        expect.objectContaining({
+          payload: expect.objectContaining({ type: "story", title: "A story" }),
+        })
+      );
+    });
   });
 });
 

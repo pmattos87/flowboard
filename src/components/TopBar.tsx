@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Bell, Plus, Search } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { usePeople } from "@/hooks/usePeople";
 import { useProject, useProjects } from "@/hooks/useProjects";
 import { useSprints } from "@/hooks/useSprints";
@@ -94,11 +94,15 @@ function SearchResults({
 
 export function TopBar() {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const activeProjectId = useUiStore((s) => s.activeProjectId);
   const setActiveProjectId = useUiStore((s) => s.setActiveProjectId);
-  const setCreateTaskModalOpen = useUiStore((s) => s.setCreateTaskModalOpen);
+  const openCreateTaskModal = useUiStore((s) => s.openCreateTaskModal);
   const setSelectedTaskId = useUiStore((s) => s.setSelectedTaskId);
   const setBoardSprintFilter = useUiStore((s) => s.setBoardSprintFilter);
+  // The story boards create stories only; everywhere else the Create button is generic.
+  const storyOnly =
+    pathname === "/board/user-story" || pathname === "/board/discovery";
   const { data: activeProject } = useProject(activeProjectId);
   const { data: people } = usePeople();
   const { data: activityLogs = [] } = useAllActivityLog();
@@ -232,14 +236,16 @@ export function TopBar() {
       </div>
 
       <div className="flex items-center gap-3">
-        <button
-          type="button"
-          className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-md px-3 py-1.5 transition-colors"
-          onClick={() => setCreateTaskModalOpen(true)}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Create
-        </button>
+        {storyOnly && (
+          <button
+            type="button"
+            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-md px-3 py-1.5 transition-colors"
+            onClick={() => openCreateTaskModal({ type: "story", lockType: true })}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Create Story
+          </button>
+        )}
 
         <button
           type="button"

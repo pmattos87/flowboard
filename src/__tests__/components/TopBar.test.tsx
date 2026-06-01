@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
@@ -12,10 +13,10 @@ function makePerson(id: number, name: string) {
   return { id, name, email: `p${id}@ex.com`, avatar_color: "#6366f1", role: "" };
 }
 
-function renderTopBar() {
+function renderTopBar(path = "/") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <QueryClientProvider client={qc}>
         <TopBar />
       </QueryClientProvider>
@@ -25,7 +26,12 @@ function renderTopBar() {
 
 beforeEach(() => {
   mockInvoke.mockReset();
-  useUiStore.setState({ activeProjectId: null, createProjectModalOpen: false });
+  useUiStore.setState({
+    activeProjectId: null,
+    createProjectModalOpen: false,
+    createTaskModalOpen: false,
+    createTaskPrefill: null,
+  });
 });
 
 describe("TopBar", () => {
@@ -108,6 +114,32 @@ describe("TopBar", () => {
     await waitFor(() => expect(mockInvoke).toHaveBeenCalled());
     // Badge element should not be present
     expect(screen.queryByText(/^\d+$|^9\+$/)).not.toBeInTheDocument();
+  });
+
+  it("hides the create button on non-story boards (FB-40)", async () => {
+    mockInvoke.mockResolvedValue([]);
+    renderTopBar("/board/task");
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: /create/i })).not.toBeInTheDocument();
+  });
+
+  it("labels the create button 'Create Story' and locks type on the user-story board (FB-40)", async () => {
+    const user = userEvent.setup();
+    mockInvoke.mockResolvedValue([]);
+    renderTopBar("/board/user-story");
+    const btn = await screen.findByRole("button", { name: /create story/i });
+    await user.click(btn);
+    const state = useUiStore.getState();
+    expect(state.createTaskModalOpen).toBe(true);
+    expect(state.createTaskPrefill).toEqual({ type: "story", lockType: true });
+  });
+
+  it("labels the create button 'Create Story' on the discovery board (FB-40)", async () => {
+    mockInvoke.mockResolvedValue([]);
+    renderTopBar("/board/discovery");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /create story/i })).toBeInTheDocument(),
+    );
   });
 
   it("shows badge count when there are unread activity entries", async () => {

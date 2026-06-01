@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { TaskStatus } from "@/types";
+import type { TaskStatus, TaskType } from "@/types";
 
 export type SprintFilter = "all" | "backlog" | number;
 
@@ -7,6 +7,8 @@ export interface CreateTaskPrefill {
   parent_id?: number | null;
   sprint_id?: number | null;
   status?: TaskStatus;
+  type?: TaskType;
+  lockType?: boolean;
 }
 
 interface UiState {

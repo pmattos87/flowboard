@@ -92,6 +92,29 @@ describe("Roadmap — with sprints", () => {
     expect(screen.getByRole("button", { name: /^quarter$/i })).toBeInTheDocument();
   });
 
+  it("maps vertical wheel to horizontal scroll (FB-25)", async () => {
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /move sprint alpha/i })).toBeInTheDocument(),
+    );
+    const scroller = document.querySelector(".overflow-auto") as HTMLDivElement;
+    expect(scroller).toBeTruthy();
+    expect(scroller.scrollLeft).toBe(0);
+    fireEvent.wheel(scroller, { deltaY: 120 });
+    expect(scroller.scrollLeft).toBe(120);
+  });
+
+  it("maps side-tilt wheel (deltaX) to horizontal scroll (FB-25)", async () => {
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /move sprint alpha/i })).toBeInTheDocument(),
+    );
+    const scroller = document.querySelector(".overflow-auto") as HTMLDivElement;
+    expect(scroller.scrollLeft).toBe(0);
+    fireEvent.wheel(scroller, { deltaX: 80 });
+    expect(scroller.scrollLeft).toBe(80);
+  });
+
   it("opens the edit dialog when a bar is clicked", async () => {
     renderPage();
     const moveHandle = await screen.findByRole("button", { name: /move sprint alpha/i });
