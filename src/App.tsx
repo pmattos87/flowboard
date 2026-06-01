@@ -16,7 +16,6 @@ import About from "@/pages/About";
 import Inbox from "@/pages/Inbox";
 import People from "@/pages/People";
 import Settings from "@/pages/Settings";
-import Sprints from "@/pages/Sprints";
 
 function App() {
   return (
@@ -28,7 +27,6 @@ function App() {
           <Route path="/board/user-story" element={<UserStoryBoard />} />
           <Route path="/board/task" element={<TaskBoard />} />
           <Route path="/board/sprint-planning" element={<SprintPlanningBoard />} />
-          <Route path="/sprints" element={<Sprints />} />
           <Route path="/roadmap" element={<RoadmapPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/people" element={<People />} />

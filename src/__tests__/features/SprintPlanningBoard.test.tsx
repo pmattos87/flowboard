@@ -55,7 +55,13 @@ function renderBoard() {
 
 beforeEach(() => {
   mockInvoke.mockReset();
-  useUiStore.setState({ activeProjectId: null, selectedTaskId: null, selectedSprintId: null });
+  useUiStore.setState({
+    activeProjectId: null,
+    selectedTaskId: null,
+    selectedSprintId: null,
+    boardSprintFilter: "all",
+    boardSprintFilterFor: null,
+  });
 });
 
 describe("SprintPlanningBoard — no project", () => {
@@ -65,26 +71,10 @@ describe("SprintPlanningBoard — no project", () => {
   });
 });
 
-describe("SprintPlanningBoard — no sprints", () => {
-  it("shows no-sprints message when sprint list is empty", async () => {
-    useUiStore.setState({ activeProjectId: 1 });
-    mockInvoke.mockImplementation((cmd) => {
-      if (cmd === "list_sprints") return Promise.resolve([]);
-      if (cmd === "list_tasks") return Promise.resolve([]);
-      if (cmd === "list_people") return Promise.resolve([]);
-      if (cmd === "get_project") return Promise.resolve(fakeProject);
-      return Promise.resolve(null);
-    });
-    renderBoard();
-    await waitFor(() =>
-      expect(screen.getByText(/no sprints for this project/i)).toBeInTheDocument()
-    );
-  });
-});
-
 describe("SprintPlanningBoard — with sprints and tasks", () => {
   beforeEach(() => {
-    useUiStore.setState({ activeProjectId: 1 });
+    // Pin the filter to "all" so every sprint + backlog section renders.
+    useUiStore.setState({ activeProjectId: 1, boardSprintFilter: "all", boardSprintFilterFor: 1 });
     mockInvoke.mockImplementation((cmd) => {
       if (cmd === "list_sprints") return Promise.resolve(fakeSprints);
       if (cmd === "list_tasks") return Promise.resolve(fakeTasks);
@@ -101,39 +91,50 @@ describe("SprintPlanningBoard — with sprints and tasks", () => {
     );
   });
 
-  it("shows backlog panel with tasks that have no sprint", async () => {
-    renderBoard();
-    await waitFor(() => expect(screen.getByText("Backlog item A")).toBeInTheDocument());
-  });
-
-  it("shows sprint panel with tasks assigned to the active sprint", async () => {
+  it("shows a story assigned to a sprint", async () => {
     renderBoard();
     await waitFor(() => expect(screen.getByText("Sprint item B")).toBeInTheDocument());
   });
 
-  it("backlog item does not appear in sprint panel context", async () => {
-    renderBoard();
-    await waitFor(() => expect(screen.getByText("Sprint item B")).toBeInTheDocument());
-    // Both items render, but each is in the correct panel — just verify both are present
-    expect(screen.getByText("Backlog item A")).toBeInTheDocument();
-  });
-
-  it("backlog excludes non-story backlog tasks", async () => {
+  it("shows a backlog story (no sprint)", async () => {
     renderBoard();
     await waitFor(() => expect(screen.getByText("Backlog item A")).toBeInTheDocument());
-    // Phase 10: only stories appear in the backlog panel.
+  });
+
+  it("excludes non-story tasks from the board", async () => {
+    renderBoard();
+    await waitFor(() => expect(screen.getByText("Backlog item A")).toBeInTheDocument());
     expect(screen.queryByText("Backlog bug C")).not.toBeInTheDocument();
   });
 
-  it("sprint selector renders all sprint options", async () => {
+  it("renders a Create sprint button", async () => {
+    renderBoard();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /create sprint/i })).toBeInTheDocument()
+    );
+  });
+
+  it("renders the sprint filter with all options", async () => {
     renderBoard();
     await waitFor(() =>
       expect(screen.getByRole("option", { name: /sprint 1/i })).toBeInTheDocument()
     );
+    expect(screen.getByRole("option", { name: /all sprints/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /backlog/i })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /sprint 2/i })).toBeInTheDocument();
   });
+});
 
-  it("auto-selects the active sprint", async () => {
+describe("SprintPlanningBoard — default filter", () => {
+  it("defaults the filter to the active sprint", async () => {
+    useUiStore.setState({ activeProjectId: 1, boardSprintFilter: "all", boardSprintFilterFor: null });
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "list_sprints") return Promise.resolve(fakeSprints);
+      if (cmd === "list_tasks") return Promise.resolve(fakeTasks);
+      if (cmd === "list_people") return Promise.resolve([]);
+      if (cmd === "get_project") return Promise.resolve(fakeProject);
+      return Promise.resolve(null);
+    });
     renderBoard();
     await waitFor(() => {
       const select = screen.getByRole("combobox") as HTMLSelectElement;
