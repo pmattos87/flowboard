@@ -1,4 +1,5 @@
 import {
+  Ban,
   BookOpen,
   Bug,
   CheckSquare,
@@ -11,10 +12,12 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { TaskPriority, TaskStatus, TaskType } from "@/types";
 
-export const COLUMNS: { status: TaskStatus; label: string; dotClass: string }[] = [
+// `Icon`, when present, replaces the colored status dot in column headers.
+export const COLUMNS: { status: TaskStatus; label: string; dotClass: string; Icon?: LucideIcon }[] = [
   { status: "todo",        label: "TO DO",       dotClass: "bg-gray-400" },
   { status: "in_progress", label: "IN PROGRESS",  dotClass: "bg-blue-500" },
   { status: "in_review",   label: "IN REVIEW",    dotClass: "bg-yellow-400" },
+  { status: "canceled",    label: "CANCELED",     dotClass: "bg-gray-500", Icon: Ban },
   { status: "done",        label: "DONE",         dotClass: "bg-emerald-500" },
 ];
 

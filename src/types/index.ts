@@ -1,5 +1,5 @@
 export type TaskType = "story" | "bug" | "task" | "epic";
-export type TaskStatus = "todo" | "in_progress" | "in_review" | "done";
+export type TaskStatus = "todo" | "in_progress" | "in_review" | "canceled" | "done";
 export type TaskPriority = "low" | "medium" | "high" | "critical";
 export type SprintStatus = "backlog" | "active" | "completed";
 

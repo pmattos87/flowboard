@@ -1,4 +1,5 @@
 import { useDroppable } from "@dnd-kit/core";
+import type { LucideIcon } from "lucide-react";
 import type { Person, Task, TaskStatus } from "@/types";
 import { TaskCard } from "./TaskCard";
 
@@ -6,6 +7,7 @@ interface KanbanColumnProps {
   status: TaskStatus;
   label: string;
   dotClass: string;
+  Icon?: LucideIcon;
   tasks: Task[];
   people: Person[];
   projectKey: string;
@@ -15,6 +17,7 @@ export function KanbanColumn({
   status,
   label,
   dotClass,
+  Icon,
   tasks,
   people,
   projectKey,
@@ -25,7 +28,11 @@ export function KanbanColumn({
     <div className="flex flex-col flex-1 min-w-[240px]">
       {/* Column header */}
       <div className="flex items-center gap-2 mb-3 px-1">
-        <span className={`h-2 w-2 rounded-full shrink-0 ${dotClass}`} />
+        {Icon ? (
+          <Icon className="h-3.5 w-3.5 shrink-0 text-gray-500" />
+        ) : (
+          <span className={`h-2 w-2 rounded-full shrink-0 ${dotClass}`} />
+        )}
         <span className="text-xs font-semibold tracking-wider text-gray-400 uppercase">
           {label}
         </span>
