@@ -175,7 +175,7 @@ function StoryRowHeader({
   const priorityMeta = PRIORITY_META[story.priority] ?? PRIORITY_META.medium;
   const TypeIcon = typeMeta.Icon;
   const PriorityIcon = priorityMeta.Icon;
-  const ticketId = `${projectKey}-${story.id}`;
+  const ticketId = `${projectKey}-${story.task_number}`;
   const statusColor = STORY_STATUS_COLOR[story.status] ?? typeMeta.colorClass;
 
   return (

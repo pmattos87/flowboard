@@ -50,9 +50,10 @@ describe("TaskCard — rendering", () => {
     expect(screen.getByText("Build kanban board")).toBeInTheDocument();
   });
 
-  it("renders the ticket ID", () => {
+  it("renders the ticket ID from per-project task_number, not internal id", () => {
     renderCard();
-    expect(screen.getByText("FB-42")).toBeInTheDocument();
+    expect(screen.getByText("FB-1")).toBeInTheDocument();
+    expect(screen.queryByText("FB-42")).not.toBeInTheDocument();
   });
 
   it("renders story points", () => {
