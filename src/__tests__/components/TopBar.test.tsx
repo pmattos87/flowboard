@@ -116,13 +116,11 @@ describe("TopBar", () => {
     expect(screen.queryByText(/^\d+$|^9\+$/)).not.toBeInTheDocument();
   });
 
-  it("labels the create button 'Create' on non-story boards (FB-40)", async () => {
+  it("hides the create button on non-story boards (FB-40)", async () => {
     mockInvoke.mockResolvedValue([]);
     renderTopBar("/board/task");
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /^create$/i })).toBeInTheDocument(),
-    );
-    expect(screen.queryByRole("button", { name: /create story/i })).not.toBeInTheDocument();
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: /create/i })).not.toBeInTheDocument();
   });
 
   it("labels the create button 'Create Story' and locks type on the user-story board (FB-40)", async () => {
