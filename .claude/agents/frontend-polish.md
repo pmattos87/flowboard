@@ -1,3 +1,10 @@
+---
+name: frontend-polish
+description: Final visual and interaction quality — animations, micro-interactions, accessibility, and polish on existing components
+model: sonnet
+tools: Read, Edit, Write, Bash, Grep, Glob
+---
+
 # FlowBoard — Agent: skill:frontend-polish
 
 **Primary Responsibility:** Final visual and interaction quality.
