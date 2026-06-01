@@ -2,6 +2,14 @@
 
 **All notable changes to this project will be documented in this file.**
 
+## [1.1.1] - 2026-06-01
+
+### Added
+- Profile photos for people (FB-8): upload a profile picture with a random fallback color when none is set. Adds the `people.avatar_data` column, `Avatar` component, and image helpers.
+
+### Version bumps
+- `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`, About page → `1.1.1`
+
 ## [1.1.0] - 2026-06-01
 
 ### Version bumps
