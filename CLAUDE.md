@@ -163,17 +163,17 @@ src-tauri/
 
 ## Agent Registry
 
-**Directory:**  `docs/agents/`
+**Directory:**  `.claude/agents/`
 
 | Agent | File | Primary Focus | Model | Rationale |
 |-------|------|---------------|-------|-----------|
-| `skill:frontend-design` | [frontend-design.md](./frontend-design.md) | All React UI, layouts, boards, charts, modals | `claude-sonnet-4-6` | Well-specified execution tasks; broad output volume across phases |
-| `skill:backend-engineer` | [backend-engineer.md](./backend-engineer.md) | Rust backend, Tauri, SQLite, Gantt, file I/O | `claude-opus-4-7` | Rust/Tauri architecture, SQLite schema design, complex file I/O — high-judgment, hard-to-reverse decisions |
-| `skill:data-layer` | [data-layer.md](./data-layer.md) | Zustand, React Query, command wrappers, caching | `claude-opus-4-7` | Load-bearing layer; React Query/Zustand separation errors propagate to every subsequent phase |
-| `skill:ux-engineer` | [ux-engineer.md](./ux-engineer.md) | Keyboard shortcuts, search, command palette, accessibility | `claude-sonnet-4-6` | Interaction patterns are well-scoped in handoffs |
-| `skill:qa-engineer` | [qa-engineer.md](./qa-engineer.md) | Testing, Definition of Done enforcement | `claude-opus-4-7` | Requires holistic reasoning across the full codebase to assess correctness |
-| `skill:frontend-polish` | [frontend-polish.md](./frontend-polish.md) | Animations, micro-interactions, a11y, final polish | `claude-sonnet-4-6` | Refinement work on already-existing components |
-| `skill:docs-architect` | [docs-architect.md](./docs-architect.md) | Documentation & type synchronization | `claude-sonnet-4-6` | Documentation and type sync — low ambiguity |
+| `skill:frontend-design` | [frontend-design.md](./.claude/agents/frontend-design.md) | All React UI, layouts, boards, charts, modals | `claude-sonnet-4-6` | Well-specified execution tasks; broad output volume across phases |
+| `skill:backend-engineer` | [backend-engineer.md](./.claude/agents/backend-engineer.md) | Rust backend, Tauri, SQLite, Gantt, file I/O | `claude-opus-4-7` | Rust/Tauri architecture, SQLite schema design, complex file I/O — high-judgment, hard-to-reverse decisions |
+| `skill:data-layer` | [data-layer.md](./.claude/agents/data-layer.md) | Zustand, React Query, command wrappers, caching | `claude-opus-4-7` | Load-bearing layer; React Query/Zustand separation errors propagate to every subsequent phase |
+| `skill:ux-engineer` | [ux-engineer.md](./.claude/agents/ux-engineer.md) | Keyboard shortcuts, search, command palette, accessibility | `claude-sonnet-4-6` | Interaction patterns are well-scoped in handoffs |
+| `skill:qa-engineer` | [qa-engineer.md](./.claude/agents/qa-engineer.md) | Testing, Definition of Done enforcement | `claude-opus-4-7` | Requires holistic reasoning across the full codebase to assess correctness |
+| `skill:frontend-polish` | [frontend-polish.md](./.claude/agents/frontend-polish.md) | Animations, micro-interactions, a11y, final polish | `claude-sonnet-4-6` | Refinement work on already-existing components |
+| `skill:docs-architect` | [docs-architect.md](./.claude/agents/docs-architect.md) | Documentation & type synchronization | `claude-sonnet-4-6` | Documentation and type sync — low ambiguity |
 
 **Usage:** When handing off work, attach the relevant agent file(s) + the main `CLAUDE.md`. Always invoke each agent with its assigned model above — do not substitute models without explicit approval.
 
