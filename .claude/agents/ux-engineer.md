@@ -1,3 +1,10 @@
+---
+name: ux-engineer
+description: Advanced interaction patterns — keyboard shortcuts, global search, command palette, and accessibility
+model: sonnet
+tools: Read, Edit, Write, Bash, Grep, Glob
+---
+
 # FlowBoard — Agent: skill:ux-engineer
 
 **Primary Responsibility:** Advanced user interaction patterns.

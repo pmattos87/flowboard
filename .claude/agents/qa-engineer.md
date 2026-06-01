@@ -1,3 +1,10 @@
+---
+name: qa-engineer
+description: Quality assurance, testing (Vitest + RTL), and Definition of Done enforcement across the codebase
+model: opus
+tools: Read, Edit, Write, Bash, Grep, Glob
+---
+
 # FlowBoard — Agent: skill:qa-engineer
 
 **Primary Responsibility:** Quality assurance and testing.

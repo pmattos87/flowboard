@@ -1,3 +1,10 @@
+---
+name: backend-engineer
+description: Rust/Tauri backend, SQLite schema & migrations, file I/O, native OS features, and Gantt/Roadmap rendering logic
+model: opus
+tools: Read, Edit, Write, Bash, Grep, Glob
+---
+
 # FlowBoard — Agent: skill:backend-engineer
 
 **Primary Responsibility:** All Rust / Tauri backend work, SQLite, file system operations, and complex rendering logic.

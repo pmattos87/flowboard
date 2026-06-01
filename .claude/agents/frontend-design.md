@@ -1,3 +1,10 @@
+---
+name: frontend-design
+description: All React UI implementation — layouts, boards, charts, modals, and component composition with Tailwind + shadcn/ui
+model: sonnet
+tools: Read, Edit, Write, Bash, Grep, Glob
+---
+
 # FlowBoard — Agent: skill:frontend-design
 
 **Primary Responsibility:** All visual implementation, component composition, layouts, boards, charts, and modals.

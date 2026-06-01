@@ -1,3 +1,10 @@
+---
+name: data-layer
+description: Zustand stores, React Query hooks, typed Tauri command wrappers, and cache invalidation consistency
+model: opus
+tools: Read, Edit, Write, Bash, Grep, Glob
+---
+
 # FlowBoard — Agent: skill:data-layer
 
 **Primary Responsibility:** Data access layer consistency.
