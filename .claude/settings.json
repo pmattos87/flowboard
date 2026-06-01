@@ -19,7 +19,9 @@
       "Bash(git push origin dev)",
       "Bash(git merge *)",
       "Bash(git rebase *)",
-      "Bash(git reset --hard *)"
+      "Bash(git reset --hard *)",
+      "mcp__flowboard-db__write_query",
+      "mcp__flowboard-db__create_table"
     ]
   }
 }
