@@ -2,6 +2,11 @@
 
 **All notable changes to this project will be documented in this file.**
 
+## [1.1.0] - 2026-06-01
+
+### Version bumps
+- `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`, About page → `1.1.0`
+
 ## [1.0.1] - 2026-05-27 — Branding Patch
 
 Patch release replacing the default Tauri application icon with the FlowBoard logo across all generated icon sizes (taskbar, window header, installer, Start Menu shortcut, desktop shortcut).

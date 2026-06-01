@@ -17,7 +17,7 @@ export default function About() {
           <img src="/logo.png" alt="FlowBoard logo" className="h-14 w-14" />
           <div>
             <p className="text-lg font-semibold text-white">FlowBoard</p>
-            <p className="text-sm text-gray-400">Version 1.0.1</p>
+            <p className="text-sm text-gray-400">Version 1.1.0</p>
           </div>
         </div>
 
