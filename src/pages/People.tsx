@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { SkeletonRow } from "@/components/Skeleton";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,25 +17,29 @@ import {
   useUpdatePerson,
 } from "@/hooks/usePeople";
 import type { Person } from "@/types";
-import { cn } from "@/lib/utils";
+import { Avatar } from "@/components/Avatar";
+import { fileToAvatarDataUrl } from "@/lib/image";
 
 const AVATAR_COLORS = [
   "#6366f1", "#3b82f6", "#06b6d4", "#10b981",
   "#f59e0b", "#ef4444", "#ec4899", "#8b5cf6",
 ];
 
+const randomAvatarColor = () =>
+  AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
+
 type PersonForm = {
   name: string;
   email: string;
   role: string;
-  avatar_color: string;
+  avatar_data: string | null;
 };
 
 const emptyForm = (): PersonForm => ({
   name: "",
   email: "",
   role: "",
-  avatar_color: AVATAR_COLORS[0],
+  avatar_data: null,
 });
 
 function PersonRow({
@@ -49,12 +53,7 @@ function PersonRow({
 }) {
   return (
     <div className="bg-gray-800 rounded-lg p-4 flex items-center gap-3">
-      <div
-        className="h-10 w-10 rounded-full flex items-center justify-center text-sm font-semibold text-white shrink-0"
-        style={{ backgroundColor: person.avatar_color || AVATAR_COLORS[0] }}
-      >
-        {person.name.charAt(0).toUpperCase()}
-      </div>
+      <Avatar person={person} className="h-10 w-10 text-sm" />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-white">{person.name}</p>
         <p className="text-xs text-gray-500 truncate">
@@ -100,6 +99,7 @@ export default function People() {
   const [form, setForm] = useState<PersonForm>(emptyForm());
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const openCreate = () => {
     setEditing(null);
@@ -114,10 +114,23 @@ export default function People() {
       name: person.name,
       email: person.email,
       role: person.role ?? "",
-      avatar_color: person.avatar_color || AVATAR_COLORS[0],
+      avatar_data: person.avatar_data,
     });
     setError(null);
     setModalOpen(true);
+  };
+
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file
+    if (!file) return;
+    setError(null);
+    try {
+      const avatar_data = await fileToAvatarDataUrl(file);
+      setForm((f) => ({ ...f, avatar_data }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   const handleModalClose = (open: boolean) => {
@@ -138,11 +151,15 @@ export default function People() {
       if (editing) {
         await updatePerson.mutateAsync({
           id: editing.id,
-          payload: { name, email, role: form.role.trim(), avatar_color: form.avatar_color },
+          payload: { name, email, role: form.role.trim(), avatar_data: form.avatar_data },
         });
       } else {
         await createPerson.mutateAsync({
-          name, email, role: form.role.trim(), avatar_color: form.avatar_color,
+          name,
+          email,
+          role: form.role.trim(),
+          avatar_color: randomAvatarColor(),
+          avatar_data: form.avatar_data,
         });
       }
       setModalOpen(false);
@@ -269,23 +286,42 @@ export default function People() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-gray-300">Avatar color</Label>
-              <div className="flex gap-2">
-                {AVATAR_COLORS.map((c) => (
+              <Label className="text-gray-300">Photo</Label>
+              <div className="flex items-center gap-3">
+                <Avatar
+                  person={{
+                    name: form.name || "?",
+                    avatar_color: editing?.avatar_color ?? "#6366f1",
+                    avatar_data: form.avatar_data,
+                  }}
+                  className="h-12 w-12 text-base"
+                />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handlePhotoChange}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="bg-transparent border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  Upload photo
+                </Button>
+                {form.avatar_data && (
                   <button
-                    key={c}
                     type="button"
-                    onClick={() => setForm((f) => ({ ...f, avatar_color: c }))}
-                    aria-label={`Choose color ${c}`}
-                    className={cn(
-                      "h-7 w-7 rounded-full transition-all",
-                      form.avatar_color === c
-                        ? "ring-2 ring-offset-2 ring-offset-gray-900 ring-white"
-                        : "opacity-70 hover:opacity-100",
-                    )}
-                    style={{ backgroundColor: c }}
-                  />
-                ))}
+                    onClick={() => setForm((f) => ({ ...f, avatar_data: null }))}
+                    className="text-xs text-gray-500 hover:text-red-400 transition-colors"
+                  >
+                    Remove
+                  </button>
+                )}
               </div>
             </div>
             {error && (

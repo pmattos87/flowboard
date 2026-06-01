@@ -72,6 +72,7 @@ const fakePeople = [
     email: "alice@example.com",
     avatar_color: "#6366f1",
     role: "Dev",
+    avatar_data: null,
   },
 ];
 

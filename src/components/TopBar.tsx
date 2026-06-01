@@ -8,6 +8,7 @@ import { useTasks } from "@/hooks/useTasks";
 import { useAllActivityLog } from "@/hooks/useActivityLog";
 import { useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
+import { Avatar } from "@/components/Avatar";
 
 const LAST_VISIT_KEY = "lastInboxVisit";
 
@@ -15,16 +16,6 @@ function getUnreadCount(logs: { created_at: string }[]): number {
   const lastVisit =
     localStorage.getItem(LAST_VISIT_KEY) ?? new Date(0).toISOString();
   return logs.filter((e) => e.created_at > lastVisit).length;
-}
-
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .map((p) => p[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -264,17 +255,11 @@ export function TopBar() {
         {avatars.length > 0 && (
           <div className="flex -space-x-2">
             {avatars.map((person) => (
-              <div
+              <Avatar
                 key={person.id}
-                title={person.name}
-                className={cn(
-                  "h-7 w-7 rounded-full ring-2 ring-gray-900",
-                  "flex items-center justify-center text-[10px] font-semibold text-white",
-                )}
-                style={{ backgroundColor: person.avatar_color }}
-              >
-                {initials(person.name)}
-              </div>
+                person={person}
+                className="h-7 w-7 ring-2 ring-gray-900 text-[10px]"
+              />
             ))}
           </div>
         )}

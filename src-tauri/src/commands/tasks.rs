@@ -1,17 +1,7 @@
-use serde::{Deserialize, Deserializer, Serialize};
+use super::deserialize_optional_field;
+use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use tauri::State;
-
-/// Distinguishes "field absent" from "field present and null" when deserializing
-/// into `Option<Option<T>>`. Without this, serde's default impl collapses both
-/// cases to `None`, making it impossible to clear a nullable column via JSON null.
-fn deserialize_optional_field<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
-where
-    T: Deserialize<'de>,
-    D: Deserializer<'de>,
-{
-    Option::<T>::deserialize(deserializer).map(Some)
-}
 
 #[derive(Debug, FromRow, Serialize)]
 pub struct Task {

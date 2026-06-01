@@ -3,6 +3,7 @@ import { useDraggable } from "@dnd-kit/core";
 import { User } from "lucide-react";
 import type { Person, Task } from "@/types";
 import { useUiStore } from "@/stores/uiStore";
+import { Avatar } from "@/components/Avatar";
 import { PRIORITY_META, TYPE_META } from "./boardConstants";
 
 interface TaskCardProps {
@@ -90,13 +91,7 @@ export function TaskCard({ task, people, projectKey, isOverlay = false }: TaskCa
           <span className="text-[11px] font-mono text-gray-500">{ticketId}</span>
         </div>
         {assignee ? (
-          <div
-            className="h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-semibold text-white shrink-0"
-            style={{ backgroundColor: assignee.avatar_color }}
-            title={assignee.name}
-          >
-            {assignee.name.charAt(0).toUpperCase()}
-          </div>
+          <Avatar person={assignee} className="h-5 w-5 text-[10px]" />
         ) : (
           <div className="h-5 w-5 rounded-full bg-gray-600 flex items-center justify-center shrink-0">
             <User className="h-3 w-3 text-gray-400" />
