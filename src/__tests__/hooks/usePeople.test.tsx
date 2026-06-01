@@ -32,6 +32,7 @@ const fakePerson = {
   email: "alice@example.com",
   avatar_color: "#6366f1",
   role: "Developer",
+  avatar_data: null,
 };
 
 describe("usePeople", () => {

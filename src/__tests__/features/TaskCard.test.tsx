@@ -34,6 +34,7 @@ const fakePerson: Person = {
   email: "alice@example.com",
   avatar_color: "#6366f1",
   role: "Dev",
+  avatar_data: null,
 };
 
 function renderCard(task = fakeTask, people: Person[] = [fakePerson]) {

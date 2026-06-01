@@ -10,7 +10,7 @@ import { useUiStore } from "@/stores/uiStore";
 const mockInvoke = vi.mocked(invoke);
 
 function makePerson(id: number, name: string) {
-  return { id, name, email: `p${id}@ex.com`, avatar_color: "#6366f1", role: "" };
+  return { id, name, email: `p${id}@ex.com`, avatar_color: "#6366f1", role: "", avatar_data: null };
 }
 
 function renderTopBar(path = "/") {
