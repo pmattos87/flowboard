@@ -77,8 +77,14 @@ export function CreateTaskModal() {
           ? createTaskPrefill.sprint_id
           : f.sprint_id,
       status: createTaskPrefill.status ?? f.status,
+      type: createTaskPrefill.type ?? f.type,
     }));
   }, [createTaskModalOpen, createTaskPrefill]);
+
+  const lockType = createTaskPrefill?.lockType ?? false;
+  const typeOptions = lockType
+    ? TYPE_OPTIONS.filter((opt) => opt.value === (createTaskPrefill?.type ?? "story"))
+    : TYPE_OPTIONS;
 
   const handleOpenChange = (open: boolean) => {
     if (!open) {
@@ -119,7 +125,7 @@ export function CreateTaskModal() {
     <Dialog open={createTaskModalOpen} onOpenChange={handleOpenChange}>
       <DialogContent className="bg-gray-900 border-gray-800 text-white sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Create task</DialogTitle>
+          <DialogTitle>{lockType ? "Create story" : "Create task"}</DialogTitle>
         </DialogHeader>
 
         {activeProjectId == null ? (
@@ -146,16 +152,18 @@ export function CreateTaskModal() {
             <div className="space-y-1.5">
               <Label className="text-gray-300">Type</Label>
               <div className="flex gap-2">
-                {TYPE_OPTIONS.map((opt) => (
+                {typeOptions.map((opt) => (
                   <button
                     key={opt.value}
                     type="button"
                     onClick={() => setForm((f) => ({ ...f, type: opt.value }))}
+                    disabled={lockType}
                     className={cn(
                       "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors",
                       form.type === opt.value
                         ? opt.color
                         : "text-gray-500 border-gray-700 bg-transparent hover:border-gray-600 hover:text-gray-300",
+                      lockType && "cursor-default",
                     )}
                   >
                     {opt.icon}
@@ -310,7 +318,7 @@ export function CreateTaskModal() {
                 disabled={!form.title.trim() || createTask.isPending}
                 className="bg-blue-600 hover:bg-blue-500 text-white"
               >
-                {createTask.isPending ? "Creating…" : "Create task"}
+                {createTask.isPending ? "Creating…" : lockType ? "Create story" : "Create task"}
               </Button>
             </div>
           </form>
