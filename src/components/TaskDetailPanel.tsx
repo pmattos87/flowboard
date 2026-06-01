@@ -828,8 +828,12 @@ export function TaskDetailPanel() {
               <CommentsSection taskId={task.id} people={peopleSafe} />
               <div className="border-t border-gray-800" />
               <AttachmentsSection taskId={task.id} />
-              <div className="border-t border-gray-800" />
-              <TimeLogsSection taskId={task.id} people={peopleSafe} />
+              {task.type === "task" && (
+                <>
+                  <div className="border-t border-gray-800" />
+                  <TimeLogsSection taskId={task.id} people={peopleSafe} />
+                </>
+              )}
 
               {/* Bottom padding */}
               <div className="h-4" />
