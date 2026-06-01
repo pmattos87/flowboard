@@ -17,10 +17,6 @@ pub fn run() {
                 let pool = db::init_pool(&handle)
                     .await
                     .expect("failed to initialize sqlite pool");
-                sqlx::migrate!("./migrations")
-                    .run(&pool)
-                    .await
-                    .expect("failed to apply sqlx migrations");
                 handle.manage(pool);
             });
             Ok(())
