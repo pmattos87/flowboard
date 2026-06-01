@@ -44,7 +44,7 @@ export function TaskCard({ task, people, projectKey, isOverlay = false }: TaskCa
   const priorityMeta = PRIORITY_META[task.priority];
   const { Icon: TypeIcon, colorClass: typeColor } = typeMeta ?? TYPE_META.task;
   const { Icon: PriorityIcon, colorClass: priorityColor } = priorityMeta ?? PRIORITY_META.medium;
-  const ticketId = `${projectKey}-${task.id}`;
+  const ticketId = `${projectKey}-${task.task_number}`;
 
   return (
     <div
