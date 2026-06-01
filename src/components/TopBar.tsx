@@ -98,6 +98,7 @@ export function TopBar() {
   const setActiveProjectId = useUiStore((s) => s.setActiveProjectId);
   const setCreateTaskModalOpen = useUiStore((s) => s.setCreateTaskModalOpen);
   const setSelectedTaskId = useUiStore((s) => s.setSelectedTaskId);
+  const setBoardSprintFilter = useUiStore((s) => s.setBoardSprintFilter);
   const { data: activeProject } = useProject(activeProjectId);
   const { data: people } = usePeople();
   const { data: activityLogs = [] } = useAllActivityLog();
@@ -169,7 +170,8 @@ export function TopBar() {
         setSelectedTaskId(r.id);
         break;
       case "sprint":
-        navigate("/sprints");
+        setBoardSprintFilter(r.id);
+        navigate("/board/sprint-planning");
         break;
       case "project":
         setActiveProjectId(r.id);

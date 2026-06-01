@@ -11,7 +11,6 @@ import {
   Plus,
   Settings as SettingsIcon,
   Users,
-  Zap,
 } from "lucide-react";
 import { useProjects } from "@/hooks/useProjects";
 import { useUiStore } from "@/stores/uiStore";
@@ -22,7 +21,6 @@ const NAV_ITEMS = [
   { to: "/board/user-story", label: "User Story Board", icon: BookOpen },
   { to: "/board/task", label: "Task Board", icon: Kanban },
   { to: "/board/sprint-planning", label: "Sprint Planning Board", icon: ClipboardList },
-  { to: "/sprints", label: "Sprints", icon: Zap },
   { to: "/roadmap", label: "Roadmap", icon: MapIcon },
   { to: "/reports", label: "Reports", icon: BarChart3 },
   { to: "/people", label: "People", icon: Users },
