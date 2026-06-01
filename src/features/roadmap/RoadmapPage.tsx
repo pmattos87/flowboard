@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import {
   DndContext,
@@ -61,19 +61,26 @@ export default function RoadmapPage() {
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
 
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const wheelCleanup = useRef<(() => void) | null>(null);
 
-  // The roadmap's long axis is horizontal, so redirect vertical wheel input to
-  // horizontal scroll. Leave it alone when there are enough rows to actually
-  // need vertical scrolling.
-  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    const el = scrollRef.current;
-    if (!el || e.deltaY === 0) return;
-    if (el.scrollHeight <= el.clientHeight) {
-      el.scrollLeft += e.deltaY;
+  // The roadmap's long axis is horizontal, so map every wheel gesture — normal
+  // vertical scroll and side-tilt (deltaX) alike — to horizontal scroll.
+  // A native non-passive listener is required: React registers onWheel as a
+  // passive listener, which silently ignores preventDefault().
+  const attachScroll = useCallback((el: HTMLDivElement | null) => {
+    wheelCleanup.current?.();
+    wheelCleanup.current = null;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      const delta =
+        Math.abs(e.deltaX) >= Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (delta === 0) return;
+      el.scrollLeft += delta;
       e.preventDefault();
-    }
-  };
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    wheelCleanup.current = () => el.removeEventListener("wheel", onWheel);
+  }, []);
 
   const today = todayIso();
 
@@ -207,8 +214,7 @@ export default function RoadmapPage() {
       ) : (
         <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <div
-          ref={scrollRef}
-          onWheel={handleWheel}
+          ref={attachScroll}
           className="flex-1 min-h-0 overflow-auto bg-gray-900 rounded-lg border border-gray-800"
         >
           <div
