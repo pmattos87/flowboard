@@ -109,7 +109,7 @@ describe("buildTaskBoardRows", () => {
     expect(rows[0].children.map((c) => c.id)).toEqual([30]);
   });
 
-  it("orders story rows by ascending id", () => {
+  it("orders story rows of equal priority by ascending id", () => {
     const a = makeTask({ id: 7, type: "story" });
     const b = makeTask({ id: 3, type: "story" });
     const c = makeTask({ id: 12, type: "story" });
@@ -117,6 +117,17 @@ describe("buildTaskBoardRows", () => {
     const rows = buildTaskBoardRows([a, b, c], "all");
 
     expect(rows.map((r) => r.key)).toEqual([3, 7, 12]);
+  });
+
+  it("orders story rows by priority, highest first (FB-10)", () => {
+    const low = makeTask({ id: 1, type: "story", priority: "low" });
+    const critical = makeTask({ id: 2, type: "story", priority: "critical" });
+    const medium = makeTask({ id: 3, type: "story", priority: "medium" });
+    const high = makeTask({ id: 4, type: "story", priority: "high" });
+
+    const rows = buildTaskBoardRows([low, critical, medium, high], "all");
+
+    expect(rows.map((r) => r.key)).toEqual([2, 4, 3, 1]);
   });
 });
 

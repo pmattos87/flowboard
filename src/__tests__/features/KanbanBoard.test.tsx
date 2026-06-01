@@ -76,3 +76,27 @@ describe("KanbanBoard — task placement", () => {
     expect(screen.queryByText("In progress task")).not.toBeInTheDocument();
   });
 });
+
+describe("KanbanBoard — priority ordering (FB-10)", () => {
+  const mixedPriorityTodos: Task[] = (["low", "critical", "medium", "high"] as const).map(
+    (priority, i) => ({
+      id: i + 1, project_id: 1, task_number: i + 1, sprint_id: null, parent_id: null,
+      title: `${priority} card`, description: "", type: "task", status: "todo",
+      priority, assignee_id: null, story_points: 1, due_date: null,
+      created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "",
+    })
+  );
+
+  it("orders cards within a column by priority, highest first", () => {
+    renderBoard(mixedPriorityTodos);
+    const order = ["critical card", "high card", "medium card", "low card"].map((t) =>
+      screen.getByText(t)
+    );
+    for (let i = 0; i < order.length - 1; i++) {
+      expect(
+        order[i].compareDocumentPosition(order[i + 1]) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
+    }
+  });
+});

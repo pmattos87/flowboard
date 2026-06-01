@@ -31,3 +31,17 @@ export const PRIORITY_META: Record<TaskPriority, { Icon: LucideIcon; colorClass:
   medium:   { Icon: Minus,       colorClass: "text-yellow-400" },
   low:      { Icon: ChevronDown, colorClass: "text-gray-400" },
 };
+
+// Higher rank = higher priority. Used to order board cards top-to-bottom.
+const PRIORITY_RANK: Record<TaskPriority, number> = {
+  critical: 3,
+  high: 2,
+  medium: 1,
+  low: 0,
+};
+
+// Sort a copy of the tasks by priority, highest first. Array.prototype.sort is
+// stable, so tasks of equal priority keep their incoming order.
+export function sortByPriority<T extends { priority: TaskPriority }>(tasks: T[]): T[] {
+  return [...tasks].sort((a, b) => PRIORITY_RANK[b.priority] - PRIORITY_RANK[a.priority]);
+}

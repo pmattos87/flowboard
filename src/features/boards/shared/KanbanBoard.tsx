@@ -10,7 +10,7 @@ import {
 } from "@dnd-kit/core";
 import type { Person, Task, TaskStatus } from "@/types";
 import { useUpdateTask } from "@/hooks/useTasks";
-import { COLUMNS } from "./boardConstants";
+import { COLUMNS, sortByPriority } from "./boardConstants";
 import { KanbanColumn } from "./KanbanColumn";
 import { TaskCard } from "./TaskCard";
 
@@ -96,7 +96,9 @@ export function KanbanBoard({ tasks, people, projectKey }: KanbanBoardProps) {
     >
       <div className="flex flex-row gap-4 overflow-x-auto pb-4 h-full">
         {COLUMNS.map((col) => {
-          const colTasks = effectiveTasks.filter((t) => t.status === col.status);
+          const colTasks = sortByPriority(
+            effectiveTasks.filter((t) => t.status === col.status)
+          );
           return (
             <KanbanColumn
               key={col.status}

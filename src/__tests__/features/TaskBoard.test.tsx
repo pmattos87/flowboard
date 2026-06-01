@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { TaskBoard } from "@/features/boards/TaskBoard";
@@ -88,9 +88,22 @@ describe("TaskBoard — with project", () => {
     await waitFor(() => expect(screen.getByText("A story task")).toBeInTheDocument());
     // Tasks and bugs with parent_id=null go into the Unparented row.
     expect(screen.getByText("Unparented")).toBeInTheDocument();
+    // Groups are collapsed by default — expand the Unparented row to see its children.
+    fireEvent.click(screen.getByLabelText("Expand group"));
     expect(screen.getByText("A bug task")).toBeInTheDocument();
     expect(screen.getByText("A regular task")).toBeInTheDocument();
     // Epics are not surfaced on the Task Board at all (they live on Discovery).
     expect(screen.queryByText("An epic task")).not.toBeInTheDocument();
+  });
+
+  it("collapses all groups by default, hiding their children until expanded", async () => {
+    renderBoard();
+    await waitFor(() => expect(screen.getByText("Unparented")).toBeInTheDocument());
+    // Children are hidden while collapsed.
+    expect(screen.queryByText("A bug task")).not.toBeInTheDocument();
+    expect(screen.queryByText("A regular task")).not.toBeInTheDocument();
+    // Expanding reveals them.
+    fireEvent.click(screen.getByLabelText("Expand group"));
+    expect(screen.getByText("A bug task")).toBeInTheDocument();
   });
 });

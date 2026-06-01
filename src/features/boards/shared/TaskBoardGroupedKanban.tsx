@@ -14,7 +14,7 @@ import type { Person, Task, TaskStatus } from "@/types";
 import { useUiStore } from "@/stores/uiStore";
 import { useUpdateTask } from "@/hooks/useTasks";
 import type { TaskUpdatePayload } from "@/lib/commands";
-import { COLUMNS, PRIORITY_META, TYPE_META } from "./boardConstants";
+import { COLUMNS, PRIORITY_META, TYPE_META, sortByPriority } from "./boardConstants";
 import { TaskCard } from "./TaskCard";
 import {
   buildTaskBoardRows,
@@ -260,7 +260,9 @@ function StoryRow({
       {!collapsed && (
         <div className="grid grid-cols-4 gap-3 p-3">
           {COLUMNS.map((col) => {
-            const colTasks = row.children.filter((c) => c.status === col.status);
+            const colTasks = sortByPriority(
+              row.children.filter((c) => c.status === col.status)
+            );
             return (
               <GroupedColumn
                 key={col.status}
@@ -300,8 +302,9 @@ export function TaskBoardGroupedKanban({
     sprint_id?: number | null;
   };
   const [overrides, setOverrides] = useState<Record<number, DragOverride>>({});
-  // Collapse state keyed by activeProjectId — reset when switching projects.
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<StoryGroupKey>>(
+  // Stories are collapsed by default; we track the groups the user has explicitly
+  // expanded. Keyed by activeProjectId — reset when switching projects.
+  const [expandedGroups, setExpandedGroups] = useState<Set<StoryGroupKey>>(
     new Set(),
   );
   const [collapseProjectKey, setCollapseProjectKey] = useState<number | null>(
@@ -309,7 +312,7 @@ export function TaskBoardGroupedKanban({
   );
   if (collapseProjectKey !== activeProjectId) {
     setCollapseProjectKey(activeProjectId);
-    setCollapsedGroups(new Set());
+    setExpandedGroups(new Set());
   }
 
   const effectiveTasks = useMemo(
@@ -360,7 +363,7 @@ export function TaskBoardGroupedKanban({
   );
 
   function toggleGroup(key: StoryGroupKey) {
-    setCollapsedGroups((prev) => {
+    setExpandedGroups((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -429,7 +432,7 @@ export function TaskBoardGroupedKanban({
           <StoryRow
             key={row.key}
             row={row}
-            collapsed={collapsedGroups.has(row.key)}
+            collapsed={!expandedGroups.has(row.key)}
             onToggle={() => toggleGroup(row.key)}
             people={people}
             projectKey={projectKey}
