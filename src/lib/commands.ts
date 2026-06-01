@@ -44,12 +44,14 @@ export interface PersonCreatePayload {
   email: string;
   avatar_color?: string;
   role?: string;
+  avatar_data?: string | null;
 }
 export interface PersonUpdatePayload {
   name?: string;
   email?: string;
   avatar_color?: string;
   role?: string;
+  avatar_data?: string | null;
 }
 
 export const createPerson = (payload: PersonCreatePayload) =>

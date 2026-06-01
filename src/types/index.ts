@@ -18,6 +18,8 @@ export interface Person {
   email: string;
   avatar_color: string;
   role: string;
+  /** Optional profile photo as a base64 data URL. null = use colored initials. */
+  avatar_data: string | null;
 }
 
 export interface Sprint {
