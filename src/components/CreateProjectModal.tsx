@@ -15,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useCreateProject } from "@/hooks/useProjects";
 import { useUiStore } from "@/stores/uiStore";
 import { ProjectBadge } from "@/components/ProjectBadge";
-import { fileToAvatarDataUrl } from "@/lib/image";
+import { fileToLogoDataUrl } from "@/lib/image";
 import { randomIdentityColor } from "@/lib/colors";
 
 export function CreateProjectModal() {
@@ -54,7 +54,7 @@ export function CreateProjectModal() {
     if (!file) return;
     setError(null);
     try {
-      setLogoData(await fileToAvatarDataUrl(file));
+      setLogoData(await fileToLogoDataUrl(file));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }

@@ -12,7 +12,7 @@ import {
 import { useUiStore } from "@/stores/uiStore";
 import { seedDemoData } from "@/lib/commands";
 import { ProjectBadge } from "@/components/ProjectBadge";
-import { fileToAvatarDataUrl } from "@/lib/image";
+import { fileToLogoDataUrl } from "@/lib/image";
 import { cn } from "@/lib/utils";
 
 // Matches the shortcuts registered in AppShell.tsx useKeyboardShortcuts
@@ -79,7 +79,7 @@ export default function Settings() {
     if (!file) return;
     setError(null);
     try {
-      setLogoData(await fileToAvatarDataUrl(file));
+      setLogoData(await fileToLogoDataUrl(file));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
