@@ -10,6 +10,8 @@ export interface Project {
   description: string;
   color: string;
   created_at: string;
+  /** Optional project logo as a base64 data URL. null = use the colored square. */
+  logo_data: string | null;
 }
 
 export interface Person {
