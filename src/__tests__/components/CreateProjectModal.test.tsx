@@ -36,6 +36,13 @@ describe("CreateProjectModal", () => {
     expect(screen.getByLabelText(/^key/i)).toBeInTheDocument();
   });
 
+  it("shows a logo upload control and no color picker", () => {
+    useUiStore.setState({ createProjectModalOpen: true });
+    renderModal();
+    expect(screen.getByRole("button", { name: /upload logo/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /choose color/i })).not.toBeInTheDocument();
+  });
+
   it("submit is disabled when form is empty", () => {
     useUiStore.setState({ createProjectModalOpen: true });
     renderModal();
@@ -93,7 +100,12 @@ describe("CreateProjectModal", () => {
       expect(mockInvoke).toHaveBeenCalledWith(
         "create_project",
         expect.objectContaining({
-          payload: expect.objectContaining({ name: "Alpha", key: "AL" }),
+          payload: expect.objectContaining({
+            name: "Alpha",
+            key: "AL",
+            logo_data: null,
+            color: expect.stringMatching(/^#[0-9a-f]{6}$/i),
+          }),
         })
       );
       expect(useUiStore.getState().activeProjectId).toBe(42);

@@ -21,12 +21,14 @@ export interface ProjectCreatePayload {
   key: string;
   description?: string;
   color?: string;
+  logo_data?: string | null;
 }
 export interface ProjectUpdatePayload {
   name?: string;
   key?: string;
   description?: string;
   color?: string;
+  logo_data?: string | null;
 }
 
 export const createProject = (payload: ProjectCreatePayload) =>

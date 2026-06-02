@@ -62,6 +62,12 @@ describe("Settings — form", () => {
     expect(screen.getByDisplayValue("Desc")).toBeInTheDocument();
   });
 
+  it("shows a logo upload control and no color picker", async () => {
+    await loadProject();
+    expect(screen.getByRole("button", { name: /upload logo/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /choose color/i })).not.toBeInTheDocument();
+  });
+
   it("save button is disabled when form is not dirty", async () => {
     await loadProject();
     expect(screen.getByRole("button", { name: /save changes/i })).toBeDisabled();

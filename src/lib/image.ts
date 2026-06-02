@@ -6,9 +6,26 @@ const MAX_EDGE = 128;
 /**
  * Reads an image file, downscales it so its longest edge is at most
  * {@link MAX_EDGE}px, and returns a base64 JPEG data URL suitable for storing
- * in the `people.avatar_data` column.
+ * in the `people.avatar_data` column. Avatars are opaque circles, so the
+ * smaller JPEG encoding is preferred.
  */
 export async function fileToAvatarDataUrl(file: File): Promise<string> {
+  return fileToDataUrl(file, "image/jpeg");
+}
+
+/**
+ * Like {@link fileToAvatarDataUrl} but encodes as PNG so transparency is
+ * preserved — used for project logos, which are often transparent. (JPEG has
+ * no alpha channel and composites transparent pixels onto black.)
+ */
+export async function fileToLogoDataUrl(file: File): Promise<string> {
+  return fileToDataUrl(file, "image/png");
+}
+
+async function fileToDataUrl(
+  file: File,
+  mime: "image/jpeg" | "image/png",
+): Promise<string> {
   if (!file.type.startsWith("image/")) {
     throw new Error("Please choose an image file.");
   }
@@ -30,7 +47,9 @@ export async function fileToAvatarDataUrl(file: File): Promise<string> {
   if (!ctx) throw new Error("Could not process the image.");
   ctx.drawImage(img, 0, 0, width, height);
 
-  return canvas.toDataURL("image/jpeg", 0.85);
+  return mime === "image/jpeg"
+    ? canvas.toDataURL("image/jpeg", 0.85)
+    : canvas.toDataURL("image/png");
 }
 
 function readAsDataUrl(file: File): Promise<string> {

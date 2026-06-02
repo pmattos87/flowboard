@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,18 +11,9 @@ import {
 } from "@/hooks/useProjects";
 import { useUiStore } from "@/stores/uiStore";
 import { seedDemoData } from "@/lib/commands";
+import { ProjectBadge } from "@/components/ProjectBadge";
+import { fileToLogoDataUrl } from "@/lib/image";
 import { cn } from "@/lib/utils";
-
-const COLOR_SWATCHES = [
-  "#6366f1",
-  "#3b82f6",
-  "#06b6d4",
-  "#10b981",
-  "#f59e0b",
-  "#ef4444",
-  "#ec4899",
-  "#8b5cf6",
-];
 
 // Matches the shortcuts registered in AppShell.tsx useKeyboardShortcuts
 const SHORTCUTS = [
@@ -48,10 +39,11 @@ export default function Settings() {
   const [name, setName] = useState("");
   const [key, setKey] = useState("");
   const [description, setDescription] = useState("");
-  const [color, setColor] = useState(COLOR_SWATCHES[0]);
+  const [logoData, setLogoData] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Staging: seed controls
   const isStaging = import.meta.env.VITE_APP_ENV === "staging";
@@ -63,7 +55,7 @@ export default function Settings() {
       setName(project.name);
       setKey(project.key);
       setDescription(project.description);
-      setColor(project.color);
+      setLogoData(project.logo_data);
       setConfirmingDelete(false);
       setError(null);
     }
@@ -76,10 +68,22 @@ export default function Settings() {
     (trimmedName !== project.name ||
       trimmedKey !== project.key ||
       description !== project.description ||
-      color !== project.color);
+      logoData !== project.logo_data);
   const valid =
     trimmedName.length > 0 && /^[A-Z0-9]{2,5}$/.test(trimmedKey);
   const canSave = dirty && valid && !updateProject.isPending;
+
+  const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file
+    if (!file) return;
+    setError(null);
+    try {
+      setLogoData(await fileToLogoDataUrl(file));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -92,7 +96,7 @@ export default function Settings() {
           name: trimmedName,
           key: trimmedKey,
           description,
-          color,
+          logo_data: logoData,
         },
       });
       setSavedAt(Date.now());
@@ -208,24 +212,44 @@ export default function Settings() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label className="text-gray-300">Color</Label>
-                  <div className="flex gap-2">
-                    {COLOR_SWATCHES.map((c) => (
+                  <Label className="text-gray-300">
+                    Logo <span className="text-gray-500">(optional)</span>
+                  </Label>
+                  <div className="flex items-center gap-3">
+                    <ProjectBadge
+                      project={{ name, color: project.color, logo_data: logoData }}
+                      className="h-12 w-12 rounded-md"
+                    />
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleLogoChange}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="bg-transparent border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white"
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      Upload logo
+                    </Button>
+                    {logoData && (
                       <button
-                        key={c}
                         type="button"
-                        onClick={() => setColor(c)}
-                        aria-label={`Choose color ${c}`}
-                        className={cn(
-                          "h-7 w-7 rounded-md transition-all",
-                          color === c
-                            ? "ring-2 ring-offset-2 ring-offset-gray-900 ring-white"
-                            : "opacity-80 hover:opacity-100",
-                        )}
-                        style={{ backgroundColor: c }}
-                      />
-                    ))}
+                        onClick={() => setLogoData(null)}
+                        className="text-xs text-gray-500 hover:text-red-400 transition-colors"
+                      >
+                        Remove
+                      </button>
+                    )}
                   </div>
+                  <p className="text-xs text-gray-500">
+                    No logo? The project's color is shown instead.
+                  </p>
                 </div>
 
                 {error && (

@@ -19,14 +19,7 @@ import {
 import type { Person } from "@/types";
 import { Avatar } from "@/components/Avatar";
 import { fileToAvatarDataUrl } from "@/lib/image";
-
-const AVATAR_COLORS = [
-  "#6366f1", "#3b82f6", "#06b6d4", "#10b981",
-  "#f59e0b", "#ef4444", "#ec4899", "#8b5cf6",
-];
-
-const randomAvatarColor = () =>
-  AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
+import { randomIdentityColor } from "@/lib/colors";
 
 type PersonForm = {
   name: string;
@@ -158,7 +151,7 @@ export default function People() {
           name,
           email,
           role: form.role.trim(),
-          avatar_color: randomAvatarColor(),
+          avatar_color: randomIdentityColor(),
           avatar_data: form.avatar_data,
         });
       }
