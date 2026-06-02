@@ -6,7 +6,8 @@
 
 - **Sidebar** (fixed 220px, `bg-gray-950`):
   - Logo:
-    - Use official FlowBoard logo asset
+    - Use the official FlowBoard wordmark lockup (`public/logo.png`, served at `/logo.png`)
+    - Hi-res reference: `/assets/Logo_hi-res.png` (and `_noBckgrnd` / `_noSquare_noBckgrnd` variants)
     - Display icon + wordmark lockup
     - Subtitle: `PLAN • FLOW • DELIVER`
     - Sidebar placement: top-left

@@ -9,8 +9,13 @@
 FlowBoard is a **single-user, local-first desktop project management application** inspired by Jira. Built with **Tauri v2 + React 18 + TypeScript + Vite**, targeting Windows. All data is stored in a local SQLite database via `tauri-plugin-sql`. No server, no authentication, no cloud sync.
 
 ### Logo Assets
-Primary logo: `/assets/logo.png`
-Logo with no background: `/assets/logo_background.png`
+High-resolution design references (source of truth, not shipped at runtime):
+- App icon (square, dark tile on black): `/assets/Logo_hi-res.png`
+- App icon, transparent background: `/assets/Logo_Hi-res_noBckgrnd.png`
+- Mark/glyph only (no tile, transparent): `/assets/Logo_Hi-res_noSquare_noBckgrnd.png`
+
+Runtime asset served by the app (horizontal wordmark lockup): `public/logo.png`
+(referenced as `/logo.png` in the Sidebar and About page).
 
 ---
 
