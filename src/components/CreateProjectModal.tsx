@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Upload } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -13,18 +14,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useCreateProject } from "@/hooks/useProjects";
 import { useUiStore } from "@/stores/uiStore";
-import { cn } from "@/lib/utils";
-
-const COLOR_SWATCHES = [
-  "#6366f1", // indigo
-  "#3b82f6", // blue
-  "#06b6d4", // cyan
-  "#10b981", // emerald
-  "#f59e0b", // amber
-  "#ef4444", // red
-  "#ec4899", // pink
-  "#8b5cf6", // violet
-];
+import { ProjectBadge } from "@/components/ProjectBadge";
+import { fileToAvatarDataUrl } from "@/lib/image";
+import { randomIdentityColor } from "@/lib/colors";
 
 export function CreateProjectModal() {
   const open = useUiStore((s) => s.createProjectModalOpen);
@@ -35,15 +27,16 @@ export function CreateProjectModal() {
   const [name, setName] = useState("");
   const [key, setKey] = useState("");
   const [description, setDescription] = useState("");
-  const [color, setColor] = useState(COLOR_SWATCHES[0]);
+  const [logoData, setLogoData] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
       setName("");
       setKey("");
       setDescription("");
-      setColor(COLOR_SWATCHES[0]);
+      setLogoData(null);
       setError(null);
     }
   }, [open]);
@@ -55,6 +48,18 @@ export function CreateProjectModal() {
     /^[A-Z0-9]{2,5}$/.test(trimmedKey) &&
     !createProject.isPending;
 
+  const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file
+    if (!file) return;
+    setError(null);
+    try {
+      setLogoData(await fileToAvatarDataUrl(file));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSubmit) return;
@@ -64,7 +69,8 @@ export function CreateProjectModal() {
         name: trimmedName,
         key: trimmedKey,
         description: description.trim() || undefined,
-        color,
+        color: randomIdentityColor(),
+        logo_data: logoData,
       });
       setActiveProjectId(project.id);
       setOpen(false);
@@ -131,24 +137,44 @@ export function CreateProjectModal() {
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-gray-300">Color</Label>
-            <div className="flex gap-2">
-              {COLOR_SWATCHES.map((c) => (
+            <Label className="text-gray-300">
+              Logo <span className="text-gray-500">(optional)</span>
+            </Label>
+            <div className="flex items-center gap-3">
+              <ProjectBadge
+                project={{ name: trimmedName || "?", color: "#6366f1", logo_data: logoData }}
+                className="h-12 w-12 rounded-md"
+              />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleLogoChange}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                className="bg-transparent border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Upload logo
+              </Button>
+              {logoData && (
                 <button
                   type="button"
-                  key={c}
-                  onClick={() => setColor(c)}
-                  aria-label={`Choose color ${c}`}
-                  className={cn(
-                    "h-7 w-7 rounded-md transition-all",
-                    color === c
-                      ? "ring-2 ring-offset-2 ring-offset-gray-900 ring-white"
-                      : "opacity-80 hover:opacity-100",
-                  )}
-                  style={{ backgroundColor: c }}
-                />
-              ))}
+                  onClick={() => setLogoData(null)}
+                  className="text-xs text-gray-500 hover:text-red-400 transition-colors"
+                >
+                  Remove
+                </button>
+              )}
             </div>
+            <p className="text-xs text-gray-500">
+              No logo? A color will be assigned automatically.
+            </p>
           </div>
 
           {error && (

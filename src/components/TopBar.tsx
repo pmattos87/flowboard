@@ -9,6 +9,7 @@ import { useAllActivityLog } from "@/hooks/useActivityLog";
 import { useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/Avatar";
+import { ProjectBadge } from "@/components/ProjectBadge";
 
 const LAST_VISIT_KEY = "lastInboxVisit";
 
@@ -183,10 +184,7 @@ export function TopBar() {
       <div className="flex items-center gap-2 min-w-0">
         {activeProject ? (
           <>
-            <span
-              className="h-4 w-4 rounded-sm shrink-0"
-              style={{ backgroundColor: activeProject.color }}
-            />
+            <ProjectBadge project={activeProject} className="h-4 w-4" />
             <span className="text-sm font-medium text-gray-100 truncate">
               {activeProject.name}
             </span>

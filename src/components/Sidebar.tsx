@@ -13,6 +13,7 @@ import {
   Users,
 } from "lucide-react";
 import { useProjects } from "@/hooks/useProjects";
+import { ProjectBadge } from "@/components/ProjectBadge";
 import { useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
 
@@ -85,10 +86,7 @@ export function Sidebar() {
                     : "text-gray-400 hover:bg-gray-900 hover:text-gray-200",
                 )}
               >
-                <span
-                  className="h-5 w-5 rounded-sm shrink-0"
-                  style={{ backgroundColor: p.color }}
-                />
+                <ProjectBadge project={p} />
                 <span className="truncate">{p.name}</span>
               </button>
             </li>

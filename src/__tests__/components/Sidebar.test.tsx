@@ -44,6 +44,26 @@ describe("Sidebar", () => {
     });
   });
 
+  it("renders a logo image for a project with logo_data", async () => {
+    mockInvoke.mockResolvedValueOnce([
+      { ...fakeProject, logo_data: "data:image/png;base64,AAAA" },
+    ]);
+    renderSidebar();
+    await waitFor(() => {
+      expect(screen.getByRole("img", { name: "Alpha" })).toHaveAttribute(
+        "src",
+        "data:image/png;base64,AAAA"
+      );
+    });
+  });
+
+  it("renders no image (color square) for a project without a logo", async () => {
+    mockInvoke.mockResolvedValueOnce([{ ...fakeProject, logo_data: null }]);
+    renderSidebar();
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    expect(screen.queryByRole("img", { name: "Alpha" })).not.toBeInTheDocument();
+  });
+
   it("calls setActiveProjectId when a project is clicked", async () => {
     const user = userEvent.setup();
     mockInvoke.mockResolvedValueOnce([fakeProject]);
