@@ -2,6 +2,17 @@
 
 **All notable changes to this project will be documented in this file.**
 
+## [1.2.0] - 2026-06-02
+
+### Added
+- Project logos (FB-41): upload a per-project logo with a random fallback color when none is set. Adds the `projects.logo_data` column (migration `005_project_logo.sql`), the `ProjectBadge` component, transparency-preserving image helpers, and logo support in the Create Project modal, Settings, Sidebar, and TopBar.
+
+### Documentation
+- Repointed logo references in `CLAUDE.md` and `docs/VISUAL.md` to the new high-resolution reference assets (`assets/Logo_hi-res.png`, `Logo_Hi-res_noBckgrnd.png`, `Logo_Hi-res_noSquare_noBckgrnd.png`) and clarified the design-reference vs runtime-asset (`public/logo.png`) split.
+
+### Version bumps
+- `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`, About page → `1.2.0`
+
 ## [1.1.1] - 2026-06-01
 
 ### Added
