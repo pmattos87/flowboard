@@ -13,10 +13,11 @@
     "windows": [
       {
         "title": "FlowBoard",
-        "width": 1400,
+        "width": 1600,
         "height": 900,
         "minWidth": 1024,
-        "minHeight": 640
+        "minHeight": 640,
+        "center": true
       }
     ],
     "security": {
