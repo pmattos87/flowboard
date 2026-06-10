@@ -2,6 +2,7 @@ import { useUiStore } from "@/stores/uiStore";
 import { useTasks } from "@/hooks/useTasks";
 import { usePeople } from "@/hooks/usePeople";
 import { useProject } from "@/hooks/useProjects";
+import { RefreshButton } from "@/components/RefreshButton";
 import { KanbanBoard } from "./shared/KanbanBoard";
 
 export function DiscoveryBoard() {
@@ -25,7 +26,10 @@ export function DiscoveryBoard() {
   return (
     <div className="flex flex-col h-full">
       <div className="mb-6">
-        <h1 className="text-lg font-semibold text-white">Discovery Board</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-lg font-semibold text-white">Discovery Board</h1>
+          <RefreshButton />
+        </div>
         <p className="text-xs text-gray-500 mt-1">
           Backlog — stories and epics not yet assigned to a sprint.
         </p>

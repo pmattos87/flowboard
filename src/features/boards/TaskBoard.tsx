@@ -2,6 +2,7 @@ import { useUiStore } from "@/stores/uiStore";
 import { useTasks } from "@/hooks/useTasks";
 import { usePeople } from "@/hooks/usePeople";
 import { useProject } from "@/hooks/useProjects";
+import { RefreshButton } from "@/components/RefreshButton";
 import { TaskBoardGroupedKanban } from "./shared/TaskBoardGroupedKanban";
 import { SprintFilterSelect } from "./shared/SprintFilterSelect";
 
@@ -22,7 +23,10 @@ export function TaskBoard() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-4 mb-6">
-        <h1 className="text-lg font-semibold text-white">Task Board</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-lg font-semibold text-white">Task Board</h1>
+          <RefreshButton />
+        </div>
         <div className="ml-auto">
           <SprintFilterSelect projectId={activeProjectId} />
         </div>

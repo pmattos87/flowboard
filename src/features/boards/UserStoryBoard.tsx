@@ -3,6 +3,7 @@ import { useTasks } from "@/hooks/useTasks";
 import { usePeople } from "@/hooks/usePeople";
 import { useProject } from "@/hooks/useProjects";
 import { useSprints } from "@/hooks/useSprints";
+import { RefreshButton } from "@/components/RefreshButton";
 import { KanbanBoard } from "./shared/KanbanBoard";
 import { SprintFilterSelect } from "./shared/SprintFilterSelect";
 import { matchesSprintFilter, sprintFilterLabel } from "./shared/sprintFilter";
@@ -30,7 +31,10 @@ export function UserStoryBoard() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-4 mb-6">
-        <h1 className="text-lg font-semibold text-white">User Story Board</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-lg font-semibold text-white">User Story Board</h1>
+          <RefreshButton />
+        </div>
         <div className="ml-auto">
           <SprintFilterSelect projectId={activeProjectId} />
         </div>

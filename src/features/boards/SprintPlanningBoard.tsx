@@ -17,6 +17,7 @@ import { useDeleteSprint, useSprints } from "@/hooks/useSprints";
 import { usePeople } from "@/hooks/usePeople";
 import { useProject } from "@/hooks/useProjects";
 import { SprintFormDialog } from "@/features/sprints/SprintFormDialog";
+import { RefreshButton } from "@/components/RefreshButton";
 import type { Sprint, SprintStatus, Task } from "@/types";
 import { cn } from "@/lib/utils";
 import { TaskCard } from "./shared/TaskCard";
@@ -316,7 +317,10 @@ export function SprintPlanningBoard() {
     <div className="flex flex-col h-full">
       {/* Board header */}
       <div className="flex items-center gap-4 mb-6">
-        <h1 className="text-lg font-semibold text-white">Sprint Planning Board</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-lg font-semibold text-white">Sprint Planning Board</h1>
+          <RefreshButton />
+        </div>
         <div className="ml-auto flex items-center gap-3">
           <SprintFilterSelect projectId={activeProjectId} />
           <Button onClick={openCreate} className="bg-blue-600 hover:bg-blue-500 text-white">
