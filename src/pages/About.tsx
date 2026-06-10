@@ -13,8 +13,8 @@ export default function About() {
       <h1 className="text-xl font-semibold text-white mb-6">About</h1>
 
       <div className="bg-gray-800 rounded-lg p-6 flex flex-col gap-6">
-        <div className="flex flex-col gap-2">
-          <img src="/logo.png" alt="FlowBoard logo" className="h-32 w-auto object-contain" />
+        <div className="flex flex-col items-start gap-2">
+          <img src="/logo.png" alt="FlowBoard logo" className="h-48 w-auto object-contain" />
           <p className="text-sm text-gray-400">Version 1.2.0</p>
         </div>
 
