@@ -2,6 +2,26 @@
 
 **All notable changes to this project will be documented in this file.**
 
+## [1.3.0] - 2026-06-10
+
+### Added
+- Refresh button next to each board title (Task / User Story / Discovery / Sprint Planning) that re-syncs the UI with the database by invalidating every React Query cache.
+
+### Changed
+- Attachments are now stored as a BLOB in the database (migration `006_attachment_content.sql`) instead of by filesystem path.
+- Sprint board collapses completed sprints by default.
+- Wider default window (1600px), centered on open; staging window matches the production default size.
+- About page logo rendered at natural aspect ratio, sized to the sidebar, flush-left with tightened spacing.
+
+### Fixed
+- Refresh icon now spins for one full rotation on click — the spin was gated only on `useIsFetching()`, and local SQLite refetches finish within a frame, so the animation was imperceptible.
+
+### Repo
+- Pinned the vitest pool to threads.
+
+### Version bumps
+- `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`, About page → `1.3.0`
+
 ## [1.2.0] - 2026-06-02
 
 ### Added
