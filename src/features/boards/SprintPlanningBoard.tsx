@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -177,6 +177,10 @@ export function SprintPlanningBoard() {
   const [overrides, setOverrides] = useState<Record<number, number | null>>({});
   // Sections are expanded by default; track the keys the user has collapsed.
   const [collapsed, setCollapsed] = useState<Set<SprintBoardRowKey>>(new Set());
+  // Completed sprints start collapsed. Seed once when the sprints first load
+  // (the data is async, so a lazy useState initializer would run too early),
+  // then leave the user's manual toggles alone.
+  const seededCollapse = useRef(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Sprint | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -212,6 +216,13 @@ export function SprintPlanningBoard() {
       return changed ? next : prev;
     });
   }, [tasks]);
+
+  useEffect(() => {
+    if (seededCollapse.current || !sprints) return;
+    seededCollapse.current = true;
+    const completed = sprints.filter((s) => s.status === "completed").map((s) => s.id);
+    if (completed.length > 0) setCollapsed(new Set<SprintBoardRowKey>(completed));
+  }, [sprints]);
 
   const rows = useMemo(
     () => buildSprintBoardRows(effectiveTasks, sprints ?? [], boardSprintFilter),

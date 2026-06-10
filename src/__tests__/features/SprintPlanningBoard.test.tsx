@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { SprintPlanningBoard } from "@/features/boards/SprintPlanningBoard";
@@ -112,6 +112,18 @@ describe("SprintPlanningBoard — with sprints and tasks", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /create sprint/i })).toBeInTheDocument()
     );
+  });
+
+  it("collapses completed sprints by default and leaves others expanded", async () => {
+    renderBoard();
+    // Completed sprint (Sprint 1) starts collapsed — its toggle offers "Expand".
+    const completedHeader = await waitFor(() =>
+      screen.getByText("Completed").closest("div")!
+    );
+    expect(within(completedHeader).getByLabelText("Expand section")).toBeInTheDocument();
+    // Active sprint stays expanded — its toggle offers "Collapse".
+    const activeHeader = screen.getByText("Active").closest("div")!;
+    expect(within(activeHeader).getByLabelText("Collapse section")).toBeInTheDocument();
   });
 
   it("renders the sprint filter with all options", async () => {
