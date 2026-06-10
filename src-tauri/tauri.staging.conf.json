@@ -9,7 +9,12 @@
   "app": {
     "windows": [
       {
-        "title": "FlowBoard Staging"
+        "title": "FlowBoard Staging",
+        "width": 1600,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "center": true
       }
     ]
   }
