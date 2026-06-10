@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import {
   QueryClient,
   QueryClientProvider,
@@ -56,5 +56,30 @@ describe("RefreshButton", () => {
       .getByRole("button", { name: /refresh/i })
       .querySelector("svg");
     expect(icon).not.toHaveClass("animate-spin");
+  });
+
+  it("spins for one rotation on click even when no query is fetching", () => {
+    vi.useFakeTimers();
+    try {
+      renderButton(new QueryClient());
+
+      const button = screen.getByRole("button", { name: /refresh/i });
+      const icon = button.querySelector("svg");
+
+      expect(icon).not.toHaveClass("animate-spin");
+
+      fireEvent.click(button);
+      expect(icon).toHaveClass("animate-spin");
+
+      // Still spinning partway through the rotation.
+      act(() => vi.advanceTimersByTime(500));
+      expect(icon).toHaveClass("animate-spin");
+
+      // Stops once the full 1s rotation completes.
+      act(() => vi.advanceTimersByTime(500));
+      expect(icon).not.toHaveClass("animate-spin");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
