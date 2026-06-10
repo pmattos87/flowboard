@@ -14,7 +14,7 @@ export default function About() {
 
       <div className="bg-gray-800 rounded-lg p-6 flex flex-col gap-6">
         <div className="flex items-center gap-4">
-          <img src="/logo.png" alt="FlowBoard logo" className="h-14 w-14" />
+          <img src="/logo.png" alt="FlowBoard logo" className="h-14 w-auto object-contain" />
           <div>
             <p className="text-lg font-semibold text-white">FlowBoard</p>
             <p className="text-sm text-gray-400">Version 1.2.0</p>
