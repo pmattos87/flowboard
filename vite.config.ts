@@ -19,6 +19,9 @@ export default defineConfig(async () => ({
     environment: "jsdom",
     setupFiles: ["./src/setupTests.ts"],
     css: false,
+    // vitest 4's default `forks` pool fails to initialize workers on
+    // Windows + Node 24 ("failed to find the runner"); threads works.
+    pool: "threads",
   },
   clearScreen: false,
   server: {
