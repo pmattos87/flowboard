@@ -12,9 +12,9 @@ describe("About page", () => {
     expect(screen.getByRole("heading", { name: /about/i })).toBeInTheDocument();
   });
 
-  it("shows the app name FlowBoard", () => {
+  it("shows the FlowBoard logo", () => {
     renderPage();
-    expect(screen.getByText("FlowBoard")).toBeInTheDocument();
+    expect(screen.getByAltText("FlowBoard logo")).toBeInTheDocument();
   });
 
   it("shows the version number", () => {
