@@ -10,7 +10,6 @@ import {
   X,
 } from "lucide-react";
 import { open as openFilePicker } from "@tauri-apps/plugin-dialog";
-import { stat } from "@tauri-apps/plugin-fs";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -210,6 +209,30 @@ function CommentsSection({ taskId, people }: { taskId: number; people: Person[] 
 
 // ─── AttachmentsSection ────────────────────────────────────
 
+const MIME_BY_EXT: Record<string, string> = {
+  pdf: "application/pdf",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  svg: "image/svg+xml",
+  webp: "image/webp",
+  txt: "text/plain",
+  md: "text/markdown",
+  csv: "text/csv",
+  json: "application/json",
+  zip: "application/zip",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
+
+function inferMimeType(filename: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  return MIME_BY_EXT[ext] ?? "application/octet-stream";
+}
+
 function AttachmentsSection({ taskId }: { taskId: number }) {
   const { data: attachments } = useAttachments(taskId);
   const createAttachment = useCreateAttachment();
@@ -224,12 +247,13 @@ function AttachmentsSection({ taskId }: { taskId: number }) {
       if (!result) return;
       const filepath = Array.isArray(result) ? result[0] : result;
       const filename = filepath.split(/[\\/]/).pop() ?? filepath;
-      const info = await stat(filepath);
+      // The backend reads the file bytes and derives the size; we just pass the
+      // picked path plus a best-effort mime type from the extension.
       await createAttachment.mutateAsync({
         task_id: taskId,
         filename,
         filepath,
-        size: info.size,
+        mime_type: inferMimeType(filename),
       });
     } catch (err) {
       console.error("[attachment] failed:", err);
@@ -273,7 +297,7 @@ function AttachmentsSection({ taskId }: { taskId: number }) {
                   <div className="flex-1 min-w-0">
                     <button
                       type="button"
-                      onClick={() => openAttachment(a.filepath).catch(console.error)}
+                      onClick={() => openAttachment(a.id).catch(console.error)}
                       className="text-sm text-gray-200 truncate hover:text-blue-400 transition-colors text-left w-full"
                     >
                       {a.filename}
@@ -281,11 +305,10 @@ function AttachmentsSection({ taskId }: { taskId: number }) {
                     <p className="text-[11px] text-gray-500">
                       {formatSize(a.size)} · {formatDateTime(a.uploaded_at)}
                     </p>
-                    <p className="text-[10px] text-gray-600 truncate">{a.filepath}</p>
                   </div>
                   <button
                     type="button"
-                    onClick={() => openAttachment(a.filepath).catch(console.error)}
+                    onClick={() => openAttachment(a.id).catch(console.error)}
                     className="p-1 rounded text-gray-600 hover:text-blue-400 hover:bg-gray-700 transition-colors shrink-0"
                     title="Open file"
                   >

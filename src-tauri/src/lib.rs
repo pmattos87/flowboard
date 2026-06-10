@@ -51,6 +51,7 @@ pub fn run() {
             commands::attachments::create_attachment,
             commands::attachments::list_attachments,
             commands::attachments::delete_attachment,
+            commands::attachments::open_attachment,
             commands::activity_log::create_activity_log,
             commands::activity_log::list_activity_log,
             commands::activity_log::list_activity_log_by_sprint,
