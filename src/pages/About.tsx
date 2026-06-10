@@ -13,12 +13,16 @@ export default function About() {
       <h1 className="text-xl font-semibold text-white mb-6">About</h1>
 
       <div className="bg-gray-800 rounded-lg p-6 flex flex-col gap-6">
-        <div className="flex items-center gap-4">
-          <img src="/logo.png" alt="FlowBoard logo" className="h-14 w-14" />
-          <div>
-            <p className="text-lg font-semibold text-white">FlowBoard</p>
-            <p className="text-sm text-gray-400">Version 1.2.0</p>
-          </div>
+        <div className="flex flex-col items-start">
+          {/* logo.png has baked-in transparent padding (~12px left, ~47px
+              bottom at this size); negative margins pull the mark flush-left
+              with the text below and tighten the gap. */}
+          <img
+            src="/logo.png"
+            alt="FlowBoard logo"
+            className="h-48 w-auto object-contain -ml-[12px] -mb-[40px]"
+          />
+          <p className="text-sm text-gray-400">Version 1.2.0</p>
         </div>
 
         <p className="text-sm text-gray-300 leading-relaxed">

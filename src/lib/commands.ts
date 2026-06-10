@@ -1,5 +1,4 @@
 import { invoke } from "@tauri-apps/api/core";
-import { openPath } from "@tauri-apps/plugin-opener";
 import type {
   ActivityLog,
   Attachment,
@@ -178,7 +177,7 @@ export interface AttachmentCreatePayload {
   task_id: number;
   filename: string;
   filepath: string;
-  size: number;
+  mime_type: string;
 }
 
 export const createAttachment = (payload: AttachmentCreatePayload) =>
@@ -190,7 +189,10 @@ export const deleteAttachment = (id: number) =>
 
 // ─── File Opener ───────────────────────────────────────────
 
-export const openAttachment = (filepath: string) => openPath(filepath);
+// Opens the attachment by id: the backend writes the stored bytes to a temp
+// file and opens it with the OS default program.
+export const openAttachment = (id: number) =>
+  invoke<void>("open_attachment", { id });
 
 // ─── Activity Log ──────────────────────────────────────────
 

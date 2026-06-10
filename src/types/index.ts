@@ -76,6 +76,7 @@ export interface Attachment {
   filename: string;
   filepath: string;
   size: number;
+  mime_type: string;
   uploaded_at: string;
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -17,6 +17,7 @@ import { useDeleteSprint, useSprints } from "@/hooks/useSprints";
 import { usePeople } from "@/hooks/usePeople";
 import { useProject } from "@/hooks/useProjects";
 import { SprintFormDialog } from "@/features/sprints/SprintFormDialog";
+import { RefreshButton } from "@/components/RefreshButton";
 import type { Sprint, SprintStatus, Task } from "@/types";
 import { cn } from "@/lib/utils";
 import { TaskCard } from "./shared/TaskCard";
@@ -177,6 +178,10 @@ export function SprintPlanningBoard() {
   const [overrides, setOverrides] = useState<Record<number, number | null>>({});
   // Sections are expanded by default; track the keys the user has collapsed.
   const [collapsed, setCollapsed] = useState<Set<SprintBoardRowKey>>(new Set());
+  // Completed sprints start collapsed. Seed once when the sprints first load
+  // (the data is async, so a lazy useState initializer would run too early),
+  // then leave the user's manual toggles alone.
+  const seededCollapse = useRef(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Sprint | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -212,6 +217,13 @@ export function SprintPlanningBoard() {
       return changed ? next : prev;
     });
   }, [tasks]);
+
+  useEffect(() => {
+    if (seededCollapse.current || !sprints) return;
+    seededCollapse.current = true;
+    const completed = sprints.filter((s) => s.status === "completed").map((s) => s.id);
+    if (completed.length > 0) setCollapsed(new Set<SprintBoardRowKey>(completed));
+  }, [sprints]);
 
   const rows = useMemo(
     () => buildSprintBoardRows(effectiveTasks, sprints ?? [], boardSprintFilter),
@@ -305,7 +317,10 @@ export function SprintPlanningBoard() {
     <div className="flex flex-col h-full">
       {/* Board header */}
       <div className="flex items-center gap-4 mb-6">
-        <h1 className="text-lg font-semibold text-white">Sprint Planning Board</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-lg font-semibold text-white">Sprint Planning Board</h1>
+          <RefreshButton />
+        </div>
         <div className="ml-auto flex items-center gap-3">
           <SprintFilterSelect projectId={activeProjectId} />
           <Button onClick={openCreate} className="bg-blue-600 hover:bg-blue-500 text-white">

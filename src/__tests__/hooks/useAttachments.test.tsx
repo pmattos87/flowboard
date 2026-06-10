@@ -30,6 +30,7 @@ const fakeAttachment = {
   filename: "design.png",
   filepath: "/home/user/design.png",
   size: 204800,
+  mime_type: "image/png",
   uploaded_at: "2024-01-01T00:00:00.000Z",
 };
 
@@ -62,10 +63,10 @@ describe("useCreateAttachment", () => {
       task_id: 10,
       filename: "design.png",
       filepath: "/home/user/design.png",
-      size: 204800,
+      mime_type: "image/png",
     });
     expect(mockInvoke).toHaveBeenCalledWith("create_attachment", {
-      payload: { task_id: 10, filename: "design.png", filepath: "/home/user/design.png", size: 204800 },
+      payload: { task_id: 10, filename: "design.png", filepath: "/home/user/design.png", mime_type: "image/png" },
     });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: attachmentKeys.list(10) });
   });
