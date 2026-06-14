@@ -7,14 +7,19 @@ import {
 } from "@/features/boards/shared/sprintBoardGrouping";
 import type { Sprint, Task } from "@/types";
 
-const sprint = (id: number, name: string): Sprint => ({
+const sprint = (
+  id: number,
+  name: string,
+  status: Sprint["status"] = "active",
+  start_date = "2024-01-01",
+): Sprint => ({
   id,
   project_id: 1,
   name,
   goal: "",
-  start_date: "2024-01-01",
+  start_date,
   end_date: "2024-01-14",
-  status: "active",
+  status,
 });
 
 const story = (id: number, sprint_id: number | null, priority: Task["priority"] = "medium"): Task => ({
@@ -60,6 +65,26 @@ describe("buildSprintBoardRows", () => {
     const rows = buildSprintBoardRows(tasks, sprints, "backlog");
     expect(rows.map((r) => r.key)).toEqual(["backlog"]);
     expect(rows[0].tasks.map((t) => t.id)).toEqual([3]);
+  });
+
+  it("orders sections active → backlog sprints → backlog row → completed", () => {
+    const ordered = [
+      sprint(20, "Done old", "completed", "2024-01-01"),
+      sprint(21, "Backlog late", "backlog", "2024-03-01"),
+      sprint(22, "Active", "active", "2024-02-01"),
+      sprint(23, "Backlog early", "backlog", "2024-02-15"),
+      sprint(24, "Done recent", "completed", "2024-01-20"),
+    ];
+    const tasks = [story(1, 22), story(2, null)];
+    const rows = buildSprintBoardRows(tasks, ordered, "all");
+    expect(rows.map((r) => r.key)).toEqual([
+      22, // active
+      23, // backlog sprint, earlier start first
+      21, // backlog sprint, later start
+      "backlog", // unscheduled pseudo-row
+      24, // completed, most recent first
+      20, // completed, older
+    ]);
   });
 
   it("excludes non-story tasks and orders by priority, highest first", () => {
