@@ -27,6 +27,7 @@ pub fn run() {
             commands::projects::get_project,
             commands::projects::update_project,
             commands::projects::delete_project,
+            commands::projects::reorder_projects,
             commands::people::create_person,
             commands::people::list_people,
             commands::people::get_person,

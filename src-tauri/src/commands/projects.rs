@@ -13,6 +13,8 @@ pub struct Project {
     pub created_at: String,
     /// Optional logo as a base64 data URL. NULL = use the colored square.
     pub logo_data: Option<String>,
+    /// Manual sort order for the sidebar (ascending).
+    pub position: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -40,8 +42,9 @@ pub async fn create_project(
     payload: ProjectCreate,
 ) -> Result<Project, String> {
     let id: i64 = sqlx::query_scalar(
-        r#"INSERT INTO projects (name, key, description, color, logo_data, created_at)
-           VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        r#"INSERT INTO projects (name, key, description, color, logo_data, created_at, position)
+           VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                   (SELECT COALESCE(MAX(position), 0) + 1 FROM projects))
            RETURNING id"#,
     )
     .bind(&payload.name)
@@ -58,7 +61,7 @@ pub async fn create_project(
 
 #[tauri::command]
 pub async fn list_projects(pool: State<'_, SqlitePool>) -> Result<Vec<Project>, String> {
-    sqlx::query_as::<_, Project>("SELECT * FROM projects ORDER BY created_at DESC")
+    sqlx::query_as::<_, Project>("SELECT * FROM projects ORDER BY position ASC, created_at DESC")
         .fetch_all(pool.inner())
         .await
         .map_err(|e| e.to_string())
@@ -103,6 +106,26 @@ pub async fn delete_project(pool: State<'_, SqlitePool>, id: i64) -> Result<(), 
         .execute(pool.inner())
         .await
         .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Persist a new sidebar ordering: each project's `position` is set to its
+/// index in `ordered_ids`. Applied in a single transaction.
+#[tauri::command]
+pub async fn reorder_projects(
+    pool: State<'_, SqlitePool>,
+    ordered_ids: Vec<i64>,
+) -> Result<(), String> {
+    let mut tx = pool.inner().begin().await.map_err(|e| e.to_string())?;
+    for (position, id) in ordered_ids.iter().enumerate() {
+        sqlx::query("UPDATE projects SET position = ? WHERE id = ?")
+            .bind(position as i64)
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    tx.commit().await.map_err(|e| e.to_string())?;
     Ok(())
 }
 
