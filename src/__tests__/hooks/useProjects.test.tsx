@@ -9,6 +9,7 @@ import {
   useCreateProject,
   useUpdateProject,
   useDeleteProject,
+  useReorderProjects,
   projectKeys,
 } from "@/hooks/useProjects";
 
@@ -110,5 +111,33 @@ describe("useDeleteProject", () => {
     await result.current.mutateAsync(1);
     expect(mockInvoke).toHaveBeenCalledWith("delete_project", { id: 1 });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: projectKeys.all });
+  });
+});
+
+describe("useReorderProjects", () => {
+  it("calls reorder_projects with the new id order", async () => {
+    mockInvoke.mockResolvedValueOnce(undefined);
+    const { wrapper, qc } = makeWrapper();
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    const { result } = renderHook(() => useReorderProjects(), { wrapper });
+    await result.current.mutateAsync([3, 1, 2]);
+    expect(mockInvoke).toHaveBeenCalledWith("reorder_projects", {
+      orderedIds: [3, 1, 2],
+    });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: projectKeys.all });
+  });
+
+  it("optimistically reorders the cached project list", async () => {
+    mockInvoke.mockResolvedValueOnce(undefined);
+    const { wrapper, qc } = makeWrapper();
+    qc.setQueryData(projectKeys.list(), [
+      { ...fakeProject, id: 1 },
+      { ...fakeProject, id: 2 },
+      { ...fakeProject, id: 3 },
+    ]);
+    const { result } = renderHook(() => useReorderProjects(), { wrapper });
+    await result.current.mutateAsync([3, 1, 2]);
+    const cached = qc.getQueryData<{ id: number }[]>(projectKeys.list());
+    expect(cached?.map((p) => p.id)).toEqual([3, 1, 2]);
   });
 });

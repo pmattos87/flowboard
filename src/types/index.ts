@@ -12,6 +12,8 @@ export interface Project {
   created_at: string;
   /** Optional project logo as a base64 data URL. null = use the colored square. */
   logo_data: string | null;
+  /** Manual sort order for the sidebar (ascending). */
+  position: number;
 }
 
 export interface Person {

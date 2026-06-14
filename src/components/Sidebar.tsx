@@ -12,10 +12,24 @@ import {
   Settings as SettingsIcon,
   Users,
 } from "lucide-react";
-import { useProjects } from "@/hooks/useProjects";
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { useProjects, useReorderProjects } from "@/hooks/useProjects";
 import { ProjectBadge } from "@/components/ProjectBadge";
 import { useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
+import type { Project } from "@/types";
 
 const NAV_ITEMS = [
   { to: "/board/discovery", label: "Discovery Board", icon: Lightbulb },
@@ -37,11 +51,71 @@ function navClasses({ isActive }: { isActive: boolean }) {
   );
 }
 
+function SortableProjectItem({
+  project,
+  isActive,
+  onSelect,
+}: {
+  project: Project;
+  isActive: boolean;
+  onSelect: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: project.id });
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={{
+        transform: transform
+          ? `translate3d(${transform.x}px, ${transform.y}px, 0)`
+          : undefined,
+        transition,
+        opacity: isDragging ? 0.5 : undefined,
+      }}
+    >
+      <button
+        type="button"
+        onClick={onSelect}
+        {...attributes}
+        {...listeners}
+        className={cn(
+          "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors text-left touch-none",
+          isActive
+            ? "bg-gray-800 text-white"
+            : "text-gray-400 hover:bg-gray-900 hover:text-gray-200",
+        )}
+      >
+        <ProjectBadge project={project} />
+        <span className="truncate">{project.name}</span>
+      </button>
+    </li>
+  );
+}
+
 export function Sidebar() {
   const { data: projects } = useProjects();
   const activeProjectId = useUiStore((s) => s.activeProjectId);
   const setActiveProjectId = useUiStore((s) => s.setActiveProjectId);
   const openCreateProject = useUiStore((s) => s.setCreateProjectModalOpen);
+  const reorderProjects = useReorderProjects();
+
+  // 5px activation distance so a plain click still selects (no accidental drag).
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+
+  const projectList = projects ?? [];
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = projectList.findIndex((p) => p.id === active.id);
+    const newIndex = projectList.findIndex((p) => p.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    const orderedIds = arrayMove(projectList, oldIndex, newIndex).map((p) => p.id);
+    reorderProjects.mutate(orderedIds);
+  }
 
   return (
     <aside className="w-[256px] shrink-0 bg-gray-950 border-r border-gray-900 flex flex-col">
@@ -71,33 +145,28 @@ export function Sidebar() {
           <Plus className="h-4 w-4" />
         </button>
       </div>
-      <ul className="px-2 space-y-0.5">
-        {(projects ?? []).map((p) => {
-          const isActive = activeProjectId === p.id;
-          return (
-            <li key={p.id}>
-              <button
-                type="button"
-                onClick={() => setActiveProjectId(p.id)}
-                className={cn(
-                  "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors text-left",
-                  isActive
-                    ? "bg-gray-800 text-white"
-                    : "text-gray-400 hover:bg-gray-900 hover:text-gray-200",
-                )}
-              >
-                <ProjectBadge project={p} />
-                <span className="truncate">{p.name}</span>
-              </button>
-            </li>
-          );
-        })}
-        {projects && projects.length === 0 && (
-          <li className="px-2 py-1.5 text-xs text-gray-600 italic">
-            No projects yet
-          </li>
-        )}
-      </ul>
+      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+        <SortableContext
+          items={projectList.map((p) => p.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          <ul className="px-2 space-y-0.5">
+            {projectList.map((p) => (
+              <SortableProjectItem
+                key={p.id}
+                project={p}
+                isActive={activeProjectId === p.id}
+                onSelect={() => setActiveProjectId(p.id)}
+              />
+            ))}
+            {projects && projects.length === 0 && (
+              <li className="px-2 py-1.5 text-xs text-gray-600 italic">
+                No projects yet
+              </li>
+            )}
+          </ul>
+        </SortableContext>
+      </DndContext>
 
       <nav className="mt-6 px-2 space-y-0.5">
         {NAV_ITEMS.map(({ to, label, icon: Icon }) => (

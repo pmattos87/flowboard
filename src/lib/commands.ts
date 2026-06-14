@@ -37,6 +37,8 @@ export const getProject = (id: number) => invoke<Project>("get_project", { id })
 export const updateProject = (id: number, payload: ProjectUpdatePayload) =>
   invoke<Project>("update_project", { id, payload });
 export const deleteProject = (id: number) => invoke<void>("delete_project", { id });
+export const reorderProjects = (orderedIds: number[]) =>
+  invoke<void>("reorder_projects", { orderedIds });
 
 // ─── People ────────────────────────────────────────────────
 
