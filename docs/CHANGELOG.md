@@ -2,6 +2,18 @@
 
 **All notable changes to this project will be documented in this file.**
 
+## [1.4.0] - 2026-06-17
+
+### Added
+- Drag-and-drop reordering of projects in the sidebar (FB-51).
+
+### Changed
+- Sprint sections now render in a fixed order: active, then backlog, then completed (FB-50).
+- Scrollbars styled to match the dark theme (FB-53).
+
+### Version bumps
+- `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`, About page → `1.4.0`
+
 ## [1.3.0] - 2026-06-10
 
 ### Added
