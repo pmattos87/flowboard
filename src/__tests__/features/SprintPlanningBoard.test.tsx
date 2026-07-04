@@ -21,7 +21,13 @@ const fakeSprints = [
 const fakeTasks = [
   {
     id: 1, project_id: 1, sprint_id: null, parent_id: null,
-    title: "Backlog item A", description: "", type: "story", status: "todo",
+    title: "Backlog item A", description: "", type: "story", status: "ready_for_development",
+    priority: "medium", assignee_id: null, story_points: 2, due_date: null,
+    created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "",
+  },
+  {
+    id: 4, project_id: 1, sprint_id: null, parent_id: null,
+    title: "Refining story D", description: "", type: "story", status: "refining",
     priority: "medium", assignee_id: null, story_points: 2, due_date: null,
     created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "",
   },
@@ -96,9 +102,15 @@ describe("SprintPlanningBoard — with sprints and tasks", () => {
     await waitFor(() => expect(screen.getByText("Sprint item B")).toBeInTheDocument());
   });
 
-  it("shows a backlog story (no sprint)", async () => {
+  it("shows a ready-for-development backlog story (no sprint)", async () => {
     renderBoard();
     await waitFor(() => expect(screen.getByText("Backlog item A")).toBeInTheDocument());
+  });
+
+  it("hides backlog stories that are not ready for development (FB-85)", async () => {
+    renderBoard();
+    await waitFor(() => expect(screen.getByText("Backlog item A")).toBeInTheDocument());
+    expect(screen.queryByText("Refining story D")).not.toBeInTheDocument();
   });
 
   it("excludes non-story tasks from the board", async () => {

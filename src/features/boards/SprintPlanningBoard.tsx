@@ -10,6 +10,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { CalendarDays, ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useUiStore } from "@/stores/uiStore";
 import { useTasks, useUpdateTask } from "@/hooks/useTasks";
@@ -25,6 +26,7 @@ import { SprintFilterSelect } from "./shared/SprintFilterSelect";
 import {
   buildSprintBoardRows,
   computeSprintDropPayload,
+  isSprintScheduleBlocked,
   parseSprintDroppableId,
   sprintDroppableId,
   type SprintBoardRow,
@@ -289,6 +291,16 @@ export function SprintPlanningBoard() {
 
     const target = parseSprintDroppableId(String(over.id));
     if (target === null) return;
+
+    // FB-85: a story can only be scheduled into a sprint once it reaches
+    // "Ready for Development". Guards the backlog -> sprint move (moving between
+    // sprints or back to the backlog stays unrestricted).
+    if (isSprintScheduleBlocked(task, target)) {
+      toast.warning("Only stories marked “Ready for Development” can be added to a sprint", {
+        description: "Move it through the Discovery board first.",
+      });
+      return;
+    }
 
     const decision = computeSprintDropPayload(task, target);
     if (!decision) return;
