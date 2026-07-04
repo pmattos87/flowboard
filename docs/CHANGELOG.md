@@ -2,6 +2,18 @@
 
 **All notable changes to this project will be documented in this file.**
 
+## [Unreleased]
+
+### Added
+- Global search matches a story's ticket key (e.g. `VP-344`) or bare task number, full or partial, in addition to the title (task 504).
+- Sprint goal is shown in each sprint's header on the Sprint Planning board (task 531).
+
+### Changed
+- Confirmation notifications (task created, status changed, comment added) now use in-app toasts instead of native OS notifications; removed the unused `notify()` wrapper (task 530).
+
+### Fixed
+- Native date-picker calendar icon (Due date, sprint start/end dates) renders light to match the dark theme, via `color-scheme: dark` (task 532).
+
 ## [1.4.0] - 2026-06-17
 
 ### Added
