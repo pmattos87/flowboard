@@ -13,7 +13,7 @@ const fakeSprints = [
     start_date: "2024-01-01", end_date: "2024-01-14",
   },
   {
-    id: 11, project_id: 1, name: "Sprint 2", goal: "", status: "active",
+    id: 11, project_id: 1, name: "Sprint 2", goal: "Ship the planning board", status: "active",
     start_date: "2024-01-15", end_date: "2024-01-28",
   },
 ];
@@ -105,6 +105,13 @@ describe("SprintPlanningBoard — with sprints and tasks", () => {
     renderBoard();
     await waitFor(() => expect(screen.getByText("Backlog item A")).toBeInTheDocument());
     expect(screen.queryByText("Backlog bug C")).not.toBeInTheDocument();
+  });
+
+  it("shows the sprint goal in the sprint header", async () => {
+    renderBoard();
+    await waitFor(() =>
+      expect(screen.getByText("Ship the planning board")).toBeInTheDocument()
+    );
   });
 
   it("renders a Create sprint button", async () => {

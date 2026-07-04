@@ -3,9 +3,22 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import React from "react";
-import { useTasks, useTask, useCreateTask, useDeleteTask, taskKeys } from "@/hooks/useTasks";
+import { toast } from "sonner";
+import {
+  useTasks,
+  useTask,
+  useCreateTask,
+  useUpdateTask,
+  useDeleteTask,
+  taskKeys,
+} from "@/hooks/useTasks";
+
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
 
 const mockInvoke = vi.mocked(invoke);
+const mockToast = vi.mocked(toast);
 
 function makeWrapper() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -17,7 +30,10 @@ function makeWrapper() {
   };
 }
 
-beforeEach(() => mockInvoke.mockReset());
+beforeEach(() => {
+  mockInvoke.mockReset();
+  mockToast.success.mockReset();
+});
 
 const fakeTask = {
   id: 1,
@@ -90,6 +106,28 @@ describe("useCreateTask", () => {
       payload: { project_id: 10, title: "Fix bug" },
     });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: taskKeys.all });
+  });
+
+  it("shows an in-app success toast on create", async () => {
+    mockInvoke.mockResolvedValueOnce(fakeTask);
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useCreateTask(), { wrapper });
+    await result.current.mutateAsync({ project_id: 10, title: "Fix bug" });
+    expect(mockToast.success).toHaveBeenCalledWith("Task created", {
+      description: fakeTask.title,
+    });
+  });
+});
+
+describe("useUpdateTask", () => {
+  it("shows an in-app success toast when the status changes", async () => {
+    mockInvoke.mockResolvedValueOnce({ ...fakeTask, status: "done" });
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useUpdateTask(), { wrapper });
+    await result.current.mutateAsync({ id: 1, payload: { status: "done" } });
+    expect(mockToast.success).toHaveBeenCalledWith("Task updated", {
+      description: `"${fakeTask.title}" → done`,
+    });
   });
 });
 

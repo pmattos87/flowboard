@@ -142,6 +142,32 @@ describe("TopBar", () => {
     );
   });
 
+  it("finds a story by its ticket key — full or partial (FB task 504)", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ activeProjectId: 1 });
+    const project = { id: 1, name: "Alpha", key: "VP", description: "", color: "#6366f1", created_at: "" };
+    const task = {
+      id: 42, project_id: 1, sprint_id: null, parent_id: null,
+      title: "Booking flow story", description: "", type: "story", status: "todo",
+      priority: "medium", assignee_id: null, story_points: 0, due_date: null,
+      created_at: "", updated_at: "", labels: "", task_number: 344,
+    };
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "get_project") return Promise.resolve(project);
+      if (cmd === "list_tasks") return Promise.resolve([task]);
+      return Promise.resolve([]);
+    });
+    renderTopBar();
+    const input = await screen.findByPlaceholderText(/search/i);
+
+    await user.type(input, "VP-344");
+    await waitFor(() => expect(screen.getByText("Booking flow story")).toBeInTheDocument());
+
+    await user.clear(input);
+    await user.type(input, "344");
+    await waitFor(() => expect(screen.getByText("Booking flow story")).toBeInTheDocument());
+  });
+
   it("shows badge count when there are unread activity entries", async () => {
     localStorage.removeItem("lastInboxVisit");
     const fakeLog = [

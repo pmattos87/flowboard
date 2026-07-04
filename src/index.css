@@ -31,6 +31,7 @@ body,
   height: 100%;
   background-color: #030712; /* gray-950 — prevents flash before React mounts */
   color: #f3f4f6;
+  color-scheme: dark; /* light native controls incl. date-picker indicator (FB task 532) */
 }
 
 /* App-wide scrollbar — matches dark theme (FB-53) */

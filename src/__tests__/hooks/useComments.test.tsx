@@ -3,6 +3,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import React from "react";
+import { toast } from "sonner";
 import {
   useComments,
   useCreateComment,
@@ -10,7 +11,12 @@ import {
   commentKeys,
 } from "@/hooks/useComments";
 
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
+
 const mockInvoke = vi.mocked(invoke);
+const mockToast = vi.mocked(toast);
 
 function makeWrapper() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -22,7 +28,10 @@ function makeWrapper() {
   };
 }
 
-beforeEach(() => mockInvoke.mockReset());
+beforeEach(() => {
+  mockInvoke.mockReset();
+  mockToast.success.mockReset();
+});
 
 const fakeComment = {
   id: 1,
@@ -62,6 +71,14 @@ describe("useCreateComment", () => {
       payload: { task_id: 10, author_id: 2, body: "Nice work!" },
     });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: commentKeys.list(10) });
+  });
+
+  it("shows an in-app success toast when a comment is added", async () => {
+    mockInvoke.mockResolvedValueOnce(fakeComment);
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useCreateComment(), { wrapper });
+    await result.current.mutateAsync({ task_id: 10, author_id: 2, body: "Nice work!" });
+    expect(mockToast.success).toHaveBeenCalledWith("Comment added");
   });
 });
 
