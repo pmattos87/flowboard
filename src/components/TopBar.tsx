@@ -112,18 +112,29 @@ export function TopBar() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const q = query.toLowerCase();
+  // `tasks` is scoped to the active project, so all keys share its prefix.
+  const taskProjectKey = activeProject?.key ?? "";
   const results: SearchResult[] =
     query.length < 2
       ? []
       : [
           ...tasks
-            .filter((t) => t.title.toLowerCase().includes(q))
-            .slice(0, 2)
+            .filter((t) => {
+              const key = taskProjectKey ? `${taskProjectKey}-${t.task_number}` : "";
+              return (
+                t.title.toLowerCase().includes(q) ||
+                key.toLowerCase().includes(q) ||
+                String(t.task_number).includes(q)
+              );
+            })
+            .slice(0, 5)
             .map((t) => ({
               kind: "task" as const,
               id: t.id,
               label: t.title,
-              sub: STATUS_LABELS[t.status] ?? t.status,
+              sub: taskProjectKey
+                ? `${taskProjectKey}-${t.task_number}`
+                : STATUS_LABELS[t.status] ?? t.status,
             })),
           ...allSprints
             .filter((s) => s.name.toLowerCase().includes(q))
