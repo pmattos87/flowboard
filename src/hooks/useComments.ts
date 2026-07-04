@@ -6,7 +6,6 @@ import {
   type CommentCreatePayload,
 } from "@/lib/commands";
 import { toast } from "sonner";
-import { notify } from "@/lib/notifications";
 
 export const commentKeys = {
   all: ["comments"] as const,
@@ -27,7 +26,7 @@ export function useCreateComment() {
     mutationFn: (payload: CommentCreatePayload) => createComment(payload),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: commentKeys.list(vars.task_id) });
-      void notify("New Comment", `Comment added to task #${vars.task_id}`);
+      toast.success("Comment added");
     },
     onError: (err) => toast.error(`Failed to post comment: ${String(err)}`),
   });

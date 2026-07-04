@@ -10,7 +10,6 @@ import {
   type TaskUpdatePayload,
 } from "@/lib/commands";
 import { toast } from "sonner";
-import { notify } from "@/lib/notifications";
 
 export const taskKeys = {
   all: ["tasks"] as const,
@@ -39,7 +38,7 @@ export function useCreateTask() {
     mutationFn: (payload: TaskCreatePayload) => createTask(payload),
     onSuccess: (task) => {
       qc.invalidateQueries({ queryKey: taskKeys.all });
-      void notify("Task Created", task.title);
+      toast.success("Task created", { description: task.title });
     },
     onError: (err) => toast.error(`Failed to create task: ${String(err)}`),
   });
@@ -53,7 +52,9 @@ export function useUpdateTask() {
     onSuccess: (task, { payload }) => {
       qc.invalidateQueries({ queryKey: taskKeys.all });
       if (payload.status != null) {
-        void notify("Task Updated", `"${task.title}" → ${payload.status.replace("_", " ")}`);
+        toast.success("Task updated", {
+          description: `"${task.title}" → ${payload.status.replace("_", " ")}`,
+        });
       }
     },
     onError: (err) => toast.error(`Failed to update task: ${String(err)}`),
