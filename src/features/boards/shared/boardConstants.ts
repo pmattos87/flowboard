@@ -12,14 +12,51 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { TaskPriority, TaskStatus, TaskType } from "@/types";
 
+export type BoardColumn = { status: TaskStatus; label: string; dotClass: string; Icon?: LucideIcon };
+
 // `Icon`, when present, replaces the colored status dot in column headers.
-export const COLUMNS: { status: TaskStatus; label: string; dotClass: string; Icon?: LucideIcon }[] = [
+export const COLUMNS: BoardColumn[] = [
   { status: "todo",        label: "TO DO",       dotClass: "bg-gray-400" },
   { status: "in_progress", label: "IN PROGRESS",  dotClass: "bg-blue-500" },
   { status: "in_review",   label: "IN REVIEW",    dotClass: "bg-yellow-400" },
   { status: "canceled",    label: "CANCELED",     dotClass: "bg-gray-500", Icon: Ban },
   { status: "done",        label: "DONE",         dotClass: "bg-emerald-500" },
 ];
+
+// Discovery board uses a distinct discovery/refinement lifecycle (FB-85). Only
+// "Ready for Development" stories can then be scheduled into a sprint.
+export const DISCOVERY_COLUMNS: BoardColumn[] = [
+  { status: "todo",                  label: "TO DO",                 dotClass: "bg-gray-400" },
+  { status: "refining",              label: "REFINING",              dotClass: "bg-blue-400" },
+  { status: "canceled",              label: "CANCELED",              dotClass: "bg-gray-500", Icon: Ban },
+  { status: "ready_for_development", label: "READY FOR DEVELOPMENT", dotClass: "bg-emerald-500" },
+];
+
+// Status <option>s for the detail-panel / create-modal pickers. The discovery
+// statuses "refining" and "ready_for_development" belong to the story lifecycle
+// (FB-85), so they are offered only for stories & epics — tasks & bugs keep the
+// plain dev workflow.
+const DEV_STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
+  { value: "todo",        label: "To Do" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "in_review",   label: "In Review" },
+  { value: "canceled",    label: "Canceled" },
+  { value: "done",        label: "Done" },
+];
+
+const STORY_STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
+  { value: "todo",                  label: "To Do" },
+  { value: "refining",              label: "Refining" },
+  { value: "ready_for_development", label: "Ready for Development" },
+  { value: "in_progress",           label: "In Progress" },
+  { value: "in_review",             label: "In Review" },
+  { value: "canceled",              label: "Canceled" },
+  { value: "done",                  label: "Done" },
+];
+
+export function statusOptionsForType(type: TaskType): { value: TaskStatus; label: string }[] {
+  return type === "story" || type === "epic" ? STORY_STATUS_OPTIONS : DEV_STATUS_OPTIONS;
+}
 
 export const TYPE_META: Record<TaskType, { Icon: LucideIcon; colorClass: string }> = {
   story: { Icon: BookOpen,    colorClass: "text-emerald-400" },

@@ -15,6 +15,7 @@ import { usePeople } from "@/hooks/usePeople";
 import { useSprints } from "@/hooks/useSprints";
 import { useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
+import { statusOptionsForType } from "@/features/boards/shared/boardConstants";
 import type { TaskPriority, TaskStatus, TaskType } from "@/types";
 
 type TaskForm = {
@@ -183,11 +184,9 @@ export function CreateTaskModal() {
                   onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as TaskStatus }))}
                   className="w-full rounded-md bg-gray-800 border border-gray-700 text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="todo">To Do</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="in_review">In Review</option>
-                  <option value="canceled">Canceled</option>
-                  <option value="done">Done</option>
+                  {statusOptionsForType(form.type).map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
                 </select>
               </div>
               <div className="space-y-1.5">

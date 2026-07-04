@@ -10,7 +10,7 @@ import {
 } from "@dnd-kit/core";
 import type { Person, Task, TaskStatus } from "@/types";
 import { useUpdateTask } from "@/hooks/useTasks";
-import { COLUMNS, sortByPriority } from "./boardConstants";
+import { COLUMNS, sortByPriority, type BoardColumn } from "./boardConstants";
 import { KanbanColumn } from "./KanbanColumn";
 import { TaskCard } from "./TaskCard";
 
@@ -18,9 +18,11 @@ interface KanbanBoardProps {
   tasks: Task[];
   people: Person[];
   projectKey: string;
+  /** Column set to render. Defaults to the shared 5-status workflow columns. */
+  columns?: BoardColumn[];
 }
 
-export function KanbanBoard({ tasks, people, projectKey }: KanbanBoardProps) {
+export function KanbanBoard({ tasks, people, projectKey, columns = COLUMNS }: KanbanBoardProps) {
   const updateTask = useUpdateTask();
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   // Local status overrides: applied immediately on drop, cleared when server data confirms.
@@ -95,7 +97,7 @@ export function KanbanBoard({ tasks, people, projectKey }: KanbanBoardProps) {
       onDragCancel={handleDragCancel}
     >
       <div className="flex flex-row gap-4 overflow-x-auto pb-4 h-full">
-        {COLUMNS.map((col) => {
+        {columns.map((col) => {
           const colTasks = sortByPriority(
             effectiveTasks.filter((t) => t.status === col.status)
           );
