@@ -4,6 +4,7 @@ import { usePeople } from "@/hooks/usePeople";
 import { useProject } from "@/hooks/useProjects";
 import { RefreshButton } from "@/components/RefreshButton";
 import { KanbanBoard } from "./shared/KanbanBoard";
+import { DISCOVERY_COLUMNS } from "./shared/boardConstants";
 
 export function DiscoveryBoard() {
   const activeProjectId = useUiStore((s) => s.activeProjectId);
@@ -38,6 +39,7 @@ export function DiscoveryBoard() {
         tasks={tasks}
         people={people}
         projectKey={project?.key ?? "FB"}
+        columns={DISCOVERY_COLUMNS}
       />
     </div>
   );

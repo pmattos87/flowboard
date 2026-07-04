@@ -1,4 +1,4 @@
-import type { Sprint, SprintStatus, Task } from "@/types";
+import type { Sprint, SprintStatus, Task, TaskStatus } from "@/types";
 import type { SprintFilter } from "@/stores/uiStore";
 import { sortByPriority } from "./boardConstants";
 
@@ -43,10 +43,15 @@ export function buildSprintBoardRows(
     tasks: sortByPriority(stories.filter((t) => t.sprint_id === sprint.id)),
   }));
 
+  // FB-85: only stories that reached "Ready for Development" are plannable, so
+  // the backlog row shows exactly those. Stories already in a sprint keep showing
+  // in their sprint row regardless of their (dev-workflow) status.
   const backlogRow: SprintBoardRow = {
     key: "backlog",
     sprint: null,
-    tasks: sortByPriority(stories.filter((t) => t.sprint_id === null)),
+    tasks: sortByPriority(
+      stories.filter((t) => t.sprint_id === null && t.status === "ready_for_development"),
+    ),
   };
 
   const byStatus = (status: SprintStatus) =>
@@ -77,16 +82,43 @@ export function parseSprintDroppableId(id: string): SprintBoardRowKey | null {
   return null;
 }
 
+interface SprintDropPatch {
+  sprint_id: number | null;
+  status?: TaskStatus;
+}
+
+/**
+ * FB-85: a story may only be scheduled into a sprint once it reaches
+ * "Ready for Development". Applies only to backlog -> sprint moves — moving a
+ * story between sprints or back to the backlog is always allowed.
+ */
+export function isSprintScheduleBlocked(task: Task, targetKey: SprintBoardRowKey): boolean {
+  return (
+    targetKey !== "backlog" &&
+    task.sprint_id === null &&
+    task.status !== "ready_for_development"
+  );
+}
+
 /**
  * Decide the patch + optimistic override for a Sprint Planning Board drop.
  * Dropping onto a sprint sets the story's `sprint_id`; dropping onto Backlog
  * clears it. Returns `null` when the story is already in the target section.
+ *
+ * FB-85: scheduling a story out of the backlog (`sprint_id` null -> a sprint)
+ * also resets its status to `todo`, moving it from the discovery lifecycle into
+ * the sprint's dev workflow. Sprint->sprint and ->backlog moves leave status.
  */
 export function computeSprintDropPayload(
   task: Task,
   targetKey: SprintBoardRowKey,
-): { payload: { sprint_id: number | null }; override: { sprint_id: number | null } } | null {
+): { payload: SprintDropPatch; override: SprintDropPatch } | null {
   const newSprintId = targetKey === "backlog" ? null : targetKey;
   if (task.sprint_id === newSprintId) return null;
-  return { payload: { sprint_id: newSprintId }, override: { sprint_id: newSprintId } };
+
+  const patch: SprintDropPatch = { sprint_id: newSprintId };
+  if (task.sprint_id === null && newSprintId !== null) {
+    patch.status = "todo";
+  }
+  return { payload: patch, override: patch };
 }

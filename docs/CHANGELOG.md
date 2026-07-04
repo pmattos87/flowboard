@@ -7,9 +7,11 @@
 ### Added
 - Global search matches a story's ticket key (e.g. `VP-344`) or bare task number, full or partial, in addition to the title (task 504).
 - Sprint goal is shown in each sprint's header on the Sprint Planning board (task 531).
+- Discovery board now uses a story-discovery lifecycle — **To Do → Refining → Ready for Development**, plus **Canceled**; the two new statuses are offered only for stories & epics (migration `008_story_phases.sql`, FB-85).
 
 ### Changed
 - Confirmation notifications (task created, status changed, comment added) now use in-app toasts instead of native OS notifications; removed the unused `notify()` wrapper (task 530).
+- Only stories marked "Ready for Development" appear in the Sprint Planning backlog and can be scheduled into a sprint; scheduling one resets its status to "To Do" for the dev workflow, and a blocked attempt shows an explanatory toast (FB-85).
 
 ### Fixed
 - Native date-picker calendar icon (Due date, sprint start/end dates) renders light to match the dark theme, via `color-scheme: dark` (task 532).

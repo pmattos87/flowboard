@@ -17,6 +17,8 @@ interface Props {
 
 const STATUS_CONFIG = [
   { key: "todo", label: "To Do", color: "#6b7280" },
+  { key: "refining", label: "Refining", color: "#60a5fa" },
+  { key: "ready_for_development", label: "Ready for Development", color: "#34d399" },
   { key: "in_progress", label: "In Progress", color: "#60a5fa" },
   { key: "in_review", label: "In Review", color: "#fbbf24" },
   { key: "canceled", label: "Canceled", color: "#475569" },

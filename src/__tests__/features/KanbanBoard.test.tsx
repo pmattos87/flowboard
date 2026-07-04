@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { KanbanBoard } from "@/features/boards/shared/KanbanBoard";
+import { DISCOVERY_COLUMNS } from "@/features/boards/shared/boardConstants";
 import { useUiStore } from "@/stores/uiStore";
 import type { Task } from "@/types";
 
@@ -52,6 +53,30 @@ describe("KanbanBoard — column headers", () => {
     expect(screen.getByText("IN PROGRESS")).toBeInTheDocument();
     expect(screen.getByText("IN REVIEW")).toBeInTheDocument();
     expect(screen.getByText("DONE")).toBeInTheDocument();
+  });
+});
+
+describe("KanbanBoard — discovery columns (FB-85)", () => {
+  it("renders the discovery lifecycle columns when passed DISCOVERY_COLUMNS", () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const discoveryStory: Task = {
+      ...makeTasks()[2], id: 5, title: "Ready story", type: "story",
+      status: "ready_for_development",
+    };
+    render(
+      <QueryClientProvider client={qc}>
+        <KanbanBoard tasks={[discoveryStory]} people={[]} projectKey="FB" columns={DISCOVERY_COLUMNS} />
+      </QueryClientProvider>
+    );
+    expect(screen.getByText("TO DO")).toBeInTheDocument();
+    expect(screen.getByText("REFINING")).toBeInTheDocument();
+    expect(screen.getByText("CANCELED")).toBeInTheDocument();
+    expect(screen.getByText("READY FOR DEVELOPMENT")).toBeInTheDocument();
+    // The default workflow columns are absent on the discovery board.
+    expect(screen.queryByText("IN PROGRESS")).not.toBeInTheDocument();
+    expect(screen.queryByText("DONE")).not.toBeInTheDocument();
+    // The ready story lands in its column.
+    expect(screen.getByText("Ready story")).toBeInTheDocument();
   });
 });
 

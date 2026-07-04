@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildSprintBoardRows,
   computeSprintDropPayload,
+  isSprintScheduleBlocked,
   parseSprintDroppableId,
   sprintDroppableId,
 } from "@/features/boards/shared/sprintBoardGrouping";
@@ -22,7 +23,14 @@ const sprint = (
   status,
 });
 
-const story = (id: number, sprint_id: number | null, priority: Task["priority"] = "medium"): Task => ({
+const story = (
+  id: number,
+  sprint_id: number | null,
+  priority: Task["priority"] = "medium",
+  // Backlog stories only appear on the planning board once "Ready for
+  // Development" (FB-85), so that is the default for unscheduled stories.
+  status: Task["status"] = sprint_id === null ? "ready_for_development" : "todo",
+): Task => ({
   id,
   project_id: 1,
   sprint_id,
@@ -30,7 +38,7 @@ const story = (id: number, sprint_id: number | null, priority: Task["priority"] 
   title: `Story ${id}`,
   description: "",
   type: "story",
-  status: "todo",
+  status,
   priority,
   assignee_id: null,
   story_points: 0,
@@ -93,6 +101,23 @@ describe("buildSprintBoardRows", () => {
     const rows = buildSprintBoardRows(tasks, sprints, "backlog");
     expect(rows[0].tasks.map((t) => t.id)).toEqual([2, 1]);
   });
+
+  it("backlog row shows only 'ready_for_development' stories (FB-85)", () => {
+    const tasks = [
+      story(1, null, "medium", "ready_for_development"),
+      story(2, null, "medium", "todo"),
+      story(3, null, "medium", "refining"),
+      story(4, null, "medium", "canceled"),
+    ];
+    const rows = buildSprintBoardRows(tasks, sprints, "backlog");
+    expect(rows[0].tasks.map((t) => t.id)).toEqual([1]);
+  });
+
+  it("keeps in-sprint stories visible regardless of status", () => {
+    const tasks = [story(1, 10, "medium", "in_progress"), story(2, 10, "medium", "done")];
+    const rows = buildSprintBoardRows(tasks, sprints, 10);
+    expect(rows[0].tasks.map((t) => t.id)).toEqual([1, 2]);
+  });
 });
 
 describe("sprint droppable id round-trip", () => {
@@ -106,15 +131,22 @@ describe("sprint droppable id round-trip", () => {
 });
 
 describe("computeSprintDropPayload", () => {
-  it("sets sprint_id when dropping onto a sprint", () => {
+  it("sets sprint_id and resets status to todo when scheduling from the backlog", () => {
     expect(computeSprintDropPayload(story(1, null), 11)).toEqual({
+      payload: { sprint_id: 11, status: "todo" },
+      override: { sprint_id: 11, status: "todo" },
+    });
+  });
+
+  it("does not reset status when moving between sprints", () => {
+    expect(computeSprintDropPayload(story(1, 10, "medium", "in_progress"), 11)).toEqual({
       payload: { sprint_id: 11 },
       override: { sprint_id: 11 },
     });
   });
 
-  it("clears sprint_id when dropping onto the backlog", () => {
-    expect(computeSprintDropPayload(story(1, 10), "backlog")).toEqual({
+  it("clears sprint_id and keeps status when dropping onto the backlog", () => {
+    expect(computeSprintDropPayload(story(1, 10, "medium", "in_progress"), "backlog")).toEqual({
       payload: { sprint_id: null },
       override: { sprint_id: null },
     });
@@ -123,5 +155,21 @@ describe("computeSprintDropPayload", () => {
   it("returns null when the story is already in the target section", () => {
     expect(computeSprintDropPayload(story(1, 10), 10)).toBeNull();
     expect(computeSprintDropPayload(story(1, null), "backlog")).toBeNull();
+  });
+});
+
+describe("isSprintScheduleBlocked (FB-85)", () => {
+  it("blocks scheduling a non-ready backlog story into a sprint", () => {
+    expect(isSprintScheduleBlocked(story(1, null, "medium", "todo"), 11)).toBe(true);
+    expect(isSprintScheduleBlocked(story(1, null, "medium", "refining"), 11)).toBe(true);
+  });
+
+  it("allows a ready-for-development backlog story into a sprint", () => {
+    expect(isSprintScheduleBlocked(story(1, null, "medium", "ready_for_development"), 11)).toBe(false);
+  });
+
+  it("never blocks moving between sprints or back to the backlog", () => {
+    expect(isSprintScheduleBlocked(story(1, 10, "medium", "in_progress"), 11)).toBe(false);
+    expect(isSprintScheduleBlocked(story(1, null, "medium", "todo"), "backlog")).toBe(false);
   });
 });

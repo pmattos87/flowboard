@@ -39,6 +39,8 @@ const STORY_STATUS_COLOR: Record<TaskStatus, string> = {
   todo: "text-gray-400",
   in_progress: "text-blue-400",
   in_review: "text-yellow-400",
+  refining: "text-blue-400",
+  ready_for_development: "text-emerald-400",
   canceled: "text-gray-500",
   done: "text-emerald-400",
 };

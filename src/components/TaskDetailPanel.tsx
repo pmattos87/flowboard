@@ -32,6 +32,7 @@ import { useSprints } from "@/hooks/useSprints";
 import { useProject } from "@/hooks/useProjects";
 import { useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
+import { statusOptionsForType } from "@/features/boards/shared/boardConstants";
 import { Avatar } from "@/components/Avatar";
 import type {
   Attachment,
@@ -709,11 +710,9 @@ export function TaskDetailPanel() {
                     }}
                     className={SELECT_CLS}
                   >
-                    <option value="todo">To Do</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="in_review">In Review</option>
-                    <option value="canceled">Canceled</option>
-                    <option value="done">Done</option>
+                    {statusOptionsForType(draft.type).map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
