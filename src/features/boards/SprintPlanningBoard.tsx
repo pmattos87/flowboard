@@ -75,7 +75,8 @@ function SprintSection({
   return (
     <div className="rounded-lg border border-gray-800 bg-gray-950 mb-3">
       {/* Section header */}
-      <div className="flex items-center gap-2 px-3 py-2 bg-gray-900 rounded-t-lg border-b border-gray-800">
+      <div className="bg-gray-900 rounded-t-lg border-b border-gray-800">
+      <div className="flex items-center gap-2 px-3 py-2">
         <button
           type="button"
           onClick={onToggle}
@@ -129,6 +130,12 @@ function SprintSection({
               <Trash2 className="h-3.5 w-3.5" />
             </button>
           </div>
+        )}
+      </div>
+        {sprint && sprint.goal.trim() !== "" && (
+          <p className="px-3 pb-2 text-xs text-gray-400 truncate" title={sprint.goal}>
+            <span className="text-gray-500">Goal:</span> {sprint.goal}
+          </p>
         )}
       </div>
 
