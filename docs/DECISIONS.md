@@ -82,6 +82,19 @@
 **Rationale:** Keeps the hierarchy invariant enforced at the data layer rather than relying on the UI to remember to cascade. Cheap (one extra UPDATE per story mutation) and impossible to forget at higher layers.
 **Consequences:** Story mutations now write to all of a story's children. Rust unit tests in `commands::tasks::tests` lock the cascade behavior (fires for stories, does not fire for non-story types, atomic on failure). Children of a non-story task are not cascaded — only stories cascade.
 
+### D-011: FB-6 Migration — Branching Strategy (2026-06-17)
+**Status:** Accepted
+**Context:** FB-6 ("Acesso a clientes") migrates FlowBoard from the local-first Tauri desktop app to a hosted Supabase web app (PLAN.md Phases 11–15). It is a long-lived, breaking, multi-phase effort that retires `src-tauri/` and rewrites the `src/lib/commands.ts` data seam — so `main` cannot host both the shippable desktop app and the in-flight migration simultaneously. The desktop app is frozen at tag `v1.4.0`.
+**Decision:** **`main` remains the stable desktop app.** The migration is developed on a **long-lived integration branch (`epic/fb-6-web`)** forked from `main` when Phase 11 begins. Phases 11–15 branch off and PR back into `epic/fb-6-web`; only the completed migration merges `epic/fb-6-web → main` (the `v2.0.0` release). Single repo — no fork — to preserve shared history and the reuse seam. Any desktop maintenance forks from the `v1.4.0` tag.
+**Rationale:**
+- Keeps `main` always shippable as the desktop app until the web app is proven, then promotes it in one deliberate merge.
+- Isolates the breaking work (Tauri retirement, `commands.ts` rewrite) from trunk.
+- Chosen over the inverted model (migration on `main`, desktop on a maintenance branch); both reach the same end state, but keeping a known-good `main` was preferred.
+**Consequences:**
+- PLAN.md Phase 11–15 "Git Setup" / "Phase Exit Criteria" target `epic/fb-6-web`, not `main`; the only `main`-bound merge is the final `v2.0.0` promotion.
+- The branches are **not created yet** — this records the strategy ahead of execution.
+- The deeper FB-6 pivot (hosted/Supabase, which supersedes D-008 and the cloud rejection below) is itself recorded as part of Phase 11 / Task 11.1, not here; this entry covers branching only.
+
 ## Rejected Decisions
 
 - **Electron** — heavier runtime and larger distribution size.

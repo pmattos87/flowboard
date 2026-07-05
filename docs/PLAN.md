@@ -307,27 +307,29 @@ Projects list in sidebar, Create Project modal, Project Settings page...
 
 > **Workstream → Phase map** (workstream numbers from the design doc): WS0+WS1 → Phase 11 · WS3 → Phase 12 · WS2+WS4 → Phase 13 · WS5+WS6+WS7 → Phase 14 · WS8 → Phase 15. Sequencing follows the doc's "Suggested sequencing" §.
 
+> **Branching model (per [`DECISIONS.md`](./DECISIONS.md) D-011):** `main` stays the **stable desktop app** (frozen at tag `v1.4.0`). All FB-6 work happens on a long-lived **integration branch `epic/fb-6-web`**, forked from `main` at the start of Phase 11. Each phase branches off and PRs back into `epic/fb-6-web` — **not `main`**. The intermediate `v2.0-*` tags are cut on `epic/fb-6-web`. **Only the completed migration merges `epic/fb-6-web → main`** (the final `v2.0.0` release, Phase 15). Branches are not created yet.
+
 ## Phased Task List — FB-6
 
 ### Phase 11 — Docs Reset & Supabase Schema (WS0 + WS1)
-> **Git Setup:** git checkout main && git pull && git checkout -b phase/11-supabase-schema
+> **Git Setup:** Create the integration branch once: `git checkout main && git pull && git checkout -b epic/fb-6-web && git push -u origin epic/fb-6-web`. Then the phase branch: `git checkout -b phase/11-supabase-schema`.
 - **Task 11.1** Constraints reset: rewrite CLAUDE.md "Non-Negotiable Constraints", add a `DECISIONS.md` pivot entry, and vendor the design doc into `docs/FB-6-CLIENT-ACCESS.md` → `skill:docs-architect`
 - **Task 11.2** Port `SCHEMA.md` to Postgres migrations (`projects, people, sprints, tasks, comments, time_logs, attachments, activity_log`); FK `ON DELETE CASCADE/SET NULL` rules carry over; keep numeric IDs and `UNIQUE(project_id, task_number)` → `skill:backend-engineer`
 - **Task 11.3** Re-implement Rust server-side logic as Postgres triggers/functions: `task_number` per-project sequence (`BEFORE INSERT`), `updated_at` auto-touch, story→child `sprint_id` cascade (atomic) → `skill:backend-engineer`
 - **Task 11.4** Add multi-tenancy tables: `profiles` (`id`=auth.uid, `role` owner|client, display name) and `client_project_access` (`profile_id`, `project_id`) → `skill:backend-engineer`
 - **Task 11.5** Tests: pgTAP/SQL unit tests for each trigger/function (numbering, touch, cascade set+clear, atomicity) mirroring the existing Rust cascade tests → `skill:qa-engineer`
-> **Phase Exit Criteria:** A local self-hosted Supabase project mirrors the current data shape with all server-side logic reproduced and tested. Push `phase/11-supabase-schema`, open a PR into `main`, merge via GitHub UI. After merge: `git checkout main && git pull && git tag -a v2.0-schema -m "FB-6 Phase 11: Postgres schema + server-side logic ported to Supabase" && git push origin v2.0-schema`
+> **Phase Exit Criteria:** A local self-hosted Supabase project mirrors the current data shape with all server-side logic reproduced and tested. Push `phase/11-supabase-schema`, open a PR into `epic/fb-6-web`, merge via GitHub UI. After merge: `git checkout epic/fb-6-web && git pull && git tag -a v2.0-schema -m "FB-6 Phase 11: Postgres schema + server-side logic ported to Supabase" && git push origin v2.0-schema`
 
 ### Phase 12 — Data-Layer Swap to Supabase (WS3)
-> **Git Setup:** git checkout main && git pull && git checkout -b phase/12-datalayer-swap
+> **Git Setup:** git checkout epic/fb-6-web && git pull && git checkout -b phase/12-datalayer-swap
 - **Task 12.1** Add `@supabase/supabase-js`; create `src/lib/supabase.ts` (client from `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`) → `skill:data-layer`
 - **Task 12.2** Re-implement all ~30 `src/lib/commands.ts` wrappers against `supabase.from(...)`/`supabase.rpc(...)` with **identical signatures and return types**; RPC for the cascade + seed helpers → `skill:data-layer`
 - **Task 12.3** Attachments: move from `tauri-plugin-fs` on-disk `filepath` to **Supabase Storage** (store object path; `openAttachment` → signed URL); upload path must support client writes (see Phase 13), not owner-only → `skill:backend-engineer`
 - **Task 12.4** Re-point the test suite: mock the Supabase client instead of `invoke` in `src/__tests__/lib/commands.test.ts` and hook tests; verify `src/hooks/*.ts` unchanged → `skill:qa-engineer`
-> **Phase Exit Criteria:** Owner app runs end-to-end against Supabase (no client features yet); `npx vitest run` green, `tsc --noEmit` clean. Push `phase/12-datalayer-swap`, open a PR into `main`, merge via GitHub UI. After merge: `git checkout main && git pull && git tag -a v2.0-datalayer -m "FB-6 Phase 12: commands.ts seam re-pointed at Supabase; owner app on server DB" && git push origin v2.0-datalayer`
+> **Phase Exit Criteria:** Owner app runs end-to-end against Supabase (no client features yet); `npx vitest run` green, `tsc --noEmit` clean. Push `phase/12-datalayer-swap`, open a PR into `epic/fb-6-web`, merge via GitHub UI. After merge: `git checkout epic/fb-6-web && git pull && git tag -a v2.0-datalayer -m "FB-6 Phase 12: commands.ts seam re-pointed at Supabase; owner app on server DB" && git push origin v2.0-datalayer`
 
 ### Phase 13 — Auth & Multi-Tenancy / RLS + Role Split (WS2 + WS4)
-> **Git Setup:** git checkout main && git pull && git checkout -b phase/13-auth-rls
+> **Git Setup:** git checkout epic/fb-6-web && git pull && git checkout -b phase/13-auth-rls
 - **Task 13.1** Enable Supabase email/password auth; seed the single owner account; document client-account provisioning → `skill:backend-engineer`
 - **Task 13.2** RLS policies: owner = full read/write; client = read on rows whose `project_id` ∈ their `client_project_access`, **plus scoped write** (insert comments/attachments, create stories) within those same projects; deny writes outside assigned projects and on out-of-scope fields/entities (exact boundaries TBD); **`time_logs` denied to clients entirely** → `skill:backend-engineer`
 - **Task 13.3** `story_points` column hiding: expose clients a `tasks_client` view that omits `story_points` (or column GRANTs) for reads, and ensure client story-creation inserts never set `story_points`; owner uses the base table — finalize the choice here → `skill:backend-engineer`
@@ -335,25 +337,25 @@ Projects list in sidebar, Create Project modal, Project Settings page...
 - **Task 13.5** Role-aware UI: owner → existing full `AppShell`; client → scoped shell (boards/status, roadmap/Gantt, comments & people) that **exposes** the comment box, attachment upload, and a constrained story-creation flow (no story-point field), but **hides** time-tracking, settings/seed/staging tooling, and any owner-only edit/DnD surfaces (exact write surface TBD); project switcher scoped to accessible projects → `skill:frontend-design`
 - **Task 13.6** Owner-only client-management screen: create client accounts and toggle their `client_project_access` → `skill:frontend-design`
 - **Task 13.7** Tests: automated RLS integration tests with two sessions (owner + client) — client **can** read and perform allowed writes (comment, attachment, create story) in assigned projects, **cannot** read or write others, cannot write out-of-scope fields/entities, never receives `time_logs`/`story_points` → `skill:qa-engineer`
-> **Phase Exit Criteria:** Clients can log in, see only their assigned projects, and perform the allowed writes (comment, attachment, create story) there but nowhere else; RLS proven by automated two-session tests. Push `phase/13-auth-rls`, open a PR into `main`, merge via GitHub UI. After merge: `git checkout main && git pull && git tag -a v2.0-auth -m "FB-6 Phase 13: auth, RLS multi-tenancy, owner/client role split" && git push origin v2.0-auth`
+> **Phase Exit Criteria:** Clients can log in, see only their assigned projects, and perform the allowed writes (comment, attachment, create story) there but nowhere else; RLS proven by automated two-session tests. Push `phase/13-auth-rls`, open a PR into `epic/fb-6-web`, merge via GitHub UI. After merge: `git checkout epic/fb-6-web && git pull && git tag -a v2.0-auth -m "FB-6 Phase 13: auth, RLS multi-tenancy, owner/client role split" && git push origin v2.0-auth`
 
 ### Phase 14 — Realtime, Tauri Retirement & Data Migration (WS5 + WS6 + WS7)
-> **Git Setup:** git checkout main && git pull && git checkout -b phase/14-realtime-migrate
+> **Git Setup:** git checkout epic/fb-6-web && git pull && git checkout -b phase/14-realtime-migrate
 - **Task 14.1** Subscribe to Supabase Realtime on tasks/sprints/comments and invalidate matching React Query keys (`taskKeys.all`, …); fallback refetch-on-focus + interval; replaces the desktop `notify()` flow → `skill:data-layer`
 - **Task 14.2** Retire Tauri: remove `src-tauri/`, Tauri plugins, and all remaining `@tauri-apps/*` imports (`commands.ts`/`notifications.ts`/`image.ts`); replace `isStagingBuild`/`seedDemoData` desktop hooks with env-based equivalents or drop → `skill:backend-engineer`
 - **Task 14.3** One-time migration script: read existing local SQLite and insert into Supabase **preserving IDs** (FKs/`task_number` keys stay stable); upload attachment files to Storage → `skill:backend-engineer`
 - **Task 14.4** Tests: verify row counts and `{key}-{task_number}` task keys match between old SQLite and Supabase; confirm a live update appears when the owner changes a task → `skill:qa-engineer`
-> **Phase Exit Criteria:** Live updates work, the Tauri shell is gone, and existing data is migrated with matching keys/counts. Push `phase/14-realtime-migrate`, open a PR into `main`, merge via GitHub UI. After merge: `git checkout main && git pull && git tag -a v2.0-migration -m "FB-6 Phase 14: realtime, Tauri retired, local data migrated" && git push origin v2.0-migration`
+> **Phase Exit Criteria:** Live updates work, the Tauri shell is gone, and existing data is migrated with matching keys/counts. Push `phase/14-realtime-migrate`, open a PR into `epic/fb-6-web`, merge via GitHub UI. After merge: `git checkout epic/fb-6-web && git pull && git tag -a v2.0-migration -m "FB-6 Phase 14: realtime, Tauri retired, local data migrated" && git push origin v2.0-migration`
 
 ### Phase 15 — Hosting & Deployment (Hostinger VPS) (WS8)
-> **Git Setup:** git checkout main && git pull && git checkout -b phase/15-hosting
+> **Git Setup:** git checkout epic/fb-6-web && git pull && git checkout -b phase/15-hosting
 - **Task 15.1** Provision the VPS (KVM 2 floor / KVM 4 headroom); install Docker + docker-compose; run the self-hosted Supabase stack; lock down ports (only nginx + SSH exposed); firewall + basic uptime monitoring → `skill:backend-engineer`
 - **Task 15.2** nginx reverse proxy for the 5-app fleet: route `flowboard.<domain>` (and the other 4 apps) to their services; build the Vite SPA to static and serve it → `skill:backend-engineer`
 - **Task 15.3** SSL via Certbot/Let's Encrypt with auto-renew cron → `skill:backend-engineer`
 - **Task 15.4** Backups (must-build — VPS has none): scheduled `pg_dump` via cron + off-site copy, with a **tested restore** → `skill:backend-engineer`
 - **Task 15.5** Outbound email: use a free SMTP relay (Mailgun/SendGrid/Brevo) for auth-email deliverability rather than the VPS IP → `skill:backend-engineer`
 - **Task 15.6** Deploy smoke test + DoD: owner and client both log in on the hosted URL; manual client walkthrough (only assigned projects, no edit controls/DnD/time/points, live update on owner edit); CI keeps `tsc --noEmit` + Vitest green → `skill:qa-engineer`
-> **Phase Exit Criteria:** Hosted FlowBoard is live behind nginx+SSL with automated tested backups; owner + client log in on the public URL. Push `phase/15-hosting`, open a PR into `main`, merge via GitHub UI. After merge: `git checkout main && git pull && git tag -a v2.0.0 -m "FB-6 Launch: hosted multi-tenant FlowBoard web app on Hostinger VPS" && git push origin v2.0.0`
+> **Phase Exit Criteria:** Hosted FlowBoard is live behind nginx+SSL with automated tested backups; owner + client log in on the public URL. Push `phase/15-hosting`, open a PR into `epic/fb-6-web`, merge via GitHub UI. **Then promote the completed migration to trunk** (the one and only `main`-bound merge per D-011): open a PR `epic/fb-6-web → main`, merge it, then tag the release on `main`: `git checkout main && git pull && git tag -a v2.0.0 -m "FB-6 Launch: hosted multi-tenant FlowBoard web app on Hostinger VPS" && git push origin v2.0.0`. (`main` now becomes the hosted web app; the desktop line remains recoverable from tag `v1.4.0`.)
 
 ---
 
