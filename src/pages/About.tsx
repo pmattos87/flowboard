@@ -22,7 +22,7 @@ export default function About() {
             alt="FlowBoard logo"
             className="h-48 w-auto object-contain -ml-[12px] -mb-[40px]"
           />
-          <p className="text-sm text-gray-400">Version 1.4.0</p>
+          <p className="text-sm text-gray-400">Version 1.5.0</p>
         </div>
 
         <p className="text-sm text-gray-300 leading-relaxed">

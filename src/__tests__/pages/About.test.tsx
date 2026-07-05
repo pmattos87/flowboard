@@ -19,7 +19,7 @@ describe("About page", () => {
 
   it("shows the version number", () => {
     renderPage();
-    expect(screen.getByText(/1\.4\.0/)).toBeInTheDocument();
+    expect(screen.getByText(/1\.5\.0/)).toBeInTheDocument();
   });
 
   it("shows the description text", () => {

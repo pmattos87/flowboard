@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-05
+
 ### Added
 - Global search matches a story's ticket key (e.g. `VP-344`) or bare task number, full or partial, in addition to the title (task 504).
 - Sprint goal is shown in each sprint's header on the Sprint Planning board (task 531).
@@ -15,6 +17,9 @@
 
 ### Fixed
 - Native date-picker calendar icon (Due date, sprint start/end dates) renders light to match the dark theme, via `color-scheme: dark` (task 532).
+
+### Version bumps
+- `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`, About page → `1.5.0`
 
 ## [1.4.0] - 2026-06-17
 
