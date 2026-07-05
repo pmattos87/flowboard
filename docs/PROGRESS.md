@@ -1,9 +1,10 @@
 # FlowBoard — Progress
 
-**Last Updated:** May 27, 2026
+**Last Updated:** June 17, 2026
 
-**Status:** v1.0.0 shipped — 2026-05-27
-**Overall Completion:** 31/31 tasks shipped across 10 phases
+**Status:** v1.4.0 shipped — 2026-06-17 (desktop app, frozen as the stable line at tag `v1.4.0`)
+**Overall Completion:** 31/31 tasks shipped across Phases 1–10; point releases 1.1.0–1.4.0 added standalone features (project logos FB-41, attachment BLOB storage, board refresh, sidebar DnD FB-51, sprint ordering FB-50, themed scrollbars FB-53)
+**Next:** Epic FB-6 — hosted web-app migration (Phases 11–15, **plan only — not started**)
 
 ---
 
@@ -70,13 +71,62 @@
 
 ---
 
+## Epic FB-6 — Client Access (Hosted Web App Migration)
+> Design doc: [`FB-6-CLIENT-ACCESS.md`](./FB-6-CLIENT-ACCESS.md) · Plan: [`PLAN.md`](./PLAN.md) Phases 11–15 · Branching: [`DECISIONS.md`](./DECISIONS.md) D-011
+> **Status:** PLAN ONLY — not started in code. Migrates the local-first Tauri desktop app to a hosted, multi-tenant Supabase web app. All work happens on the long-lived `epic/fb-6-web` integration branch (not yet created); only the completed migration merges back to `main` as `v2.0.0`. The desktop line stays recoverable at tag `v1.4.0`.
+
+### Phase 11 — Docs Reset & Supabase Schema (WS0 + WS1)
+- [ ] **11.1** Constraints reset: rewrite CLAUDE.md non-negotiables, add `DECISIONS.md` pivot entry, vendor design doc → `skill:docs-architect`
+- [ ] **11.2** Port `SCHEMA.md` to Postgres migrations with FK cascade rules + numeric IDs → `skill:backend-engineer`
+- [ ] **11.3** Re-implement Rust server-side logic as Postgres triggers/functions (task numbering, `updated_at`, story→child sprint cascade) → `skill:backend-engineer`
+- [ ] **11.4** Multi-tenancy tables: `profiles` + `client_project_access` → `skill:backend-engineer`
+- [ ] **11.5** pgTAP/SQL unit tests for each trigger/function → `skill:qa-engineer`
+> Exit: local self-hosted Supabase mirrors current data shape with logic ported & tested. Tag `v2.0-schema` on `epic/fb-6-web`.
+
+### Phase 12 — Data-Layer Swap to Supabase (WS3)
+- [ ] **12.1** Add `@supabase/supabase-js`; create `src/lib/supabase.ts` client → `skill:data-layer`
+- [ ] **12.2** Re-implement all ~30 `src/lib/commands.ts` wrappers against Supabase with identical signatures → `skill:data-layer`
+- [ ] **12.3** Attachments → Supabase Storage (object path + signed URL; client-writable) → `skill:backend-engineer`
+- [ ] **12.4** Re-point test suite: mock Supabase client instead of `invoke`; hooks unchanged → `skill:qa-engineer`
+> Exit: owner app runs end-to-end against Supabase; Vitest green, `tsc --noEmit` clean. Tag `v2.0-datalayer`.
+
+### Phase 13 — Auth & Multi-Tenancy / RLS + Role Split (WS2 + WS4)
+- [ ] **13.1** Enable email/password auth; seed owner account; document client provisioning → `skill:backend-engineer`
+- [ ] **13.2** RLS policies: owner full access; client scoped read + scoped write; `time_logs` denied to clients → `skill:backend-engineer`
+- [ ] **13.3** `story_points` hiding via `tasks_client` view or column GRANTs → `skill:backend-engineer`
+- [ ] **13.4** Auth UI: login/session handling → `skill:frontend-design`
+- [ ] **13.5** Role-aware UI: owner full `AppShell`; client scoped shell (no time/points/settings/DnD) → `skill:frontend-design`
+- [ ] **13.6** Owner-only client-management screen (accounts + `client_project_access` toggles) → `skill:frontend-design`
+- [ ] **13.7** Two-session RLS integration tests (owner + client) → `skill:qa-engineer`
+> Exit: clients log in, see only assigned projects, perform allowed writes there only; RLS proven by tests. Tag `v2.0-auth`.
+
+### Phase 14 — Realtime, Tauri Retirement & Data Migration (WS5 + WS6 + WS7)
+- [ ] **14.1** Supabase Realtime subscriptions → invalidate matching React Query keys → `skill:data-layer`
+- [ ] **14.2** Retire Tauri: remove `src-tauri/`, plugins, all `@tauri-apps/*` imports → `skill:backend-engineer`
+- [ ] **14.3** One-time migration script: local SQLite → Supabase preserving IDs; upload attachments to Storage → `skill:backend-engineer`
+- [ ] **14.4** Tests: row counts + task keys match; live update verified → `skill:qa-engineer`
+> Exit: live updates work, Tauri shell gone, data migrated with matching keys/counts. Tag `v2.0-migration`.
+
+### Phase 15 — Hosting & Deployment (Hostinger VPS) (WS8)
+- [ ] **15.1** Provision VPS; Docker + self-hosted Supabase; lock down ports; firewall + uptime monitoring → `skill:backend-engineer`
+- [ ] **15.2** nginx reverse proxy for the 5-app fleet; build & serve Vite SPA static → `skill:backend-engineer`
+- [ ] **15.3** SSL via Certbot/Let's Encrypt with auto-renew → `skill:backend-engineer`
+- [ ] **15.4** Backups: scheduled `pg_dump` + off-site copy with tested restore → `skill:backend-engineer`
+- [ ] **15.5** Outbound email via free SMTP relay for auth deliverability → `skill:backend-engineer`
+- [ ] **15.6** Deploy smoke test + DoD: owner & client log in on hosted URL; client walkthrough → `skill:qa-engineer`
+> Exit: hosted FlowBoard live behind nginx+SSL with tested backups. **Promote `epic/fb-6-web → main`** (the one `main`-bound merge) and tag `v2.0.0` on `main`.
+
+---
+
 ## Current Focus / In Progress
-- None — v1.0.0 cut. Phase 10 merged via PR #26; staging-badge gate landed via PR #27; per-project task numbering shipped on `main`.
+- None in code — desktop app stable at v1.4.0 on `main`. Epic FB-6 (Phases 11–15) is **planned but not started**; `epic/fb-6-web` branch not yet created. Next action is Phase 11 / Task 11.1 (docs constraints reset).
 
 ## Blockers / Notes
-- None. 231 Vitest tests pass; 13 Rust tests pass; `tsc --noEmit` clean as of release.
+- FB-6 client write boundaries (which fields, edit vs. create-only, which entities) are **TBD — to be refined before Phase 13 build** (see PLAN.md FB-6 intro).
+- Test/typecheck baseline green as of v1.4.0 release.
 
 ## Recent Completions
+- 1.1.0–1.4.0 point releases (project logos FB-41, attachment BLOB storage, board refresh buttons, sidebar project DnD FB-51, sprint section ordering FB-50, dark-theme scrollbars FB-53)
 - 10.1–10.6 (Hierarchy: boardSprintFilter store + SprintFilterSelect; User Story Board / Task Board / Discovery / Sprint Planning narrowed to the Project > Sprint > Story > Task pipeline; backend cascade so story children follow their parent in/out of a sprint atomically)
 - 9.1–9.4 (Polish: sonner toasts, skeleton loading, keyboard shortcuts n//, global search, About page)
 - 8.1–8.3 (Inbox page, OS notifications via tauri-plugin-notification, bell badge with unread count)
