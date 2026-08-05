@@ -82,7 +82,7 @@ export function parseSprintDroppableId(id: string): SprintBoardRowKey | null {
   return null;
 }
 
-interface SprintDropPatch {
+export interface SprintDropPatch {
   sprint_id: number | null;
   status?: TaskStatus;
 }
@@ -125,7 +125,13 @@ export function isSprintScheduleBlocked(
  *
  * FB-85: scheduling a story out of the backlog (`sprint_id` null -> a sprint)
  * also resets its status to `todo`, moving it from the discovery lifecycle into
- * the sprint's dev workflow. Sprint->sprint and ->backlog moves leave status.
+ * the sprint's dev workflow.
+ *
+ * Unscheduling (a sprint -> `sprint_id` null) is the inverse and restores
+ * `ready_for_development`. Without it the story keeps its dev-workflow status
+ * and the unscheduled row — which lists only `ready_for_development` — drops it
+ * on the floor, so a story dragged into a sprint and straight back out would
+ * vanish from the board. Sprint->sprint moves leave status alone.
  */
 export function computeSprintDropPayload(
   task: Task,
@@ -137,6 +143,8 @@ export function computeSprintDropPayload(
   const patch: SprintDropPatch = { sprint_id: newSprintId };
   if (task.sprint_id === null && newSprintId !== null) {
     patch.status = "todo";
+  } else if (task.sprint_id !== null && newSprintId === null) {
+    patch.status = "ready_for_development";
   }
   return { payload: patch, override: patch };
 }

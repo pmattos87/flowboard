@@ -145,11 +145,34 @@ describe("computeSprintDropPayload", () => {
     });
   });
 
-  it("clears sprint_id and keeps status when dropping onto the backlog", () => {
+  it("clears sprint_id and restores ready_for_development when unscheduling", () => {
     expect(computeSprintDropPayload(story(1, 10, "medium", "in_progress"), "backlog")).toEqual({
-      payload: { sprint_id: null },
-      override: { sprint_id: null },
+      payload: { sprint_id: null, status: "ready_for_development" },
+      override: { sprint_id: null, status: "ready_for_development" },
     });
+  });
+
+  it("survives a sprint round-trip — the story lands back where it started", () => {
+    const original = story(1, null, "medium", "ready_for_development");
+
+    const scheduled = computeSprintDropPayload(original, 11)!;
+    expect(scheduled.payload).toEqual({ sprint_id: 11, status: "todo" });
+
+    // The story as the server now has it, dragged straight back out.
+    const inSprint: Task = { ...original, ...scheduled.payload };
+    const unscheduled = computeSprintDropPayload(inSprint, "backlog")!;
+
+    expect({ ...inSprint, ...unscheduled.payload }).toMatchObject({
+      sprint_id: null,
+      status: "ready_for_development",
+    });
+    // …and it is visible on the unscheduled row again, which is the bug.
+    const rows = buildSprintBoardRows(
+      [{ ...inSprint, ...unscheduled.payload }],
+      sprints,
+      "backlog",
+    );
+    expect(rows[0].tasks.map((t) => t.id)).toEqual([1]);
   });
 
   it("returns null when the story is already in the target section", () => {
