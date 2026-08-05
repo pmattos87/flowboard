@@ -68,6 +68,8 @@ export interface Comment {
   author_id: number;
   body: string;
   created_at: string;
+  /** FB-46: null until the comment is first edited. */
+  updated_at: string | null;
 }
 
 export interface TimeLog {

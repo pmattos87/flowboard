@@ -3,6 +3,7 @@ import {
   createComment,
   deleteComment,
   listComments,
+  updateComment,
   type CommentCreatePayload,
 } from "@/lib/commands";
 import { toast } from "sonner";
@@ -29,6 +30,17 @@ export function useCreateComment() {
       toast.success("Comment added");
     },
     onError: (err) => toast.error(`Failed to post comment: ${String(err)}`),
+  });
+}
+
+export function useUpdateComment(taskId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: number; body: string }) => updateComment(id, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: commentKeys.list(taskId) });
+    },
+    onError: (err) => toast.error(`Failed to edit comment: ${String(err)}`),
   });
 }
 

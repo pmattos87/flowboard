@@ -16,7 +16,8 @@ tasks         (id, project_id, task_number, sprint_id, parent_id, title, descrip
               -- status:      'todo' | 'in_progress' | 'in_review' | 'canceled' | 'done'
               -- priority:    'low' | 'medium' | 'high' | 'critical'
               -- task_number: per-project sequence (see Important Rules)
-comments      (id, task_id, author_id, body, created_at)
+comments      (id, task_id, author_id, body, created_at, updated_at)
+              -- updated_at: NULL until the comment is edited (FB-46)
 time_logs     (id, task_id, person_id, minutes, logged_at, note)
 attachments   (id, task_id, filename, filepath, size, uploaded_at)
 activity_log  (id, task_id, person_id, action, old_value, new_value, created_at)
@@ -43,6 +44,9 @@ Important Rules
   The internal PK `tasks.id` is unchanged; all foreign keys continue to
   reference `tasks.id`. User-facing task keys render as
   `{projects.key}-{tasks.task_number}` (e.g. `P1-1`, `P1-2`).
+- `comments.updated_at` is nullable and set only by `update_comment`; a NULL
+  means the comment has never been edited (migration `009_comment_edited_at.sql`).
+  Editing changes `body` only — `author_id` is fixed at creation.
 - Story → child sprint cascade: when `update_task` mutates `sprint_id` on a row
   where `type = 'story'`, the same SQL transaction also updates `sprint_id` for
   all rows where `parent_id` equals the story's id. Atomic — both updates apply

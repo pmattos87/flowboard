@@ -155,6 +155,8 @@ export const createComment = (payload: CommentCreatePayload) =>
   invoke<Comment>("create_comment", { payload });
 export const listComments = (taskId: number) =>
   invoke<Comment[]>("list_comments", { taskId });
+export const updateComment = (id: number, body: string) =>
+  invoke<Comment>("update_comment", { id, body });
 export const deleteComment = (id: number) => invoke<void>("delete_comment", { id });
 
 // ─── Time Logs ─────────────────────────────────────────────

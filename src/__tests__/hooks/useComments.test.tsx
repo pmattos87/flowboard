@@ -8,11 +8,12 @@ import {
   useComments,
   useCreateComment,
   useDeleteComment,
+  useUpdateComment,
   commentKeys,
 } from "@/hooks/useComments";
 
 vi.mock("sonner", () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }));
 
 const mockInvoke = vi.mocked(invoke);
@@ -79,6 +80,22 @@ describe("useCreateComment", () => {
     const { result } = renderHook(() => useCreateComment(), { wrapper });
     await result.current.mutateAsync({ task_id: 10, author_id: 2, body: "Nice work!" });
     expect(mockToast.success).toHaveBeenCalledWith("Comment added");
+  });
+});
+
+describe("useUpdateComment (FB-46)", () => {
+  it("calls update_comment and invalidates the task comment list", async () => {
+    mockInvoke.mockResolvedValueOnce({
+      ...fakeComment,
+      body: "Edited body",
+      updated_at: "2024-01-02T00:00:00.000Z",
+    });
+    const { wrapper, qc } = makeWrapper();
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    const { result } = renderHook(() => useUpdateComment(10), { wrapper });
+    await result.current.mutateAsync({ id: 1, body: "Edited body" });
+    expect(mockInvoke).toHaveBeenCalledWith("update_comment", { id: 1, body: "Edited body" });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: commentKeys.list(10) });
   });
 });
 
