@@ -29,6 +29,7 @@ import {
   isSprintScheduleBlocked,
   parseSprintDroppableId,
   sprintDroppableId,
+  SPRINT_GATE_TOAST,
   type SprintBoardRow,
   type SprintBoardRowKey,
 } from "./shared/sprintBoardGrouping";
@@ -91,8 +92,12 @@ function SprintSection({
             <ChevronDown className="h-4 w-4" />
           )}
         </button>
+        {/* FB-91: the unscheduled row is named for the gate that lets a story in
+            (FB-90), not "Backlog" — that name now belongs to the Discovery
+            board's first column. Unrelated to STATUS_LABELS.backlog above,
+            which is the sprint's own status badge. */}
         <span className="text-sm font-semibold text-white">
-          {sprint ? sprint.name : "Backlog"}
+          {sprint ? sprint.name : "Ready for Development"}
         </span>
         {sprint && (
           <span
@@ -296,9 +301,7 @@ export function SprintPlanningBoard() {
     // "Ready for Development". Guards the backlog -> sprint move (moving between
     // sprints or back to the backlog stays unrestricted).
     if (isSprintScheduleBlocked(task, target)) {
-      toast.warning("Only stories marked “Ready for Development” can be added to a sprint", {
-        description: "Move it through the Discovery board first.",
-      });
+      toast.warning(SPRINT_GATE_TOAST.title, { description: SPRINT_GATE_TOAST.description });
       return;
     }
 

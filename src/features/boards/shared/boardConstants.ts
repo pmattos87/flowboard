@@ -25,8 +25,11 @@ export const COLUMNS: BoardColumn[] = [
 
 // Discovery board uses a distinct discovery/refinement lifecycle (FB-85). Only
 // "Ready for Development" stories can then be scheduled into a sprint.
+// FB-91: the `todo` column is labelled BACKLOG here — the status value itself is
+// unchanged, this is display only. Pipeline reads
+// BACKLOG -> REFINING -> READY FOR DEVELOPMENT -> sprint.
 export const DISCOVERY_COLUMNS: BoardColumn[] = [
-  { status: "todo",                  label: "TO DO",                 dotClass: "bg-gray-400" },
+  { status: "todo",                  label: "BACKLOG",               dotClass: "bg-gray-400" },
   { status: "refining",              label: "REFINING",              dotClass: "bg-blue-400" },
   { status: "canceled",              label: "CANCELED",              dotClass: "bg-gray-500", Icon: Ban },
   { status: "ready_for_development", label: "READY FOR DEVELOPMENT", dotClass: "bg-emerald-500" },

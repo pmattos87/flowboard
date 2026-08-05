@@ -39,7 +39,8 @@ export function SprintFilterSelect({ projectId }: SprintFilterSelectProps) {
       aria-label="Sprint filter"
     >
       <option value="all">All sprints</option>
-      <option value="backlog">Backlog (no sprint)</option>
+      {/* FB-91: display-only rename — the filter value stays "backlog". */}
+      <option value="backlog">Ready for Development (no sprint)</option>
       {(sprints ?? []).map((s) => (
         <option key={s.id} value={s.id}>
           {s.name}
