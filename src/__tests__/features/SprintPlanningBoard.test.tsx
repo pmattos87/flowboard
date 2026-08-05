@@ -151,8 +151,45 @@ describe("SprintPlanningBoard — with sprints and tasks", () => {
       expect(screen.getByRole("option", { name: /sprint 1/i })).toBeInTheDocument()
     );
     expect(screen.getByRole("option", { name: /all sprints/i })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /backlog/i })).toBeInTheDocument();
+    // FB-91: the unscheduled option is named for the gate, not "Backlog".
+    expect(
+      screen.getByRole("option", { name: /ready for development \(no sprint\)/i }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /sprint 2/i })).toBeInTheDocument();
+  });
+
+  it("names the unscheduled row 'Ready for Development' (FB-91)", async () => {
+    renderBoard();
+    await waitFor(() => expect(screen.getByText("Backlog item A")).toBeInTheDocument());
+    // The row header is a <span>; the filter <option> shares the wording.
+    const headers = screen.getAllByText("Ready for Development");
+    expect(headers.some((el) => el.tagName === "SPAN")).toBe(true);
+  });
+});
+
+describe("SprintPlanningBoard — sprint status badge (FB-91 guard)", () => {
+  it("still labels a not-yet-started sprint 'Backlog'", async () => {
+    // STATUS_LABELS.backlog is the sprint's own status badge — a different
+    // concept from the unscheduled row, and easy to clobber with a file-wide
+    // find/replace when renaming that row.
+    useUiStore.setState({ activeProjectId: 1, boardSprintFilter: "all", boardSprintFilterFor: 1 });
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "list_sprints")
+        return Promise.resolve([
+          {
+            id: 12, project_id: 1, name: "Sprint 3", goal: "", status: "backlog",
+            start_date: "2024-02-01", end_date: "2024-02-14",
+          },
+        ]);
+      if (cmd === "list_tasks") return Promise.resolve(fakeTasks);
+      if (cmd === "list_people") return Promise.resolve([]);
+      if (cmd === "get_project") return Promise.resolve(fakeProject);
+      return Promise.resolve(null);
+    });
+    renderBoard();
+    // "Backlog" now appears nowhere else on this board: the unscheduled row is
+    // "Ready for Development" and so is its filter option.
+    await waitFor(() => expect(screen.getByText("Backlog")).toBeInTheDocument());
   });
 });
 

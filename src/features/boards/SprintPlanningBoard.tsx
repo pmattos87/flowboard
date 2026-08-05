@@ -29,8 +29,10 @@ import {
   isSprintScheduleBlocked,
   parseSprintDroppableId,
   sprintDroppableId,
+  SPRINT_GATE_TOAST,
   type SprintBoardRow,
   type SprintBoardRowKey,
+  type SprintDropPatch,
 } from "./shared/sprintBoardGrouping";
 
 const STATUS_STYLES: Record<SprintStatus, string> = {
@@ -91,8 +93,12 @@ function SprintSection({
             <ChevronDown className="h-4 w-4" />
           )}
         </button>
+        {/* FB-91: the unscheduled row is named for the gate that lets a story in
+            (FB-90), not "Backlog" — that name now belongs to the Discovery
+            board's first column. Unrelated to STATUS_LABELS.backlog above,
+            which is the sprint's own status badge. */}
         <span className="text-sm font-semibold text-white">
-          {sprint ? sprint.name : "Backlog"}
+          {sprint ? sprint.name : "Ready for Development"}
         </span>
         {sprint && (
           <span
@@ -184,7 +190,7 @@ export function SprintPlanningBoard() {
   const deleteSprint = useDeleteSprint();
 
   const [activeTask, setActiveTask] = useState<Task | null>(null);
-  const [overrides, setOverrides] = useState<Record<number, number | null>>({});
+  const [overrides, setOverrides] = useState<Record<number, SprintDropPatch>>({});
   // Sections are expanded by default; track the keys the user has collapsed.
   const [collapsed, setCollapsed] = useState<Set<SprintBoardRowKey>>(new Set());
   // Completed sprints start collapsed. Seed once when the sprints first load
@@ -201,12 +207,12 @@ export function SprintPlanningBoard() {
 
   const tasks = allTasks ?? [];
 
-  // Optimistic sprint_id overrides, cleared once the refetch agrees.
+  // Optimistic drop overrides, cleared once the refetch agrees. Covers `status`
+  // as well as `sprint_id`: a drop can move a story between the discovery and
+  // dev lifecycles, and the row filters read status, so a sprint_id-only
+  // override would make the card vanish until the refetch landed.
   const effectiveTasks = useMemo(
-    () =>
-      tasks.map((t) =>
-        t.id in overrides ? { ...t, sprint_id: overrides[t.id] } : t,
-      ),
+    () => tasks.map((t) => (t.id in overrides ? { ...t, ...overrides[t.id] } : t)),
     [tasks, overrides],
   );
 
@@ -218,7 +224,12 @@ export function SprintPlanningBoard() {
       for (const idStr of Object.keys(prev)) {
         const id = Number(idStr);
         const serverTask = tasks.find((t) => t.id === id);
-        if (!serverTask || serverTask.sprint_id === prev[id]) {
+        const patch = prev[id];
+        const serverAgrees =
+          !serverTask ||
+          (serverTask.sprint_id === patch.sprint_id &&
+            (patch.status === undefined || serverTask.status === patch.status));
+        if (serverAgrees) {
           delete next[id];
           changed = true;
         }
@@ -296,16 +307,14 @@ export function SprintPlanningBoard() {
     // "Ready for Development". Guards the backlog -> sprint move (moving between
     // sprints or back to the backlog stays unrestricted).
     if (isSprintScheduleBlocked(task, target)) {
-      toast.warning("Only stories marked “Ready for Development” can be added to a sprint", {
-        description: "Move it through the Discovery board first.",
-      });
+      toast.warning(SPRINT_GATE_TOAST.title, { description: SPRINT_GATE_TOAST.description });
       return;
     }
 
     const decision = computeSprintDropPayload(task, target);
     if (!decision) return;
 
-    setOverrides((prev) => ({ ...prev, [task.id]: decision.override.sprint_id }));
+    setOverrides((prev) => ({ ...prev, [task.id]: decision.override }));
     updateTask.mutate(
       { id: task.id, payload: decision.payload },
       {

@@ -24,8 +24,13 @@ export function UserStoryBoard() {
     );
   }
 
+  // This board renders the dev workflow, which a story only enters once it is
+  // scheduled. Unscheduled stories belong to the Discovery board — showing them
+  // here too listed the same story twice under two different column names
+  // (Discovery BACKLOG vs. this board's TO DO).
   const tasks = (allTasks ?? [])
     .filter((t) => t.type === "story")
+    .filter((t) => t.sprint_id !== null)
     .filter((t) => matchesSprintFilter(t, boardSprintFilter));
 
   return (
@@ -36,7 +41,7 @@ export function UserStoryBoard() {
           <RefreshButton />
         </div>
         <div className="ml-auto">
-          <SprintFilterSelect projectId={activeProjectId} />
+          <SprintFilterSelect projectId={activeProjectId} includeBacklog={false} />
         </div>
       </div>
       {tasks.length === 0 ? (

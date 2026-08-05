@@ -6,10 +6,12 @@ import {
   ExternalLink,
   Layers,
   Paperclip,
+  Pencil,
   Trash2,
   X,
 } from "lucide-react";
 import { open as openFilePicker } from "@tauri-apps/plugin-dialog";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,7 +25,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useDeleteTask, useTask, useTasks, useUpdateTask } from "@/hooks/useTasks";
-import { useComments, useCreateComment, useDeleteComment } from "@/hooks/useComments";
+import {
+  useComments,
+  useCreateComment,
+  useDeleteComment,
+  useUpdateComment,
+} from "@/hooks/useComments";
 import { useTimeLogs, useCreateTimeLog, useDeleteTimeLog } from "@/hooks/useTimeLogs";
 import { useAttachments, useCreateAttachment, useDeleteAttachment } from "@/hooks/useAttachments";
 import { openAttachment } from "@/lib/commands";
@@ -33,6 +40,11 @@ import { useProject } from "@/hooks/useProjects";
 import { useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
 import { statusOptionsForType } from "@/features/boards/shared/boardConstants";
+import {
+  computeSprintDropPayload,
+  isSprintScheduleBlocked,
+  SPRINT_GATE_TOAST,
+} from "@/features/boards/shared/sprintBoardGrouping";
 import { Avatar } from "@/components/Avatar";
 import type {
   Attachment,
@@ -98,11 +110,14 @@ const SELECT_CLS = "w-full rounded-md bg-gray-800 border border-gray-700 text-gr
 function CommentsSection({ taskId, people }: { taskId: number; people: Person[] }) {
   const { data: comments } = useComments(taskId);
   const createComment = useCreateComment();
+  const updateComment = useUpdateComment(taskId);
   const deleteComment = useDeleteComment(taskId);
 
   const [authorId, setAuthorId] = useState<number | null>(people[0]?.id ?? null);
   const [body, setBody] = useState("");
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editBody, setEditBody] = useState("");
 
   useEffect(() => {
     if (people.length > 0 && authorId == null) setAuthorId(people[0].id);
@@ -122,6 +137,27 @@ function CommentsSection({ taskId, people }: { taskId: number; people: Person[] 
     } else {
       setDeletingId(c.id);
     }
+  };
+
+  const startEdit = (c: Comment) => {
+    setDeletingId(null);
+    setEditingId(c.id);
+    setEditBody(c.body);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditBody("");
+  };
+
+  const handleSaveEdit = async (c: Comment) => {
+    const next = editBody.trim();
+    if (!next || next === c.body) {
+      cancelEdit();
+      return;
+    }
+    await updateComment.mutateAsync({ id: c.id, body: next });
+    cancelEdit();
   };
 
   return (
@@ -156,16 +192,67 @@ function CommentsSection({ taskId, people }: { taskId: number; people: Person[] 
                         />
                         <span className="text-xs font-medium text-gray-300">{author?.name ?? "Unknown"}</span>
                         <span className="text-[11px] text-gray-500">{formatDateTime(c.created_at)}</span>
+                        {c.updated_at && (
+                          <span
+                            className="text-[11px] text-gray-600"
+                            title={`Edited ${formatDateTime(c.updated_at)}`}
+                          >
+                            (edited)
+                          </span>
+                        )}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(c)}
-                        className="p-1 rounded text-gray-600 hover:text-red-400 hover:bg-gray-700 transition-colors"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </button>
+                      {editingId !== c.id && (
+                        <div className="flex items-center shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => startEdit(c)}
+                            aria-label="Edit comment"
+                            className="p-1 rounded text-gray-600 hover:text-blue-400 hover:bg-gray-700 transition-colors"
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(c)}
+                            aria-label="Delete comment"
+                            className="p-1 rounded text-gray-600 hover:text-red-400 hover:bg-gray-700 transition-colors"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    <p className="text-sm text-gray-200 whitespace-pre-wrap">{c.body}</p>
+                    {editingId === c.id ? (
+                      <div className="space-y-2">
+                        <Textarea
+                          value={editBody}
+                          onChange={(e) => setEditBody(e.target.value)}
+                          aria-label="Edit comment body"
+                          rows={3}
+                          className="bg-gray-900 border-gray-700 text-gray-100 text-sm"
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() => handleSaveEdit(c)}
+                            disabled={!editBody.trim() || updateComment.isPending}
+                            className="h-6 px-2 text-xs bg-blue-600 hover:bg-blue-500 text-white"
+                          >
+                            {updateComment.isPending ? "…" : "Save"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={cancelEdit}
+                            className="h-6 px-2 text-xs bg-transparent border-gray-700 text-gray-300 hover:bg-gray-700"
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-200 whitespace-pre-wrap">{c.body}</p>
+                    )}
                   </div>
                 )}
               </div>
@@ -750,10 +837,30 @@ export function TaskDetailPanel() {
                 <div>
                   <Label className="text-gray-500 text-[11px]">Sprint</Label>
                   <select
+                    aria-label="Sprint"
                     value={draft.sprint_id ?? ""}
                     onChange={(e) => {
                       const v = e.target.value ? Number(e.target.value) : null;
-                      handleSelectChange("sprint_id", v, v);
+                      // FB-90: same gate the Sprint Planning Board applies to drops.
+                      if (v !== null && isSprintScheduleBlocked(draft, v)) {
+                        toast.warning(SPRINT_GATE_TOAST.title, {
+                          description: SPRINT_GATE_TOAST.description,
+                        });
+                        // Bailing out leaves `draft` untouched, so React has no
+                        // reason to re-render and the <select> would keep showing
+                        // the rejected sprint. Put the DOM node back by hand.
+                        e.target.value = String(draft.sprint_id ?? "");
+                        return;
+                      }
+                      // Assigning a sprint here must make the same lifecycle
+                      // move the planning board makes on a drop, or the story
+                      // stays at a discovery status while sitting in a sprint —
+                      // and the User Story Board, which renders the dev-workflow
+                      // columns, has nowhere to put it.
+                      const decision = computeSprintDropPayload(draft, v ?? "backlog");
+                      if (!decision) return;
+                      setDraft((d) => ({ ...d, ...decision.override }));
+                      save(decision.payload);
                     }}
                     className={SELECT_CLS}
                   >

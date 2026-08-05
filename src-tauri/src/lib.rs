@@ -45,6 +45,7 @@ pub fn run() {
             commands::tasks::delete_task,
             commands::comments::create_comment,
             commands::comments::list_comments,
+            commands::comments::update_comment,
             commands::comments::delete_comment,
             commands::time_logs::create_time_log,
             commands::time_logs::list_time_logs,

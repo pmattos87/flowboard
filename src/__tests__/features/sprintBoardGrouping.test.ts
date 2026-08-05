@@ -145,11 +145,52 @@ describe("computeSprintDropPayload", () => {
     });
   });
 
-  it("clears sprint_id and keeps status when dropping onto the backlog", () => {
+  it("clears sprint_id and restores ready_for_development when unscheduling", () => {
     expect(computeSprintDropPayload(story(1, 10, "medium", "in_progress"), "backlog")).toEqual({
-      payload: { sprint_id: null },
-      override: { sprint_id: null },
+      payload: { sprint_id: null, status: "ready_for_development" },
+      override: { sprint_id: null, status: "ready_for_development" },
     });
+  });
+
+  it("survives a sprint round-trip — the story lands back where it started", () => {
+    const original = story(1, null, "medium", "ready_for_development");
+
+    const scheduled = computeSprintDropPayload(original, 11)!;
+    expect(scheduled.payload).toEqual({ sprint_id: 11, status: "todo" });
+
+    // The story as the server now has it, dragged straight back out.
+    const inSprint: Task = { ...original, ...scheduled.payload };
+    const unscheduled = computeSprintDropPayload(inSprint, "backlog")!;
+
+    expect({ ...inSprint, ...unscheduled.payload }).toMatchObject({
+      sprint_id: null,
+      status: "ready_for_development",
+    });
+    // …and it is visible on the unscheduled row again, which is the bug.
+    const rows = buildSprintBoardRows(
+      [{ ...inSprint, ...unscheduled.payload }],
+      sprints,
+      "backlog",
+    );
+    expect(rows[0].tasks.map((t) => t.id)).toEqual([1]);
+  });
+
+  // The detail panel's sprint picker shares this function, so it also sees
+  // tasks, bugs and epics — which live only in the dev workflow.
+  it("leaves status alone for non-story types in both directions", () => {
+    for (const type of ["task", "bug", "epic"] as const) {
+      const scheduled = { ...story(1, null, "medium", "in_progress"), type };
+      expect(computeSprintDropPayload(scheduled, 11)).toEqual({
+        payload: { sprint_id: 11 },
+        override: { sprint_id: 11 },
+      });
+
+      const unscheduled = { ...story(1, 10, "medium", "in_progress"), type };
+      expect(computeSprintDropPayload(unscheduled, "backlog")).toEqual({
+        payload: { sprint_id: null },
+        override: { sprint_id: null },
+      });
+    }
   });
 
   it("returns null when the story is already in the target section", () => {
@@ -171,5 +212,16 @@ describe("isSprintScheduleBlocked (FB-85)", () => {
   it("never blocks moving between sprints or back to the backlog", () => {
     expect(isSprintScheduleBlocked(story(1, 10, "medium", "in_progress"), 11)).toBe(false);
     expect(isSprintScheduleBlocked(story(1, null, "medium", "todo"), "backlog")).toBe(false);
+  });
+
+  // FB-90: the gate is reused by the detail panel and the create modal, which —
+  // unlike the Sprint Planning Board — also see tasks, bugs and epics. Those
+  // never reach "ready_for_development", so gating them would lock them out of
+  // sprints entirely.
+  it("only gates stories — tasks, bugs and epics pass through", () => {
+    for (const type of ["task", "bug", "epic"] as const) {
+      const item: Task = { ...story(1, null, "medium", "todo"), type };
+      expect(isSprintScheduleBlocked(item, 11)).toBe(false);
+    }
   });
 });

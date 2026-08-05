@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-08-05
+
+### Added
+- Comments can be edited from the task detail panel. An edited comment shows "(edited)" beside its timestamp; the author is fixed at creation (migration `009_comment_edited_at.sql`, FB-46).
+
+### Changed
+- The Discovery board's first column is labelled **BACKLOG** instead of "TO DO", and the Sprint Planning board's unscheduled row — plus its filter option — is now **Ready for Development**. Display only: no status values, droppable ids or filter types changed (FB-91).
+- The "Ready for Development" gate now applies to every way of assigning a sprint, not just the Sprint Planning board drop. The task detail panel's Sprint picker and the Create task modal both enforce it and surface the same toast. The gate applies to stories only — tasks, bugs and epics never enter the discovery lifecycle (FB-90).
+- The User Story Board shows only scheduled stories: the "no sprint" filter option is gone and "All sprints" excludes unscheduled stories. They were previously listed twice — once on the Discovery board under BACKLOG and again here under TO DO.
+
+### Fixed
+- A story dragged into a sprint and straight back out no longer disappears from the Sprint Planning board. Unscheduling now restores "Ready for Development" rather than leaving the story at a dev-workflow status the unscheduled row does not render.
+- Picking a sprint in the task detail panel now moves the story into the dev workflow, as a board drop already did. Previously the story kept its discovery status while sitting in the sprint, and the User Story Board — which renders the dev-workflow columns and matches each by exact status — drew it in no column at all.
+
 ## [1.5.0] - 2026-07-05
 
 ### Added

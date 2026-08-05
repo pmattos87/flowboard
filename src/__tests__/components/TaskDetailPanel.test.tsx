@@ -4,13 +4,18 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openFilePicker } from "@tauri-apps/plugin-dialog";
+import { toast } from "sonner";
 import { TaskDetailPanel } from "@/components/TaskDetailPanel";
 import { useUiStore } from "@/stores/uiStore";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+}));
 
 const mockInvoke = vi.mocked(invoke);
 const mockOpen = vi.mocked(openFilePicker);
+const mockToast = vi.mocked(toast);
 
 const fakeTask = {
   id: 7,
@@ -64,6 +69,7 @@ function renderPanel() {
 
 beforeEach(() => {
   mockInvoke.mockReset();
+  mockToast.warning.mockReset();
   useUiStore.setState({ selectedTaskId: null, activeProjectId: null, selectedSprintId: null });
 });
 
@@ -283,6 +289,163 @@ describe("TaskDetailPanel — delete task (FB-3)", () => {
 
     expect(mockInvoke).not.toHaveBeenCalledWith("delete_task", expect.anything());
     expect(useUiStore.getState().selectedTaskId).toBe(7);
+  });
+});
+
+describe("TaskDetailPanel — Sprint gate (FB-90)", () => {
+  const sprints = [
+    { id: 5, project_id: 1, name: "Sprint 1", goal: "", start_date: "2024-01-01", end_date: "2024-01-14", status: "active" },
+  ];
+
+  function setupWithSprints(taskOverride: Record<string, unknown>) {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "get_task") return Promise.resolve({ ...fakeTask, ...taskOverride });
+      if (cmd === "get_project") return Promise.resolve(fakeProject);
+      if (cmd === "list_sprints") return Promise.resolve(sprints);
+      if (cmd === "list_tasks") return Promise.resolve([{ ...fakeTask, ...taskOverride }]);
+      if (cmd === "list_people") return Promise.resolve([]);
+      if (cmd === "list_comments") return Promise.resolve([]);
+      if (cmd === "list_time_logs") return Promise.resolve([]);
+      if (cmd === "list_attachments") return Promise.resolve([]);
+      if (cmd === "update_task") return Promise.resolve({ ...fakeTask, ...taskOverride });
+      return Promise.resolve(null);
+    });
+  }
+
+  async function pickSprint() {
+    const user = userEvent.setup();
+    renderPanel();
+    const select = await screen.findByRole("combobox", { name: /sprint/i });
+    await user.selectOptions(select, "5");
+    return select as HTMLSelectElement;
+  }
+
+  it("blocks a story that is not ready for development and reverts the select", async () => {
+    setupWithSprints({ type: "story", status: "todo", sprint_id: null });
+    useUiStore.setState({ selectedTaskId: 7 });
+
+    const select = await pickSprint();
+
+    expect(mockToast.warning).toHaveBeenCalled();
+    expect(mockInvoke).not.toHaveBeenCalledWith("update_task", expect.anything());
+    expect(select.value).toBe("");
+  });
+
+  it("moves a ready-for-development story into the dev workflow with the sprint", async () => {
+    setupWithSprints({ type: "story", status: "ready_for_development", sprint_id: null });
+    useUiStore.setState({ selectedTaskId: 7 });
+
+    await pickSprint();
+
+    // Status must follow, exactly as a planning-board drop does. Leaving it at
+    // ready_for_development strands the story: it is in a sprint, but the User
+    // Story Board renders the dev-workflow columns and has none for it.
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("update_task", {
+        id: 7,
+        payload: { sprint_id: 5, status: "todo" },
+      }),
+    );
+    expect(mockToast.warning).not.toHaveBeenCalled();
+  });
+
+  it("restores ready_for_development when the sprint is cleared", async () => {
+    setupWithSprints({ type: "story", status: "in_progress", sprint_id: 5 });
+    useUiStore.setState({ selectedTaskId: 7 });
+    const user = userEvent.setup();
+    renderPanel();
+
+    const select = await screen.findByRole("combobox", { name: /sprint/i });
+    await user.selectOptions(select, "");
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("update_task", {
+        id: 7,
+        payload: { sprint_id: null, status: "ready_for_development" },
+      }),
+    );
+  });
+
+  it("does not gate a bug, nor rewrite its status — only stories run the discovery lifecycle", async () => {
+    setupWithSprints({ type: "bug", status: "in_progress", sprint_id: null });
+    useUiStore.setState({ selectedTaskId: 7 });
+
+    await pickSprint();
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("update_task", { id: 7, payload: { sprint_id: 5 } }),
+    );
+    expect(mockToast.warning).not.toHaveBeenCalled();
+  });
+});
+
+describe("CommentsSection — edit a comment (FB-46)", () => {
+  const person = { id: 1, name: "Pedro", role: "", avatar_color: "#6366f1", avatar_data: null };
+  const comment = {
+    id: 42, task_id: 7, author_id: 1, body: "Original body",
+    created_at: "2024-01-01T00:00:00.000Z", updated_at: null,
+  };
+
+  function setupWithComment(c: Record<string, unknown> = {}) {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "get_task") return Promise.resolve(fakeTask);
+      if (cmd === "get_project") return Promise.resolve(fakeProject);
+      if (cmd === "list_people") return Promise.resolve([person]);
+      if (cmd === "list_sprints") return Promise.resolve([]);
+      if (cmd === "list_comments") return Promise.resolve([{ ...comment, ...c }]);
+      if (cmd === "list_time_logs") return Promise.resolve([]);
+      if (cmd === "list_attachments") return Promise.resolve([]);
+      if (cmd === "update_comment")
+        return Promise.resolve({ ...comment, ...c, body: "Edited body", updated_at: "2024-01-02T00:00:00.000Z" });
+      return Promise.resolve(null);
+    });
+  }
+
+  it("pencil → edit → Save invokes update_comment with the new body", async () => {
+    setupWithComment();
+    const user = userEvent.setup();
+    useUiStore.setState({ selectedTaskId: 7 });
+    renderPanel();
+
+    await user.click(await screen.findByRole("button", { name: /edit comment/i }));
+
+    const textarea = screen.getByLabelText(/edit comment body/i);
+    expect(textarea).toHaveValue("Original body");
+    await user.clear(textarea);
+    await user.type(textarea, "Edited body");
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("update_comment", { id: 42, body: "Edited body" }),
+    );
+  });
+
+  it("Cancel leaves the comment untouched", async () => {
+    setupWithComment();
+    const user = userEvent.setup();
+    useUiStore.setState({ selectedTaskId: 7 });
+    renderPanel();
+
+    await user.click(await screen.findByRole("button", { name: /edit comment/i }));
+    await user.clear(screen.getByLabelText(/edit comment body/i));
+    await user.type(screen.getByLabelText(/edit comment body/i), "Discarded");
+    await user.click(screen.getByRole("button", { name: /cancel/i }));
+
+    expect(mockInvoke).not.toHaveBeenCalledWith("update_comment", expect.anything());
+    expect(screen.getByText("Original body")).toBeInTheDocument();
+  });
+
+  it("shows '(edited)' only once updated_at is set", async () => {
+    setupWithComment();
+    useUiStore.setState({ selectedTaskId: 7 });
+    const { unmount } = renderPanel();
+    await screen.findByText("Original body");
+    expect(screen.queryByText("(edited)")).not.toBeInTheDocument();
+    unmount();
+
+    setupWithComment({ updated_at: "2024-01-02T00:00:00.000Z" });
+    renderPanel();
+    expect(await screen.findByText("(edited)")).toBeInTheDocument();
   });
 });
 

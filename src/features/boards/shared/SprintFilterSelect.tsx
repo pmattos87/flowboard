@@ -4,9 +4,18 @@ import { useSprints } from "@/hooks/useSprints";
 
 interface SprintFilterSelectProps {
   projectId: number;
+  /**
+   * Whether to offer the "no sprint" option. Boards that only render the dev
+   * workflow (the User Story Board) have nothing to show for unscheduled
+   * stories — those live on the Discovery board — so they opt out.
+   */
+  includeBacklog?: boolean;
 }
 
-export function SprintFilterSelect({ projectId }: SprintFilterSelectProps) {
+export function SprintFilterSelect({
+  projectId,
+  includeBacklog = true,
+}: SprintFilterSelectProps) {
   const { data: sprints } = useSprints(projectId);
   const boardSprintFilter = useUiStore((s) => s.boardSprintFilter);
   const setBoardSprintFilter = useUiStore((s) => s.setBoardSprintFilter);
@@ -18,6 +27,13 @@ export function SprintFilterSelect({ projectId }: SprintFilterSelectProps) {
     const activeSprintId = sprints.find((s) => s.status === "active")?.id ?? null;
     ensureDefaultSprintFilter(projectId, activeSprintId);
   }, [projectId, sprints, ensureDefaultSprintFilter]);
+
+  // The filter is shared across boards, so it can arrive set to "backlog" from
+  // a board that offers it. Fall back rather than leaving the <select> bound to
+  // a value it no longer renders.
+  useEffect(() => {
+    if (!includeBacklog && boardSprintFilter === "backlog") setBoardSprintFilter("all");
+  }, [includeBacklog, boardSprintFilter, setBoardSprintFilter]);
 
   const value =
     boardSprintFilter === "all" || boardSprintFilter === "backlog"
@@ -39,7 +55,10 @@ export function SprintFilterSelect({ projectId }: SprintFilterSelectProps) {
       aria-label="Sprint filter"
     >
       <option value="all">All sprints</option>
-      <option value="backlog">Backlog (no sprint)</option>
+      {/* FB-91: display-only rename — the filter value stays "backlog". */}
+      {includeBacklog && (
+        <option value="backlog">Ready for Development (no sprint)</option>
+      )}
       {(sprints ?? []).map((s) => (
         <option key={s.id} value={s.id}>
           {s.name}

@@ -68,7 +68,9 @@ describe("KanbanBoard — discovery columns (FB-85)", () => {
         <KanbanBoard tasks={[discoveryStory]} people={[]} projectKey="FB" columns={DISCOVERY_COLUMNS} />
       </QueryClientProvider>
     );
-    expect(screen.getByText("TO DO")).toBeInTheDocument();
+    // FB-91: the discovery `todo` column is labelled BACKLOG (display only).
+    expect(screen.getByText("BACKLOG")).toBeInTheDocument();
+    expect(screen.queryByText("TO DO")).not.toBeInTheDocument();
     expect(screen.getByText("REFINING")).toBeInTheDocument();
     expect(screen.getByText("CANCELED")).toBeInTheDocument();
     expect(screen.getByText("READY FOR DEVELOPMENT")).toBeInTheDocument();
