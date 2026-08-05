@@ -3,10 +3,16 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
+import { toast } from "sonner";
 import { CreateTaskModal } from "@/components/CreateTaskModal";
 import { useUiStore } from "@/stores/uiStore";
 
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+}));
+
 const mockInvoke = vi.mocked(invoke);
+const mockToast = vi.mocked(toast);
 
 function renderModal() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -19,6 +25,7 @@ function renderModal() {
 
 beforeEach(() => {
   mockInvoke.mockReset();
+  mockToast.warning.mockReset();
   useUiStore.setState({
     activeProjectId: null,
     createTaskModalOpen: false,
@@ -169,6 +176,110 @@ describe("CreateTaskModal — submission", () => {
       );
       expect(useUiStore.getState().createTaskModalOpen).toBe(false);
     });
+  });
+
+  it("blocks creating a story straight into a sprint (FB-90)", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({
+      createTaskModalOpen: true,
+      activeProjectId: 1,
+      createTaskPrefill: { type: "story", lockType: true },
+    });
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "list_people") return Promise.resolve([]);
+      if (cmd === "list_sprints")
+        return Promise.resolve([
+          { id: 5, project_id: 1, name: "Sprint 1", goal: "", start_date: "2024-01-01", end_date: "2024-01-14", status: "active" },
+        ]);
+      if (cmd === "list_tasks") return Promise.resolve([]);
+      return Promise.resolve(null);
+    });
+    renderModal();
+
+    await waitFor(() => expect(screen.getByLabelText(/title/i)).toBeInTheDocument());
+    await user.type(screen.getByLabelText(/title/i), "Premature story");
+    // Status defaults to "todo", so the sprint pick is rejected and reverted.
+    const sprintSelect = screen.getByLabelText(/sprint/i) as HTMLSelectElement;
+    await user.selectOptions(sprintSelect, "5");
+
+    expect(mockToast.warning).toHaveBeenCalled();
+    expect(sprintSelect.value).toBe("");
+
+    await user.click(screen.getByRole("button", { name: /create story/i }));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith(
+        "create_task",
+        expect.objectContaining({ payload: expect.objectContaining({ sprint_id: null }) }),
+      ),
+    );
+  });
+
+  it("allows creating a ready-for-development story inside a sprint (FB-90)", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({
+      createTaskModalOpen: true,
+      activeProjectId: 1,
+      createTaskPrefill: { type: "story", lockType: true },
+    });
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "list_people") return Promise.resolve([]);
+      if (cmd === "list_sprints")
+        return Promise.resolve([
+          { id: 5, project_id: 1, name: "Sprint 1", goal: "", start_date: "2024-01-01", end_date: "2024-01-14", status: "active" },
+        ]);
+      if (cmd === "list_tasks") return Promise.resolve([]);
+      if (cmd === "create_task") return Promise.resolve(fakeTask);
+      return Promise.resolve(null);
+    });
+    renderModal();
+
+    await waitFor(() => expect(screen.getByLabelText(/title/i)).toBeInTheDocument());
+    await user.type(screen.getByLabelText(/title/i), "Ready story");
+    await user.selectOptions(screen.getByLabelText(/status/i), "ready_for_development");
+    await user.selectOptions(screen.getByLabelText(/sprint/i), "5");
+
+    expect(mockToast.warning).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: /create story/i }));
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith(
+        "create_task",
+        expect.objectContaining({ payload: expect.objectContaining({ sprint_id: 5 }) }),
+      ),
+    );
+  });
+
+  it("re-checks the gate at submit when the status changes after the sprint pick (FB-90)", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({
+      createTaskModalOpen: true,
+      activeProjectId: 1,
+      createTaskPrefill: { type: "story", lockType: true },
+    });
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "list_people") return Promise.resolve([]);
+      if (cmd === "list_sprints")
+        return Promise.resolve([
+          { id: 5, project_id: 1, name: "Sprint 1", goal: "", start_date: "2024-01-01", end_date: "2024-01-14", status: "active" },
+        ]);
+      if (cmd === "list_tasks") return Promise.resolve([]);
+      return Promise.resolve(null);
+    });
+    renderModal();
+
+    await waitFor(() => expect(screen.getByLabelText(/title/i)).toBeInTheDocument());
+    await user.type(screen.getByLabelText(/title/i), "Sneaky story");
+    // Valid status first so the select's own guard lets the sprint through …
+    await user.selectOptions(screen.getByLabelText(/status/i), "ready_for_development");
+    await user.selectOptions(screen.getByLabelText(/sprint/i), "5");
+    // … then walk the status back.
+    await user.selectOptions(screen.getByLabelText(/status/i), "refining");
+
+    await user.click(screen.getByRole("button", { name: /create story/i }));
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mockToast.warning).toHaveBeenCalled();
+    expect(mockInvoke).not.toHaveBeenCalledWith("create_task", expect.anything());
   });
 
   it("does not call create_task when title is empty", async () => {

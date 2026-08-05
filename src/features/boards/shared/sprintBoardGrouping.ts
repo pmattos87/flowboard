@@ -87,13 +87,31 @@ interface SprintDropPatch {
   status?: TaskStatus;
 }
 
+// FB-90: one message for every sprint-assignment path — board DnD, the detail
+// panel dropdown and the create modal all surface the same toast.
+export const SPRINT_GATE_TOAST = {
+  title: "Only stories marked “Ready for Development” can be added to a sprint",
+  description: "Move it through the Discovery board first.",
+} as const;
+
 /**
  * FB-85: a story may only be scheduled into a sprint once it reaches
  * "Ready for Development". Applies only to backlog -> sprint moves — moving a
  * story between sprints or back to the backlog is always allowed.
+ *
+ * FB-90: gated on `type === "story"`. Tasks, bugs and epics never enter the
+ * discovery lifecycle, so without this check they could never be put in a
+ * sprint at all from the detail panel or create modal. The Sprint Planning
+ * Board already filters to stories, so the check is a no-op for its drops.
+ *
+ * Takes only the fields it reads so the create modal can check an unsaved draft.
  */
-export function isSprintScheduleBlocked(task: Task, targetKey: SprintBoardRowKey): boolean {
+export function isSprintScheduleBlocked(
+  task: Pick<Task, "type" | "status" | "sprint_id">,
+  targetKey: SprintBoardRowKey,
+): boolean {
   return (
+    task.type === "story" &&
     targetKey !== "backlog" &&
     task.sprint_id === null &&
     task.status !== "ready_for_development"

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { BookOpen, Bug, CheckSquare, Layers } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +17,10 @@ import { useSprints } from "@/hooks/useSprints";
 import { useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
 import { statusOptionsForType } from "@/features/boards/shared/boardConstants";
+import {
+  isSprintScheduleBlocked,
+  SPRINT_GATE_TOAST,
+} from "@/features/boards/shared/sprintBoardGrouping";
 import type { TaskPriority, TaskStatus, TaskType } from "@/types";
 
 type TaskForm = {
@@ -100,6 +105,12 @@ export function CreateTaskModal() {
     setError(null);
     const title = form.title.trim();
     if (!title || activeProjectId == null) return;
+    // FB-90: the select's own guard can be sidestepped by picking a sprint while
+    // the status is still valid and then changing the status, so re-check here.
+    if (form.sprint_id !== null && isSprintScheduleBlocked({ ...form, sprint_id: null }, form.sprint_id)) {
+      toast.warning(SPRINT_GATE_TOAST.title, { description: SPRINT_GATE_TOAST.description });
+      return;
+    }
     try {
       await createTask.mutateAsync({
         project_id: activeProjectId,
@@ -212,12 +223,20 @@ export function CreateTaskModal() {
                 <select
                   id="task-sprint"
                   value={form.sprint_id ?? ""}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      sprint_id: e.target.value ? Number(e.target.value) : null,
-                    }))
-                  }
+                  onChange={(e) => {
+                    const v = e.target.value ? Number(e.target.value) : null;
+                    // FB-90: same gate the Sprint Planning Board applies to drops.
+                    if (v !== null && isSprintScheduleBlocked({ ...form, sprint_id: null }, v)) {
+                      toast.warning(SPRINT_GATE_TOAST.title, {
+                        description: SPRINT_GATE_TOAST.description,
+                      });
+                      // `form` is unchanged, so React has no reason to re-render
+                      // and the <select> would keep showing the rejected sprint.
+                      e.target.value = String(form.sprint_id ?? "");
+                      return;
+                    }
+                    setForm((f) => ({ ...f, sprint_id: v }));
+                  }}
                   className="w-full rounded-md bg-gray-800 border border-gray-700 text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">No sprint</option>

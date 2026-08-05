@@ -172,4 +172,15 @@ describe("isSprintScheduleBlocked (FB-85)", () => {
     expect(isSprintScheduleBlocked(story(1, 10, "medium", "in_progress"), 11)).toBe(false);
     expect(isSprintScheduleBlocked(story(1, null, "medium", "todo"), "backlog")).toBe(false);
   });
+
+  // FB-90: the gate is reused by the detail panel and the create modal, which —
+  // unlike the Sprint Planning Board — also see tasks, bugs and epics. Those
+  // never reach "ready_for_development", so gating them would lock them out of
+  // sprints entirely.
+  it("only gates stories — tasks, bugs and epics pass through", () => {
+    for (const type of ["task", "bug", "epic"] as const) {
+      const item: Task = { ...story(1, null, "medium", "todo"), type };
+      expect(isSprintScheduleBlocked(item, 11)).toBe(false);
+    }
+  });
 });
