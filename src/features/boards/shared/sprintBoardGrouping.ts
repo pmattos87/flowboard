@@ -132,19 +132,28 @@ export function isSprintScheduleBlocked(
  * and the unscheduled row — which lists only `ready_for_development` — drops it
  * on the floor, so a story dragged into a sprint and straight back out would
  * vanish from the board. Sprint->sprint moves leave status alone.
+ *
+ * The status transitions apply to stories only: they move a row between the
+ * discovery and dev lifecycles, and tasks/bugs/epics live solely in the dev one.
+ * Resetting a half-finished bug to `todo` because it joined a sprint — or worse,
+ * stamping it `ready_for_development` on the way out — would be wrong. The
+ * planning board only ever feeds this stories, so the check is a no-op there;
+ * the detail panel's sprint picker relies on it.
  */
 export function computeSprintDropPayload(
-  task: Task,
+  task: Pick<Task, "type" | "status" | "sprint_id">,
   targetKey: SprintBoardRowKey,
 ): { payload: SprintDropPatch; override: SprintDropPatch } | null {
   const newSprintId = targetKey === "backlog" ? null : targetKey;
   if (task.sprint_id === newSprintId) return null;
 
   const patch: SprintDropPatch = { sprint_id: newSprintId };
-  if (task.sprint_id === null && newSprintId !== null) {
-    patch.status = "todo";
-  } else if (task.sprint_id !== null && newSprintId === null) {
-    patch.status = "ready_for_development";
+  if (task.type === "story") {
+    if (task.sprint_id === null && newSprintId !== null) {
+      patch.status = "todo";
+    } else if (task.sprint_id !== null && newSprintId === null) {
+      patch.status = "ready_for_development";
+    }
   }
   return { payload: patch, override: patch };
 }

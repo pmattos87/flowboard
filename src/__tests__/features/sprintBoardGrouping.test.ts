@@ -175,6 +175,24 @@ describe("computeSprintDropPayload", () => {
     expect(rows[0].tasks.map((t) => t.id)).toEqual([1]);
   });
 
+  // The detail panel's sprint picker shares this function, so it also sees
+  // tasks, bugs and epics — which live only in the dev workflow.
+  it("leaves status alone for non-story types in both directions", () => {
+    for (const type of ["task", "bug", "epic"] as const) {
+      const scheduled = { ...story(1, null, "medium", "in_progress"), type };
+      expect(computeSprintDropPayload(scheduled, 11)).toEqual({
+        payload: { sprint_id: 11 },
+        override: { sprint_id: 11 },
+      });
+
+      const unscheduled = { ...story(1, 10, "medium", "in_progress"), type };
+      expect(computeSprintDropPayload(unscheduled, "backlog")).toEqual({
+        payload: { sprint_id: null },
+        override: { sprint_id: null },
+      });
+    }
+  });
+
   it("returns null when the story is already in the target section", () => {
     expect(computeSprintDropPayload(story(1, 10), 10)).toBeNull();
     expect(computeSprintDropPayload(story(1, null), "backlog")).toBeNull();

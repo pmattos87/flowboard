@@ -331,20 +331,43 @@ describe("TaskDetailPanel — Sprint gate (FB-90)", () => {
     expect(select.value).toBe("");
   });
 
-  it("allows a ready-for-development story into a sprint", async () => {
+  it("moves a ready-for-development story into the dev workflow with the sprint", async () => {
     setupWithSprints({ type: "story", status: "ready_for_development", sprint_id: null });
     useUiStore.setState({ selectedTaskId: 7 });
 
     await pickSprint();
 
+    // Status must follow, exactly as a planning-board drop does. Leaving it at
+    // ready_for_development strands the story: it is in a sprint, but the User
+    // Story Board renders the dev-workflow columns and has none for it.
     await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith("update_task", { id: 7, payload: { sprint_id: 5 } }),
+      expect(mockInvoke).toHaveBeenCalledWith("update_task", {
+        id: 7,
+        payload: { sprint_id: 5, status: "todo" },
+      }),
     );
     expect(mockToast.warning).not.toHaveBeenCalled();
   });
 
-  it("does not gate a bug — only stories run the discovery lifecycle", async () => {
-    setupWithSprints({ type: "bug", status: "todo", sprint_id: null });
+  it("restores ready_for_development when the sprint is cleared", async () => {
+    setupWithSprints({ type: "story", status: "in_progress", sprint_id: 5 });
+    useUiStore.setState({ selectedTaskId: 7 });
+    const user = userEvent.setup();
+    renderPanel();
+
+    const select = await screen.findByRole("combobox", { name: /sprint/i });
+    await user.selectOptions(select, "");
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("update_task", {
+        id: 7,
+        payload: { sprint_id: null, status: "ready_for_development" },
+      }),
+    );
+  });
+
+  it("does not gate a bug, nor rewrite its status — only stories run the discovery lifecycle", async () => {
+    setupWithSprints({ type: "bug", status: "in_progress", sprint_id: null });
     useUiStore.setState({ selectedTaskId: 7 });
 
     await pickSprint();

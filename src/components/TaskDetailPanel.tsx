@@ -41,6 +41,7 @@ import { useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
 import { statusOptionsForType } from "@/features/boards/shared/boardConstants";
 import {
+  computeSprintDropPayload,
   isSprintScheduleBlocked,
   SPRINT_GATE_TOAST,
 } from "@/features/boards/shared/sprintBoardGrouping";
@@ -851,7 +852,15 @@ export function TaskDetailPanel() {
                         e.target.value = String(draft.sprint_id ?? "");
                         return;
                       }
-                      handleSelectChange("sprint_id", v, v);
+                      // Assigning a sprint here must make the same lifecycle
+                      // move the planning board makes on a drop, or the story
+                      // stays at a discovery status while sitting in a sprint —
+                      // and the User Story Board, which renders the dev-workflow
+                      // columns, has nowhere to put it.
+                      const decision = computeSprintDropPayload(draft, v ?? "backlog");
+                      if (!decision) return;
+                      setDraft((d) => ({ ...d, ...decision.override }));
+                      save(decision.payload);
                     }}
                     className={SELECT_CLS}
                   >
