@@ -15,6 +15,10 @@ pub struct Project {
     pub logo_data: Option<String>,
     /// Manual sort order for the sidebar (ascending).
     pub position: i64,
+    /// Software Factory: 'legacy' | 'factory' status ladder.
+    pub ladder: String,
+    /// Software Factory: 'internal' | 'client'.
+    pub kind: String,
 }
 
 #[derive(Debug, Deserialize)]
