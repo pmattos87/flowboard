@@ -133,20 +133,16 @@ pub async fn open_existing(path: &Path) -> Result<SqlitePool, String> {
             path.display()
         ));
     }
-    let options = SqliteConnectOptions::from_str(&sqlite_url(path, "rw"))
+    let url = sqlite_url(path, "rw");
+    // Check versions on a plain connection first: a refused database must be
+    // left exactly as it was, journal mode included.
+    let mut probe = SqliteConnectOptions::from_str(&url)
         .map_err(|e| e.to_string())?
-        .foreign_keys(true)
-        .journal_mode(SqliteJournalMode::Wal)
-        .busy_timeout(Duration::from_secs(5));
-    let pool = SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect_with(options)
+        .connect()
         .await
         .map_err(|e| format!("failed to open {}: {e}", path.display()))?;
-
-    let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
-    let applied = applied_versions(&mut conn).await?;
-    drop(conn);
+    let applied = applied_versions(&mut probe).await?;
+    probe.close().await.map_err(|e| e.to_string())?;
     let known: Vec<i64> = MIGRATOR.iter().map(|m| m.version).collect();
     if applied.iter().any(|v| !known.contains(v)) {
         return Err(
@@ -160,7 +156,16 @@ pub async fn open_existing(path: &Path) -> Result<SqlitePool, String> {
                 .into(),
         );
     }
-    Ok(pool)
+    let options = SqliteConnectOptions::from_str(&url)
+        .map_err(|e| e.to_string())?
+        .foreign_keys(true)
+        .journal_mode(SqliteJournalMode::Wal)
+        .busy_timeout(Duration::from_secs(5));
+    SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .map_err(|e| format!("failed to open {}: {e}", path.display()))
 }
 
 #[cfg(test)]
@@ -237,6 +242,17 @@ mod tests {
         migrate_up_to(&path, 10).await;
         let err = open_existing(&path).await.unwrap_err();
         assert!(err.contains("open the updated Flowboard app"), "{err}");
+
+        let mut conn = SqliteConnectOptions::from_str(&sqlite_url(&path, "ro"))
+            .unwrap()
+            .connect()
+            .await
+            .unwrap();
+        let mode: String = sqlx::query_scalar("PRAGMA journal_mode")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(mode, "delete", "a refused database must not be switched to WAL");
     }
 
     /// Every row of every pre-existing table, original columns only, as SQL
