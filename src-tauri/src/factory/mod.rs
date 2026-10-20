@@ -2,7 +2,7 @@
 //! the operations the Flowboard CLI and its MCP expose.
 
 pub mod ladder;
-// pub mod mcp;
+pub mod mcp;
 pub mod ops;
 
 #[cfg(test)]
