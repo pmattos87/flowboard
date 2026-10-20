@@ -51,3 +51,40 @@ Important Rules
   where `type = 'story'`, the same SQL transaction also updates `sprint_id` for
   all rows where `parent_id` equals the story's id. Atomic — both updates apply
   or neither.
+-------------------------
+Software Factory (migration `010_factory_foundation.sql`, SF-2)
+
+Additive only: legacy projects keep their statuses and rows. Factory columns and
+tables are written **only** through `flowboard-cli` (or its MCP,
+`flowboard-cli mcp`), which enforces the ladders; the app reads them.
+
+```sql
+projects      + ladder ('legacy' default | 'factory'), kind ('internal' default | 'client')
+people        + factory_role ('owner' | 'agent' | NULL; at most one of each)
+tasks         + status values 'backlog','ready','building','integrated_tests','tested','user_testing'
+              + feature_branch, review_verdict ('passed'|'failed'|NULL), reviewed_commit,
+                findings_url, run_stopped (0/1), risk (0/1),
+                release_id → releases(id) ON DELETE SET NULL
+releases         (id, project_id, version, state, created_at, released_at)
+                 -- state: 'planned' | 'user_testing' | 'released' | 'canceled'; UNIQUE(project_id, version)
+project_contacts (project_id, person_id, is_primary)   -- client contacts; one primary per project
+task_links       (task_id, depends_on_id, created_at)  -- Story depends-on (warns on Release pick)
+task_prs         (id, task_id, url, target, state, created_at, updated_at)
+                 -- state: 'open' | 'merged' | 'closed'
+```
+
+- Story ladder (Factory projects): `backlog ⇄ refining ⇄ ready → building ⇄ integrated_tests
+  → tested → user_testing (Client only) → done`; bug loop back to `building` from
+  `integrated_tests`/`tested`/`user_testing`; any open status → `canceled`.
+  Subtask ladder: `todo ⇄ in_progress → done`, `todo`/`in_progress` → `canceled`.
+- A Story in a sprint is `ready` or later; `building` and beyond require a sprint.
+  Forward moves from `building` on require every Subtask done/canceled and the Run not stopped.
+- Assignee is set by the move: `building` → agent, `user_testing` → primary contact,
+  `done`/`canceled` → NULL, everything else → owner.
+- Run trail = `activity_log` rows on the Story with actions `stage_entered`,
+  `subtask_status_changed`, `subtask_handoff`, `verify_round`, `review_round`,
+  `run_stopped`, `run_restarted`, `pr_opened`, `pr_merged`, `release_picked`,
+  `release_removed`, `bug_subtask_filed` (details as JSON in `new_value`).
+- The app backs up the database (`flowboard.db.pre-migration-<unix secs>.bak`) before
+  applying pending migrations, and runs in WAL mode. The CLI never migrates and refuses a
+  database whose applied migrations differ from its own.
