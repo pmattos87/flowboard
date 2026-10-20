@@ -18,7 +18,7 @@
     ],
     "deny": [
       "Bash(git push origin main)",
-      "Bash(git push origin dev)",
+      "Bash(git push origin develop)",
       "Bash(git merge *)",
       "Bash(git rebase *)",
       "Bash(git reset --hard *)",

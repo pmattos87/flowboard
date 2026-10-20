@@ -124,7 +124,7 @@ For multi-step tasks, state a brief plan:
 ## Git Workflow & Repository Rules
 
 ### 1. Branching Strategy
-- **Never code directly on `main` or `dev`.**
+- **Never code directly on `main` or `develop`.**
 - Always verify your active branch before editing files. 
 - Create/use short-lived feature or phase branches named: `[phase-number]/[task-number]-[short-description]` (e.g., `phase-1/task-4.4-file-attachments`).
 
