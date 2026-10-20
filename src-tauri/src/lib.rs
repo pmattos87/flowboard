@@ -1,5 +1,6 @@
 mod commands;
-mod db;
+pub mod db;
+pub mod factory;
 
 use tauri::Manager;
 
