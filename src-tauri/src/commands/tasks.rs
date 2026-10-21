@@ -1168,6 +1168,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_canceled_factory_subtask_can_be_reopened_with_its_history() {
+        let f = factory_project().await;
+        let story = create_in(&f, "story", None, None).await.unwrap();
+        let sub = create_in(&f, "task", Some(story.id), None).await.unwrap();
+        sqlx::query("INSERT INTO comments (task_id, author_id, body, created_at) VALUES (?, ?, 'note', '2026-01-01T00:00:00.000Z')")
+            .bind(sub.id)
+            .bind(f.pedro)
+            .execute(&f.pool)
+            .await
+            .unwrap();
+
+        let sub = set_status(&f, sub.id, "canceled").await.unwrap();
+        assert_eq!(sub.status, "canceled");
+        let sub = set_status(&f, sub.id, "todo").await.unwrap();
+        assert_eq!(sub.status, "todo");
+
+        let comments: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM comments WHERE task_id = ?")
+            .bind(sub.id)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
+        assert_eq!(comments, 1);
+        // created + todo->canceled + canceled->todo
+        assert_eq!(count_activity(&f.pool, sub.id).await, 3);
+    }
+
+    #[tokio::test]
     async fn factory_creation_starts_on_the_ladder() {
         let f = factory_project().await;
         let err = create_in(&f, "task", None, None).await.unwrap_err();
