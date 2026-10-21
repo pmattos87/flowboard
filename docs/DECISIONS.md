@@ -95,6 +95,13 @@
 - The branches are **not created yet** — this records the strategy ahead of execution.
 - The deeper FB-6 pivot (hosted/Supabase, which supersedes D-008 and the cloud rejection below) is itself recorded as part of Phase 11 / Task 11.1, not here; this entry covers branching only.
 
+### D-012: Markdown Descriptions via `react-markdown` (2026-10-21)
+**Status:** Accepted
+**Context:** FB-100. Task descriptions (agent briefs, multi-section specs) are stored as raw text and shown in a plain textarea, which is hard to read. Rendering Markdown needs a parser — a new dependency, which CLAUDE.md requires to be approved.
+**Decision:** Add **`react-markdown`** only (approved by Pedro). No `remark-gfm`, no `rehype-raw`, no `dangerouslySetInnerHTML`. The description renders as Markdown in read mode; clicking it switches to the existing textarea. The stored text is unchanged.
+**Rationale:** `react-markdown` builds React elements rather than HTML strings, so raw HTML in a description is never injected. CommonMark covers headings, lists and code, which is what briefs use.
+**Consequences:** GFM tables, task lists and strikethrough render as plain text. Links are not opened externally (that would need `tauri-plugin-shell`); file paths render as text or inline code.
+
 ## Rejected Decisions
 
 - **Electron** — heavier runtime and larger distribution size.
