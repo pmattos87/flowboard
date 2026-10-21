@@ -302,6 +302,15 @@ describe("TaskDetailPanel — cancel task (FB-3, FB-98)", () => {
     ) as HTMLSelectElement;
   }
 
+  // Every non-read command invoked since call index `from`. "Never deletes"
+  // means the only write a Cancel makes is update_task.
+  function writesSince(from: number) {
+    return mockInvoke.mock.calls
+      .slice(from)
+      .map(([cmd]) => cmd)
+      .filter((cmd) => !/^(get|list)_/.test(cmd));
+  }
+
   it("Cancel task sets status canceled, never deletes, opens no dialog and keeps the panel open", async () => {
     setupWithTask({});
     const user = userEvent.setup();
@@ -309,6 +318,7 @@ describe("TaskDetailPanel — cancel task (FB-3, FB-98)", () => {
     renderPanel();
     await waitFor(() => expect(screen.getByDisplayValue("Fix login bug")).toBeInTheDocument());
 
+    const before = mockInvoke.mock.calls.length;
     await user.click(screen.getByRole("button", { name: /cancel task/i }));
 
     await waitFor(() =>
@@ -317,7 +327,7 @@ describe("TaskDetailPanel — cancel task (FB-3, FB-98)", () => {
         payload: { status: "canceled" },
       }),
     );
-    expect(mockInvoke).not.toHaveBeenCalledWith("delete_task", expect.anything());
+    expect(writesSince(before)).toEqual(["update_task"]);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(useUiStore.getState().selectedTaskId).toBe(7);
     expect(statusSelect().value).toBe("canceled");
@@ -411,7 +421,8 @@ describe("TaskDetailPanel — cancel task (FB-3, FB-98)", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /cancel task/i })).toBeInTheDocument(),
     );
-    expect(mockInvoke).not.toHaveBeenCalledWith("delete_task", expect.anything());
+    // Cancel and reopen are the only writes: two update_task calls, no delete.
+    expect(writesSince(0)).toEqual(["update_task", "update_task"]);
   });
 });
 

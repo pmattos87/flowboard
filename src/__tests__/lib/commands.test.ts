@@ -10,7 +10,6 @@ import {
   listTasks,
   createTask,
   updateTask,
-  deleteTask,
   createPerson,
   listPeople,
 } from "@/lib/commands";
@@ -88,12 +87,6 @@ describe("task commands", () => {
     mockInvoke.mockResolvedValueOnce({ id: 10 });
     await createTask(payload);
     expect(mockInvoke).toHaveBeenCalledWith("create_task", { payload });
-  });
-
-  it("deleteTask calls invoke with id", async () => {
-    mockInvoke.mockResolvedValueOnce(undefined);
-    await deleteTask(7);
-    expect(mockInvoke).toHaveBeenCalledWith("delete_task", { id: 7 });
   });
 
   it("updateTask preserves explicit null for sprint_id (clear to backlog)", async () => {

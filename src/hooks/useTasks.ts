@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createTask,
-  deleteTask,
   getTask,
   listTasks,
   updateTask,
@@ -58,14 +57,5 @@ export function useUpdateTask() {
       }
     },
     onError: (err) => toast.error(`Failed to update task: ${String(err)}`),
-  });
-}
-
-export function useDeleteTask() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: number) => deleteTask(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: taskKeys.all }); },
-    onError: (err) => toast.error(`Failed to delete task: ${String(err)}`),
   });
 }
