@@ -19,10 +19,19 @@
     "deny": [
       "Bash(git push origin main)",
       "Bash(git push origin develop)",
-      "Bash(git merge *)",
       "Bash(git rebase *)",
       "Bash(git reset --hard *)",
       "mcp__flowboard-db__create_table"
     ]
+  },
+  "skillOverrides": {
+    "ship": "off",
+    "flowboard-issue": "off",
+    "grilling": "off",
+    "domain-modeling": "off",
+    "wayfinder": "off",
+    "research": "off",
+    "prototype": "off",
+    "planning": "off"
   }
 }

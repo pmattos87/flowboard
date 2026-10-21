@@ -404,9 +404,32 @@ pub async fn project_show(pool: &SqlitePool, key: &str) -> Result<Value, String>
     }))
 }
 
+/// Open items of a project that don't fit the Factory ladder: anything but a
+/// top-level `story` in a Story status, or a `task`/`bug` under a story in a
+/// Subtask status. Returns their keys.
+async fn unmapped_items(tx: &mut Tx<'_>, project_id: i64, key: &str) -> Result<Vec<String>, String> {
+    let quoted = |statuses: &[&str]| statuses.iter().map(|s| format!("'{s}'")).collect::<Vec<_>>().join(",");
+    let open = |statuses: &[&str]| quoted(&statuses.iter().copied().filter(|s| !matches!(*s, "done" | "canceled")).collect::<Vec<_>>());
+    let numbers: Vec<i64> = sqlx::query_scalar(&format!(
+        r#"SELECT t.task_number FROM tasks t LEFT JOIN tasks parent ON parent.id = t.parent_id
+            WHERE t.project_id = ? AND t.status NOT IN ('done','canceled')
+              AND NOT (t.parent_id IS NULL AND t.type = 'story' AND t.status IN ({}))
+              AND NOT (t.parent_id IS NOT NULL AND t.type IN ('task','bug') AND parent.type = 'story'
+                       AND t.status IN ({}))
+            ORDER BY t.task_number"#,
+        open(ladder::STORY_STATUSES),
+        open(ladder::SUBTASK_STATUSES),
+    ))
+    .bind(project_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(err)?;
+    Ok(numbers.into_iter().map(|n| format!("{key}-{n}")).collect())
+}
+
 /// Set a project's ladder and/or kind. Switching to the Factory ladder is
-/// refused while the project has open items: mapping them is a Rollout step,
-/// and an unmapped status would make a card vanish from every board.
+/// refused while an open item isn't mapped to it yet: mapping is a Rollout
+/// step, and an unmapped item would vanish from every board.
 pub async fn project_set(
     pool: &SqlitePool,
     key: &str,
@@ -420,16 +443,12 @@ pub async fn project_set(
             return Err(format!("'{l}' is not a ladder (legacy, factory)"));
         }
         if l == "factory" && current_ladder != "factory" {
-            let open: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM tasks WHERE project_id = ? AND status NOT IN ('done','canceled')",
-            )
-            .bind(id)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(err)?;
-            if open > 0 {
+            let unmapped = unmapped_items(&mut tx, id, key).await?;
+            if !unmapped.is_empty() {
                 return Err(format!(
-                    "{key} has {open} open item(s) on the legacy ladder; map them before switching to the Factory ladder"
+                    "{key} has {} open item(s) not mapped to the Factory ladder ({}); map them before switching",
+                    unmapped.len(),
+                    unmapped.join(", ")
                 ));
             }
         }
@@ -947,6 +966,112 @@ pub async fn subtask_verify(pool: &SqlitePool, key: &str, passed: bool, reason: 
     log(&mut tx, story.id, actor, "verify_round", "", &event.to_string()).await?;
     tx.commit().await.map_err(err)?;
     Ok(event)
+}
+
+// ─── The app's edits ────────────────────────────────────────────────────────
+
+/// Apply the app's status and sprint edits on a task. On a Factory project a
+/// Story's status and sprint, and a Subtask's status, go through the same
+/// operations as the CLI and the MCP: same ladder, assignee rule and trail.
+/// Returns `false`, changing nothing, when the task is on a legacy project.
+pub async fn app_move(
+    pool: &SqlitePool,
+    id: i64,
+    status: Option<&str>,
+    sprint_id: Option<Option<i64>>,
+) -> Result<bool, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let row = load_by_id(&mut tx, id).await?;
+    if row.ladder != "factory" {
+        return Ok(false);
+    }
+    let parent = match row.parent_id {
+        Some(p) => Some(load_by_id(&mut tx, p).await?),
+        None => None,
+    };
+    tx.rollback().await.map_err(err)?;
+
+    let status = status.filter(|s| *s != row.status);
+    let sprint_id = sprint_id.filter(|s| *s != row.sprint_id);
+    if status.is_none() && sprint_id.is_none() {
+        return Ok(true);
+    }
+    let key = row.key();
+    let is_story = row.kind == "story" && parent.is_none();
+    let is_subtask = matches!(row.kind.as_str(), "task" | "bug")
+        && parent.as_ref().is_some_and(|p| p.kind == "story");
+    if is_story {
+        if status.is_some() && sprint_id.is_some() {
+            return Err("on a Factory project, change a Story's sprint and its status separately".into());
+        }
+        if let Some(s) = sprint_id {
+            story_set_sprint(pool, &key, s).await?;
+        }
+        if let Some(to) = status {
+            story_move(pool, &key, to, Actor::Owner).await?;
+        }
+    } else if is_subtask {
+        if sprint_id.is_some() {
+            return Err(format!("{key} follows its Story's sprint; move the Story instead"));
+        }
+        if let Some(to) = status {
+            subtask_move(pool, &key, to, Actor::Owner).await?;
+        }
+    } else {
+        return Err(format!("{key} is neither a Story nor a Subtask, so it has no place on the Factory ladder"));
+    }
+    Ok(true)
+}
+
+/// The status and sprint the app may create a task with. On a Factory project
+/// a Story starts in backlog or refining, outside sprints; a Subtask starts in
+/// todo, in its Story's sprint. `None` on a legacy project.
+pub async fn app_create_status(
+    pool: &SqlitePool,
+    project_id: i64,
+    parent_id: Option<i64>,
+    kind: &str,
+    status: Option<&str>,
+    sprint_id: Option<i64>,
+) -> Result<Option<(String, Option<i64>)>, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let ladder: String = sqlx::query_scalar("SELECT ladder FROM projects WHERE id = ?")
+        .bind(project_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(err)?;
+    if ladder != "factory" {
+        return Ok(None);
+    }
+    match parent_id {
+        None => {
+            if kind != "story" {
+                return Err("on a Factory project, a task or bug belongs to a Story; create it from the Story".into());
+            }
+            let status = status.unwrap_or("backlog");
+            if !matches!(status, "backlog" | "refining") {
+                return Err(format!("a new Story starts in backlog or refining, not {status}"));
+            }
+            if sprint_id.is_some() {
+                return Err("a Story enters a sprint only at ready".into());
+            }
+            Ok(Some((status.to_string(), None)))
+        }
+        Some(p) => {
+            let story = load_by_id(&mut tx, p).await?;
+            if story.kind != "story" || !matches!(kind, "task" | "bug") {
+                return Err("on a Factory project, only tasks and bugs go under a Story".into());
+            }
+            if matches!(story.status.as_str(), "done" | "canceled") {
+                return Err(format!("{} is {}; it takes no new Subtasks", story.key(), story.status));
+            }
+            let status = status.unwrap_or("todo");
+            if status != "todo" {
+                return Err(format!("a new Subtask starts in todo, not {status}"));
+            }
+            Ok(Some((status.to_string(), story.sprint_id)))
+        }
+    }
 }
 
 // ─── Releases ───────────────────────────────────────────────────────────────

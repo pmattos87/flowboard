@@ -295,6 +295,50 @@ async fn legacy_projects_are_refused() {
 }
 
 #[tokio::test]
+async fn a_legacy_project_switches_once_its_open_items_are_mapped() {
+    let fx = setup("internal").await;
+    let insert = |n: i64, parent: Option<i64>, kind: &'static str, status: &'static str| {
+        let pool = fx.pool.clone();
+        async move {
+            sqlx::query(
+                r#"INSERT INTO tasks (project_id, task_number, parent_id, title, type, status, created_at, updated_at)
+                   VALUES ((SELECT id FROM projects WHERE key = 'LG'), ?,
+                           (SELECT id FROM tasks WHERE task_number = ? AND project_id = (SELECT id FROM projects WHERE key = 'LG')),
+                           'old', ?, ?, 'x', 'x')"#,
+            )
+            .bind(n)
+            .bind(parent)
+            .bind(kind)
+            .bind(status)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+    };
+    insert(1, None, "story", "todo").await;
+    insert(2, Some(1), "task", "in_review").await;
+    insert(3, None, "bug", "refining").await;
+    insert(4, None, "story", "done").await;
+    insert(5, Some(4), "task", "canceled").await;
+
+    let err = ops::project_set(&fx.pool, "LG", Some("factory"), None).await.unwrap_err();
+    assert!(err.contains("3 open item(s)") && err.contains("LG-1, LG-2, LG-3"), "{err}");
+
+    let map = |sql: &'static str| {
+        let pool = fx.pool.clone();
+        async move { sqlx::query(sql).execute(&pool).await.unwrap() }
+    };
+    map("UPDATE tasks SET status = 'backlog' WHERE task_number = 1").await;
+    map("UPDATE tasks SET status = 'todo' WHERE task_number = 2").await;
+    let err = ops::project_set(&fx.pool, "LG", Some("factory"), None).await.unwrap_err();
+    assert!(err.contains("1 open item(s)") && err.contains("LG-3"), "a top-level bug isn't a Story: {err}");
+
+    map("UPDATE tasks SET type = 'story' WHERE task_number = 3").await;
+    ops::project_set(&fx.pool, "LG", Some("factory"), None).await.expect("every open item is mapped");
+    assert_eq!(mv(&fx, "LG-1", "refining").await.unwrap()["status"], "refining");
+}
+
+#[tokio::test]
 async fn release_pick_warns_on_unreleased_dependencies() {
     let fx = setup("internal").await;
     let a = story(&fx, "a").await;

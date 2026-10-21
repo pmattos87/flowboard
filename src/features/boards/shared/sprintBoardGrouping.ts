@@ -1,8 +1,15 @@
-import type { Sprint, SprintStatus, Task, TaskStatus } from "@/types";
+import type { Project, Sprint, SprintStatus, Task, TaskStatus } from "@/types";
 import type { SprintFilter } from "@/stores/uiStore";
 import { sortByPriority } from "./boardConstants";
 
 export type SprintBoardRowKey = number | "backlog";
+
+type Ladder = Project["ladder"];
+
+/** The one status a Story is planned from: it enters and leaves sprints there. */
+export function plannableStatus(ladder: Ladder): TaskStatus {
+  return ladder === "factory" ? "ready" : "ready_for_development";
+}
 
 export interface SprintBoardRow {
   key: SprintBoardRowKey;
@@ -29,6 +36,7 @@ export function buildSprintBoardRows(
   tasks: Task[],
   sprints: Sprint[],
   filter: SprintFilter,
+  ladder: Ladder = "legacy",
 ): SprintBoardRow[] {
   const stories = tasks.filter((t) => t.type === "story");
 
@@ -50,7 +58,7 @@ export function buildSprintBoardRows(
     key: "backlog",
     sprint: null,
     tasks: sortByPriority(
-      stories.filter((t) => t.sprint_id === null && t.status === "ready_for_development"),
+      stories.filter((t) => t.sprint_id === null && t.status === plannableStatus(ladder)),
     ),
   };
 
@@ -94,6 +102,15 @@ export const SPRINT_GATE_TOAST = {
   description: "Move it through the Discovery board first.",
 } as const;
 
+const FACTORY_SPRINT_GATE_TOAST = {
+  title: "Only stories at Ready can be added to a sprint",
+  description: "Move it through the Discovery board first.",
+} as const;
+
+export function sprintGateToast(ladder: Ladder = "legacy") {
+  return ladder === "factory" ? FACTORY_SPRINT_GATE_TOAST : SPRINT_GATE_TOAST;
+}
+
 /**
  * FB-85: a story may only be scheduled into a sprint once it reaches
  * "Ready for Development". Applies only to backlog -> sprint moves — moving a
@@ -109,12 +126,13 @@ export const SPRINT_GATE_TOAST = {
 export function isSprintScheduleBlocked(
   task: Pick<Task, "type" | "status" | "sprint_id">,
   targetKey: SprintBoardRowKey,
+  ladder: Ladder = "legacy",
 ): boolean {
   return (
     task.type === "story" &&
     targetKey !== "backlog" &&
     task.sprint_id === null &&
-    task.status !== "ready_for_development"
+    task.status !== plannableStatus(ladder)
   );
 }
 
@@ -139,16 +157,21 @@ export function isSprintScheduleBlocked(
  * stamping it `ready_for_development` on the way out — would be wrong. The
  * planning board only ever feeds this stories, so the check is a no-op there;
  * the detail panel's sprint picker relies on it.
+ *
+ * SF-31: on a Factory project a Story enters and leaves sprints at `ready` and
+ * keeps that status, so the patch carries the sprint alone. The backend refuses
+ * a status and a sprint change in one update there.
  */
 export function computeSprintDropPayload(
   task: Pick<Task, "type" | "status" | "sprint_id">,
   targetKey: SprintBoardRowKey,
+  ladder: Ladder = "legacy",
 ): { payload: SprintDropPatch; override: SprintDropPatch } | null {
   const newSprintId = targetKey === "backlog" ? null : targetKey;
   if (task.sprint_id === newSprintId) return null;
 
   const patch: SprintDropPatch = { sprint_id: newSprintId };
-  if (task.type === "story") {
+  if (task.type === "story" && ladder === "legacy") {
     if (task.sprint_id === null && newSprintId !== null) {
       patch.status = "todo";
     } else if (task.sprint_id !== null && newSprintId === null) {

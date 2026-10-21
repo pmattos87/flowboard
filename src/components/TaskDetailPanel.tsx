@@ -43,9 +43,10 @@ import { statusOptionsForType } from "@/features/boards/shared/boardConstants";
 import {
   computeSprintDropPayload,
   isSprintScheduleBlocked,
-  SPRINT_GATE_TOAST,
+  sprintGateToast,
 } from "@/features/boards/shared/sprintBoardGrouping";
 import { Avatar } from "@/components/Avatar";
+import { MarkdownDescription } from "@/components/MarkdownDescription";
 import type {
   Attachment,
   Comment,
@@ -797,7 +798,7 @@ export function TaskDetailPanel() {
                     }}
                     className={SELECT_CLS}
                   >
-                    {statusOptionsForType(draft.type).map((o) => (
+                    {statusOptionsForType(draft.type, project?.ladder).map((o) => (
                       <option key={o.value} value={o.value}>{o.label}</option>
                     ))}
                   </select>
@@ -842,9 +843,10 @@ export function TaskDetailPanel() {
                     onChange={(e) => {
                       const v = e.target.value ? Number(e.target.value) : null;
                       // FB-90: same gate the Sprint Planning Board applies to drops.
-                      if (v !== null && isSprintScheduleBlocked(draft, v)) {
-                        toast.warning(SPRINT_GATE_TOAST.title, {
-                          description: SPRINT_GATE_TOAST.description,
+                      if (v !== null && isSprintScheduleBlocked(draft, v, project?.ladder)) {
+                        const gate = sprintGateToast(project?.ladder);
+                        toast.warning(gate.title, {
+                          description: gate.description,
                         });
                         // Bailing out leaves `draft` untouched, so React has no
                         // reason to re-render and the <select> would keep showing
@@ -857,7 +859,7 @@ export function TaskDetailPanel() {
                       // stays at a discovery status while sitting in a sprint —
                       // and the User Story Board, which renders the dev-workflow
                       // columns, has nowhere to put it.
-                      const decision = computeSprintDropPayload(draft, v ?? "backlog");
+                      const decision = computeSprintDropPayload(draft, v ?? "backlog", project?.ladder);
                       if (!decision) return;
                       setDraft((d) => ({ ...d, ...decision.override }));
                       save(decision.payload);
@@ -937,15 +939,12 @@ export function TaskDetailPanel() {
               {/* Description */}
               <div>
                 <Label className="text-gray-500 text-[11px]">Description</Label>
-                <Textarea
+                <MarkdownDescription
                   value={draft.description}
-                  onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
-                  onBlur={() => {
+                  onChange={(description) => setDraft((d) => ({ ...d, description }))}
+                  onCommit={() => {
                     if (draft.description !== task.description) save({ description: draft.description });
                   }}
-                  placeholder="Add a description…"
-                  rows={4}
-                  className="bg-gray-800 border-gray-700 text-gray-100 text-sm"
                 />
               </div>
 

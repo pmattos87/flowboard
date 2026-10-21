@@ -5,6 +5,7 @@ import { useProject } from "@/hooks/useProjects";
 import { useSprints } from "@/hooks/useSprints";
 import { RefreshButton } from "@/components/RefreshButton";
 import { KanbanBoard } from "./shared/KanbanBoard";
+import { COLUMNS, FACTORY_STORY_COLUMNS } from "./shared/boardConstants";
 import { SprintFilterSelect } from "./shared/SprintFilterSelect";
 import { matchesSprintFilter, sprintFilterLabel } from "./shared/sprintFilter";
 
@@ -53,6 +54,7 @@ export function UserStoryBoard() {
           tasks={tasks}
           people={people}
           projectKey={project?.key ?? "FB"}
+          columns={project?.ladder === "factory" ? FACTORY_STORY_COLUMNS : COLUMNS}
         />
       )}
     </div>

@@ -121,12 +121,20 @@ For multi-step tasks, state a brief plan:
 
 ---
 
+## Issue Tracking & Workflow
+
+FlowBoard follows the Software Factory Workflow (the `factory` plugin). Flowboard board: **FB** (also hosts **SF** work, the Factory's own build).
+
+- Stories and Subtasks are created and moved only with the `factory:story-status` skill (the `flowboard` MCP), never with raw SQL.
+- A built Story is integrated with the `factory:integrate` skill: PR into `develop`, merged once the PR checks are green, Story → `integrated_tests`.
+- A defect found while testing a Story becomes a bug Subtask on it; a defect in production becomes a new Story.
+
 ## Git Workflow & Repository Rules
 
 ### 1. Branching Strategy
 - **Never code directly on `main` or `develop`.**
 - Always verify your active branch before editing files. 
-- Create/use short-lived feature or phase branches named: `[phase-number]/[task-number]-[short-description]` (e.g., `phase-1/task-4.4-file-attachments`).
+- One Feature branch per Story, cut from `main`, named `<type>/<KEY>-<n>-<slug>` with a conventional-commit type (e.g., `feat/FB-100-markdown-descriptions`). It reaches `develop` through `factory:integrate`; `develop` is never merged into it.
 
 ### 2. Commit Message Naming Conventions
 Commits must be granular (one per sub-task) and use the following semantic prefixes:
@@ -136,7 +144,7 @@ Commits must be granular (one per sub-task) and use the following semantic prefi
 - `fix(scope):` for bug fixes (specify `ui`, `tauri`, or `data`).
 - `chore(repo):` for updating configuration files, dependencies, or `.md` files.
 
-*Example:* `feat(sqlite): init sqlite schema and migration helpers (task 1.3)`
+*Example:* `feat(sqlite): init sqlite schema and migration helpers`. The Story key goes in the branch name and the PR title, not in each commit.
 
 ### 3. Agent Safety & Error Recovery Rule
 

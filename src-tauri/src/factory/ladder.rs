@@ -54,6 +54,12 @@ fn story_edge(from: &str, to: &str) -> bool {
     if to == "canceled" {
         return !matches!(from, "done" | "canceled");
     }
+    // Recovery: a Story stranded on a status off the ladder (a legacy status
+    // written before the project switched, or by an old app build) re-enters it
+    // at a Pedro-owned stage.
+    if !STORY_STATUSES.contains(&from) {
+        return matches!(to, "backlog" | "refining" | "ready");
+    }
     matches!(
         (from, to),
         ("backlog", "refining")
@@ -129,14 +135,17 @@ pub fn check_subtask_move(from: &str, to: &str) -> Result<(), String> {
     if from == to {
         return Err(format!("the Subtask is already {to}"));
     }
-    let legal = matches!(
-        (from, to),
-        ("todo", "in_progress")
-            | ("todo", "canceled")
-            | ("in_progress", "todo")
-            | ("in_progress", "done")
-            | ("in_progress", "canceled")
-    );
+    // Recovery, as for Stories: off the ladder, a Subtask re-enters at todo.
+    let stranded = !SUBTASK_STATUSES.contains(&from) && matches!(to, "todo" | "canceled");
+    let legal = stranded
+        || matches!(
+            (from, to),
+            ("todo", "in_progress")
+                | ("todo", "canceled")
+                | ("in_progress", "todo")
+                | ("in_progress", "done")
+                | ("in_progress", "canceled")
+        );
     if legal {
         Ok(())
     } else {
@@ -288,6 +297,35 @@ mod tests {
         for to in ["todo", "in_review", "ready_for_development", "nonsense"] {
             let err = check_story_move(&facts("ready"), to).unwrap_err();
             assert!(err.contains("not a Story status"), "{err}");
+        }
+    }
+
+    #[test]
+    fn a_stranded_story_re_enters_the_ladder_at_a_pedro_stage() {
+        for from in ["todo", "in_progress", "in_review", "ready_for_development"] {
+            let mut f = facts(from);
+            f.in_sprint = false;
+            for to in ["backlog", "refining", "ready", "canceled"] {
+                check_story_move(&f, to).unwrap_or_else(|e| panic!("{from} -> {to}: {e}"));
+            }
+            for to in ["building", "integrated_tests", "tested", "done"] {
+                assert!(check_story_move(&f, to).is_err(), "{from} -> {to}");
+            }
+        }
+        // The sprint guards still apply: in a sprint, only ready is open.
+        let f = facts("todo");
+        check_story_move(&f, "ready").unwrap();
+        let err = check_story_move(&f, "refining").unwrap_err();
+        assert!(err.contains("remove it from the sprint"), "{err}");
+    }
+
+    #[test]
+    fn a_stranded_subtask_re_enters_at_todo() {
+        for from in ["in_review", "refining", "ready_for_development"] {
+            check_subtask_move(from, "todo").unwrap();
+            check_subtask_move(from, "canceled").unwrap();
+            assert!(check_subtask_move(from, "in_progress").is_err());
+            assert!(check_subtask_move(from, "done").is_err());
         }
     }
 
