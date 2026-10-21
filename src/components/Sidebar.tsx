@@ -8,6 +8,7 @@ import {
   Kanban,
   Lightbulb,
   Map as MapIcon,
+  Package,
   Plus,
   Settings as SettingsIcon,
   Users,
@@ -38,6 +39,7 @@ const NAV_ITEMS = [
   { to: "/board/sprint-planning", label: "Sprint Planning Board", icon: ClipboardList },
   { to: "/roadmap", label: "Roadmap", icon: MapIcon },
   { to: "/reports", label: "Reports", icon: BarChart3 },
+  { to: "/releases", label: "Releases", icon: Package },
   { to: "/people", label: "People", icon: Users },
   { to: "/inbox", label: "Inbox", icon: Inbox },
 ];

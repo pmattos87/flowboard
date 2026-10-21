@@ -7,6 +7,7 @@
 ### Added
 - Task descriptions render as Markdown (headings, lists, inline and fenced code) in the task detail panel. Click the description, or press Enter on it, to edit the raw text; leaving the field saves it unchanged. Links show as text and images are not loaded (`react-markdown`, D-012, FB-100).
 - `flowboard-cli release list` / `release set-version` (and the `release_list` / `release_set_version` MCP tools): list a Factory project's Releases with their state and Story count, and change a Release's version while it is still planned (SF-43).
+- **Releases** page (sidebar) on Factory projects: Releases grouped by state, each open one listing its picked Stories (Remove) and the tested Stories not yet in a Release (Pick). **New release** picks the ticked tested Stories and suggests the version: the last released version with the minor bumped if any ticked branch is `feat/`, otherwise the patch; empty before the first release. A pick's depends-on warnings show as a toast. Every action goes through the Factory's Release operations, as the owner (SF-44).
 
 ### Changed
 - Moving a Release moves its picked Stories in the same transaction: `user_testing` sends them to user_testing, `released` to done, each through the Story ladder with its trail event. The move is refused, and nothing changes, when the Release has no picks or a pick isn't tested (or user_testing, for a Release leaving user_testing) (SF-43).
