@@ -121,3 +121,32 @@ export interface ActivityLog {
   new_value: string;
   created_at: string;
 }
+
+// ─── Software Factory Releases (SF-44) ─────────────────────
+
+export type ReleaseState = "planned" | "user_testing" | "released" | "canceled";
+
+/** One row of `list_releases`. */
+export interface ReleaseSummary {
+  version: string;
+  state: ReleaseState;
+  created_at: string;
+  released_at: string | null;
+  /** How many Stories are picked into it. */
+  stories: number;
+}
+
+/** `get_release`: a Release and its picked Stories. */
+export interface ReleaseDetail {
+  project: string;
+  version: string;
+  state: ReleaseState;
+  stories: { key: string; title: string; status: TaskStatus }[];
+}
+
+/** `pick_release_story`: depends-on warnings, never refusals. */
+export interface ReleasePickResult {
+  story: string;
+  version: string;
+  warnings: string[];
+}
