@@ -26,6 +26,7 @@ const fakeTask: Task = {
   created_at: "2024-01-01T00:00:00.000Z",
   updated_at: "2024-01-01T00:00:00.000Z",
   labels: "frontend,ux",
+  feature_branch: null, review_verdict: null, reviewed_commit: null, findings_url: null, run_stopped: false, risk: false, release_id: null,
 };
 
 const fakePerson: Person = {
@@ -35,6 +36,7 @@ const fakePerson: Person = {
   avatar_color: "#6366f1",
   role: "Dev",
   avatar_data: null,
+  factory_role: null,
 };
 
 function renderCard(task = fakeTask, people: Person[] = [fakePerson]) {

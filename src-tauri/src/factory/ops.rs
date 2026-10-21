@@ -1,0 +1,1098 @@
+//! Domain operations on Factory projects. The CLI and the MCP both call these;
+//! each one enforces the ladder, applies the assignee rule and writes its Run
+//! trail event in the same transaction as the change it records.
+//!
+//! Run trail events live on the Story's `activity_log` (a Subtask's events too,
+//! naming the Subtask in the JSON `new_value`).
+
+use super::ladder::{self, Owner, StoryFacts};
+use serde_json::{json, Value};
+use sqlx::{FromRow, Sqlite, SqlitePool, Transaction};
+
+type Tx<'a> = Transaction<'a, Sqlite>;
+
+/// Who an event is attributed to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Actor {
+    Owner,
+    Agent,
+}
+
+impl Actor {
+    fn role(self) -> &'static str {
+        match self {
+            Actor::Owner => "owner",
+            Actor::Agent => "agent",
+        }
+    }
+}
+
+fn err(e: sqlx::Error) -> String {
+    e.to_string()
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct Row {
+    id: i64,
+    project_id: i64,
+    task_number: i64,
+    parent_id: Option<i64>,
+    sprint_id: Option<i64>,
+    title: String,
+    description: String,
+    #[sqlx(rename = "type")]
+    kind: String,
+    status: String,
+    priority: String,
+    assignee_id: Option<i64>,
+    story_points: i64,
+    labels: String,
+    feature_branch: Option<String>,
+    review_verdict: Option<String>,
+    reviewed_commit: Option<String>,
+    findings_url: Option<String>,
+    run_stopped: i64,
+    risk: i64,
+    release_id: Option<i64>,
+    project_key: String,
+    ladder: String,
+    project_kind: String,
+}
+
+impl Row {
+    fn key(&self) -> String {
+        format!("{}-{}", self.project_key, self.task_number)
+    }
+}
+
+const ROW_SQL: &str = r#"SELECT t.id, t.project_id, t.task_number, t.parent_id, t.sprint_id,
+       t.title, t.description, t.type, t.status, t.priority, t.assignee_id,
+       t.story_points, t.labels, t.feature_branch, t.review_verdict,
+       t.reviewed_commit, t.findings_url, t.run_stopped, t.risk, t.release_id,
+       p.key AS project_key, p.ladder, p.kind AS project_kind
+  FROM tasks t JOIN projects p ON p.id = t.project_id"#;
+
+fn parse_key(key: &str) -> Result<(String, i64), String> {
+    let (project, n) = key
+        .rsplit_once('-')
+        .ok_or_else(|| format!("'{key}' is not an issue key like SF-2"))?;
+    let n = n
+        .parse::<i64>()
+        .map_err(|_| format!("'{key}' is not an issue key like SF-2"))?;
+    Ok((project.to_uppercase(), n))
+}
+
+async fn load(tx: &mut Tx<'_>, key: &str) -> Result<Row, String> {
+    let (project, n) = parse_key(key)?;
+    sqlx::query_as::<_, Row>(&format!("{ROW_SQL} WHERE p.key = ? AND t.task_number = ?"))
+        .bind(&project)
+        .bind(n)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(err)?
+        .ok_or_else(|| format!("{key} not found"))
+}
+
+async fn load_by_id(tx: &mut Tx<'_>, id: i64) -> Result<Row, String> {
+    sqlx::query_as::<_, Row>(&format!("{ROW_SQL} WHERE t.id = ?"))
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(err)
+}
+
+fn require_factory(row: &Row) -> Result<(), String> {
+    if row.ladder != "factory" {
+        return Err(format!(
+            "{} belongs to a legacy project; the Factory does not write to it",
+            row.key()
+        ));
+    }
+    Ok(())
+}
+
+/// A Factory Story: a top-level `story` row on a Factory project.
+async fn load_story(tx: &mut Tx<'_>, key: &str) -> Result<Row, String> {
+    let row = load(tx, key).await?;
+    require_factory(&row)?;
+    if row.kind != "story" || row.parent_id.is_some() {
+        return Err(format!("{key} is not a Story"));
+    }
+    Ok(row)
+}
+
+/// A Factory Subtask: a `task` or `bug` row whose parent is a Story.
+async fn load_subtask(tx: &mut Tx<'_>, key: &str) -> Result<(Row, Row), String> {
+    let row = load(tx, key).await?;
+    require_factory(&row)?;
+    let parent = match row.parent_id {
+        Some(p) if matches!(row.kind.as_str(), "task" | "bug") => load_by_id(tx, p).await?,
+        _ => return Err(format!("{key} is not a Subtask")),
+    };
+    if parent.kind != "story" {
+        return Err(format!("{key} is not a Subtask of a Story"));
+    }
+    Ok((row, parent))
+}
+
+async fn role_person(tx: &mut Tx<'_>, role: &str) -> Result<i64, String> {
+    sqlx::query_scalar::<_, i64>("SELECT id FROM people WHERE factory_role = ?")
+        .bind(role)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(err)?
+        .ok_or_else(|| {
+            format!("no person has factory_role '{role}'; run `flowboard-cli people set-role <person id> {role}`")
+        })
+}
+
+async fn primary_contact(tx: &mut Tx<'_>, project_id: i64) -> Result<i64, String> {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT person_id FROM project_contacts WHERE project_id = ? AND is_primary = 1",
+    )
+    .bind(project_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(err)?
+    .ok_or_else(|| "the project has no primary client contact; run `flowboard-cli contact add <project> <person id> --primary`".into())
+}
+
+async fn log(
+    tx: &mut Tx<'_>,
+    task_id: i64,
+    actor: Actor,
+    action: &str,
+    old_value: &str,
+    new_value: &str,
+) -> Result<(), String> {
+    let person = role_person(tx, actor.role()).await?;
+    sqlx::query(
+        r#"INSERT INTO activity_log (task_id, person_id, action, old_value, new_value, created_at)
+           VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))"#,
+    )
+    .bind(task_id)
+    .bind(person)
+    .bind(action)
+    .bind(old_value)
+    .bind(new_value)
+    .execute(&mut **tx)
+    .await
+    .map_err(err)?;
+    Ok(())
+}
+
+async fn count_events(tx: &mut Tx<'_>, story_id: i64, action: &str, subtask: Option<&str>) -> Result<i64, String> {
+    sqlx::query_scalar(
+        r#"SELECT COUNT(*) FROM activity_log
+            WHERE task_id = ? AND action = ?
+              AND (? IS NULL OR json_extract(new_value, '$.subtask') = ?)"#,
+    )
+    .bind(story_id)
+    .bind(action)
+    .bind(subtask)
+    .bind(subtask)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(err)
+}
+
+async fn touch(tx: &mut Tx<'_>, id: i64) -> Result<(), String> {
+    sqlx::query("UPDATE tasks SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?")
+        .bind(id)
+        .execute(&mut **tx)
+        .await
+        .map_err(err)?;
+    Ok(())
+}
+
+fn require_building(story: &Row, what: &str) -> Result<(), String> {
+    if story.status != "building" {
+        return Err(format!(
+            "{what} happens while the Story is building; {} is {}",
+            story.key(),
+            story.status
+        ));
+    }
+    Ok(())
+}
+
+async fn open_subtasks(tx: &mut Tx<'_>, story_id: i64, only_bugs: bool) -> Result<i64, String> {
+    sqlx::query_scalar(
+        r#"SELECT COUNT(*) FROM tasks
+            WHERE parent_id = ? AND status NOT IN ('done','canceled')
+              AND (? = 0 OR type = 'bug')"#,
+    )
+    .bind(story_id)
+    .bind(only_bugs)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(err)
+}
+
+// ─── Read ───────────────────────────────────────────────────────────────────
+
+async fn story_json(tx: &mut Tx<'_>, story: &Row) -> Result<Value, String> {
+    let subtasks = sqlx::query_as::<_, Row>(&format!(
+        "{ROW_SQL} WHERE t.parent_id = ? ORDER BY t.task_number"
+    ))
+    .bind(story.id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(err)?;
+    let prs: Vec<(String, String, String)> =
+        sqlx::query_as("SELECT url, target, state FROM task_prs WHERE task_id = ? ORDER BY id")
+            .bind(story.id)
+            .fetch_all(&mut **tx)
+            .await
+            .map_err(err)?;
+    let depends_on: Vec<String> = sqlx::query_scalar(
+        r#"SELECT p.key || '-' || t.task_number FROM task_links l
+             JOIN tasks t ON t.id = l.depends_on_id JOIN projects p ON p.id = t.project_id
+            WHERE l.task_id = ? ORDER BY t.task_number"#,
+    )
+    .bind(story.id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(err)?;
+    let assignee: Option<String> = match story.assignee_id {
+        Some(id) => sqlx::query_scalar("SELECT name FROM people WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(err)?,
+        None => None,
+    };
+    let release: Option<(String, String)> = match story.release_id {
+        Some(id) => sqlx::query_as("SELECT version, state FROM releases WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(err)?,
+        None => None,
+    };
+    let waiting_on_bugs = open_subtasks(tx, story.id, true).await?;
+    Ok(json!({
+        "key": story.key(),
+        "title": story.title,
+        "status": story.status,
+        "priority": story.priority,
+        "labels": story.labels,
+        "assignee": assignee,
+        "sprint_id": story.sprint_id,
+        "feature_branch": story.feature_branch,
+        "review": {
+            "verdict": story.review_verdict,
+            "commit": story.reviewed_commit,
+            "findings_url": story.findings_url,
+        },
+        "release": release.map(|(version, state)| json!({ "version": version, "state": state })),
+        "flags": { "stopped": story.run_stopped != 0, "waiting_on_bugs": waiting_on_bugs },
+        "prs": prs.into_iter().map(|(url, target, state)| json!({ "url": url, "target": target, "state": state })).collect::<Vec<_>>(),
+        "depends_on": depends_on,
+        "subtasks": subtasks.iter().map(|s| json!({
+            "key": s.key(),
+            "title": s.title,
+            "type": s.kind,
+            "status": s.status,
+            "story_points": s.story_points,
+            "risk": s.risk != 0,
+        })).collect::<Vec<_>>(),
+        "description": story.description,
+    }))
+}
+
+pub async fn story_show(pool: &SqlitePool, key: &str) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let story = load_story(&mut tx, key).await?;
+    story_json(&mut tx, &story).await
+}
+
+pub async fn trail(pool: &SqlitePool, key: &str) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let story = load_story(&mut tx, key).await?;
+    let rows: Vec<(String, String, String, String, String)> = sqlx::query_as(
+        r#"SELECT a.created_at, a.action, a.old_value, a.new_value, p.name
+             FROM activity_log a JOIN people p ON p.id = a.person_id
+            WHERE a.task_id = ? ORDER BY a.id"#,
+    )
+    .bind(story.id)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(err)?;
+    Ok(Value::Array(
+        rows.into_iter()
+            .map(|(at, action, old, new, by)| {
+                let new = serde_json::from_str::<Value>(&new)
+                    .ok()
+                    .filter(Value::is_object)
+                    .unwrap_or(Value::String(new));
+                json!({ "at": at, "action": action, "old": old, "new": new, "by": by })
+            })
+            .collect(),
+    ))
+}
+
+// ─── People, projects, contacts ─────────────────────────────────────────────
+
+pub async fn people_set_role(pool: &SqlitePool, person_id: i64, role: Option<&str>) -> Result<Value, String> {
+    if let Some(r) = role {
+        if !matches!(r, "owner" | "agent") {
+            return Err(format!("'{r}' is not a factory role (owner, agent)"));
+        }
+    }
+    let mut tx = pool.begin().await.map_err(err)?;
+    // Hand the role over: whoever held it before loses it.
+    if let Some(r) = role {
+        sqlx::query("UPDATE people SET factory_role = NULL WHERE factory_role = ?")
+            .bind(r)
+            .execute(&mut *tx)
+            .await
+            .map_err(err)?;
+    }
+    let updated = sqlx::query("UPDATE people SET factory_role = ? WHERE id = ?")
+        .bind(role)
+        .bind(person_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(err)?
+        .rows_affected();
+    if updated == 0 {
+        return Err(format!("person {person_id} not found"));
+    }
+    tx.commit().await.map_err(err)?;
+    people_list(pool).await
+}
+
+pub async fn people_list(pool: &SqlitePool) -> Result<Value, String> {
+    let rows: Vec<(i64, String, Option<String>)> =
+        sqlx::query_as("SELECT id, name, factory_role FROM people ORDER BY id")
+            .fetch_all(pool)
+            .await
+            .map_err(err)?;
+    Ok(Value::Array(
+        rows.into_iter()
+            .map(|(id, name, role)| json!({ "id": id, "name": name, "factory_role": role }))
+            .collect(),
+    ))
+}
+
+async fn project_id(tx: &mut Tx<'_>, key: &str) -> Result<(i64, String, String), String> {
+    sqlx::query_as("SELECT id, ladder, kind FROM projects WHERE key = ?")
+        .bind(key.to_uppercase())
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(err)?
+        .ok_or_else(|| format!("project {key} not found"))
+}
+
+pub async fn project_show(pool: &SqlitePool, key: &str) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let (id, ladder, kind) = project_id(&mut tx, key).await?;
+    let contacts: Vec<(i64, String, i64)> = sqlx::query_as(
+        r#"SELECT p.id, p.name, c.is_primary FROM project_contacts c
+             JOIN people p ON p.id = c.person_id WHERE c.project_id = ? ORDER BY p.id"#,
+    )
+    .bind(id)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(err)?;
+    Ok(json!({
+        "key": key.to_uppercase(),
+        "ladder": ladder,
+        "kind": kind,
+        "contacts": contacts.into_iter().map(|(id, name, primary)| json!({ "person_id": id, "name": name, "primary": primary != 0 })).collect::<Vec<_>>(),
+    }))
+}
+
+/// Set a project's ladder and/or kind. Switching to the Factory ladder is
+/// refused while the project has open items: mapping them is a Rollout step,
+/// and an unmapped status would make a card vanish from every board.
+pub async fn project_set(
+    pool: &SqlitePool,
+    key: &str,
+    ladder: Option<&str>,
+    kind: Option<&str>,
+) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let (id, current_ladder, _) = project_id(&mut tx, key).await?;
+    if let Some(l) = ladder {
+        if !matches!(l, "legacy" | "factory") {
+            return Err(format!("'{l}' is not a ladder (legacy, factory)"));
+        }
+        if l == "factory" && current_ladder != "factory" {
+            let open: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM tasks WHERE project_id = ? AND status NOT IN ('done','canceled')",
+            )
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(err)?;
+            if open > 0 {
+                return Err(format!(
+                    "{key} has {open} open item(s) on the legacy ladder; map them before switching to the Factory ladder"
+                ));
+            }
+        }
+        sqlx::query("UPDATE projects SET ladder = ? WHERE id = ?")
+            .bind(l)
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(err)?;
+    }
+    if let Some(k) = kind {
+        if !matches!(k, "internal" | "client") {
+            return Err(format!("'{k}' is not a project kind (internal, client)"));
+        }
+        sqlx::query("UPDATE projects SET kind = ? WHERE id = ?")
+            .bind(k)
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(err)?;
+    }
+    tx.commit().await.map_err(err)?;
+    project_show(pool, key).await
+}
+
+pub async fn contact_add(pool: &SqlitePool, key: &str, person_id: i64, primary: bool) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let (id, _, _) = project_id(&mut tx, key).await?;
+    if primary {
+        sqlx::query("UPDATE project_contacts SET is_primary = 0 WHERE project_id = ?")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(err)?;
+    }
+    sqlx::query(
+        r#"INSERT INTO project_contacts (project_id, person_id, is_primary) VALUES (?, ?, ?)
+           ON CONFLICT (project_id, person_id) DO UPDATE SET is_primary = excluded.is_primary"#,
+    )
+    .bind(id)
+    .bind(person_id)
+    .bind(primary)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::Database(d) if d.message().contains("FOREIGN KEY") => format!("person {person_id} not found"),
+        e => e.to_string(),
+    })?;
+    tx.commit().await.map_err(err)?;
+    project_show(pool, key).await
+}
+
+pub async fn contact_remove(pool: &SqlitePool, key: &str, person_id: i64) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let (id, _, _) = project_id(&mut tx, key).await?;
+    sqlx::query("DELETE FROM project_contacts WHERE project_id = ? AND person_id = ?")
+        .bind(id)
+        .bind(person_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(err)?;
+    tx.commit().await.map_err(err)?;
+    project_show(pool, key).await
+}
+
+// ─── Stories ────────────────────────────────────────────────────────────────
+
+pub struct NewStory<'a> {
+    pub project: &'a str,
+    pub title: &'a str,
+    pub description: &'a str,
+    pub priority: &'a str,
+    pub labels: &'a str,
+}
+
+pub async fn story_create(pool: &SqlitePool, s: NewStory<'_>, actor: Actor) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let (pid, ladder, _) = project_id(&mut tx, s.project).await?;
+    if ladder != "factory" {
+        return Err(format!("{} is a legacy project; the Factory does not write to it", s.project));
+    }
+    let owner = role_person(&mut tx, "owner").await?;
+    let id = insert_task(&mut tx, pid, None, None, "story", "backlog", s.title, s.description, s.priority, Some(owner), 0, false, s.labels).await?;
+    log(&mut tx, id, actor, "created", "", "backlog").await?;
+    let story = load_by_id(&mut tx, id).await?;
+    let out = story_json(&mut tx, &story).await?;
+    tx.commit().await.map_err(err)?;
+    Ok(out)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn insert_task(
+    tx: &mut Tx<'_>,
+    project_id: i64,
+    sprint_id: Option<i64>,
+    parent_id: Option<i64>,
+    kind: &str,
+    status: &str,
+    title: &str,
+    description: &str,
+    priority: &str,
+    assignee_id: Option<i64>,
+    story_points: i64,
+    risk: bool,
+    labels: &str,
+) -> Result<i64, String> {
+    if !matches!(priority, "low" | "medium" | "high" | "critical") {
+        return Err(format!("'{priority}' is not a priority (low, medium, high, critical)"));
+    }
+    sqlx::query_scalar(
+        r#"INSERT INTO tasks (
+             project_id, task_number, sprint_id, parent_id, title, description, type, status,
+             priority, assignee_id, story_points, risk, labels, created_at, updated_at)
+           VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?),
+                   ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                   strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+           RETURNING id"#,
+    )
+    .bind(project_id)
+    .bind(project_id)
+    .bind(sprint_id)
+    .bind(parent_id)
+    .bind(title)
+    .bind(description)
+    .bind(kind)
+    .bind(status)
+    .bind(priority)
+    .bind(assignee_id)
+    .bind(story_points)
+    .bind(risk)
+    .bind(labels)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(err)
+}
+
+pub struct StoryEdit<'a> {
+    pub title: Option<&'a str>,
+    pub description: Option<&'a str>,
+    pub priority: Option<&'a str>,
+    pub labels: Option<&'a str>,
+}
+
+pub async fn story_edit(pool: &SqlitePool, key: &str, e: StoryEdit<'_>) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let story = load_story(&mut tx, key).await?;
+    let priority = e.priority.unwrap_or(&story.priority);
+    if !matches!(priority, "low" | "medium" | "high" | "critical") {
+        return Err(format!("'{priority}' is not a priority (low, medium, high, critical)"));
+    }
+    sqlx::query(
+        r#"UPDATE tasks SET title = ?, description = ?, priority = ?, labels = ?,
+                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?"#,
+    )
+    .bind(e.title.unwrap_or(&story.title))
+    .bind(e.description.unwrap_or(&story.description))
+    .bind(priority)
+    .bind(e.labels.unwrap_or(&story.labels))
+    .bind(story.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(err)?;
+    let story = load_by_id(&mut tx, story.id).await?;
+    let out = story_json(&mut tx, &story).await?;
+    tx.commit().await.map_err(err)?;
+    Ok(out)
+}
+
+pub async fn story_move(pool: &SqlitePool, key: &str, to: &str, actor: Actor) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let story = load_story(&mut tx, key).await?;
+    let facts = StoryFacts {
+        status: &story.status,
+        in_sprint: story.sprint_id.is_some(),
+        client_project: story.project_kind == "client",
+        open_subtasks: open_subtasks(&mut tx, story.id, false).await?,
+        run_stopped: story.run_stopped != 0,
+    };
+    ladder::check_story_move(&facts, to)?;
+    let assignee = match ladder::story_owner(to) {
+        Owner::Pedro => Some(role_person(&mut tx, "owner").await?),
+        Owner::Agent => Some(role_person(&mut tx, "agent").await?),
+        Owner::ClientContact => Some(primary_contact(&mut tx, story.project_id).await?),
+        Owner::Nobody => None,
+    };
+    sqlx::query(
+        r#"UPDATE tasks SET status = ?, assignee_id = ?,
+                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?"#,
+    )
+    .bind(to)
+    .bind(assignee)
+    .bind(story.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(err)?;
+    log(&mut tx, story.id, actor, "stage_entered", &story.status, to).await?;
+    let story = load_by_id(&mut tx, story.id).await?;
+    let out = story_json(&mut tx, &story).await?;
+    tx.commit().await.map_err(err)?;
+    Ok(out)
+}
+
+/// Put a Story into a sprint, take it out, or carry it to another sprint. Its
+/// Subtasks follow. A Story enters or leaves sprints only at `ready` (the one
+/// status shown on both boards); carrying it between sprints is allowed at any
+/// open status.
+pub async fn story_set_sprint(pool: &SqlitePool, key: &str, sprint_id: Option<i64>) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let story = load_story(&mut tx, key).await?;
+    if let Some(sid) = sprint_id {
+        let sprint_project: Option<i64> = sqlx::query_scalar("SELECT project_id FROM sprints WHERE id = ?")
+            .bind(sid)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(err)?;
+        if sprint_project != Some(story.project_id) {
+            return Err(format!("sprint {sid} does not belong to {}'s project", story.key()));
+        }
+    }
+    match (story.sprint_id, sprint_id) {
+        (a, b) if a == b => return Err("the Story is already there".into()),
+        (Some(_), Some(_)) if !matches!(story.status.as_str(), "done" | "canceled") => {}
+        _ if story.status == "ready" => {}
+        _ => {
+            return Err(format!(
+                "a Story enters or leaves a sprint only at ready; {} is {}",
+                story.key(),
+                story.status
+            ))
+        }
+    }
+    sqlx::query(
+        r#"UPDATE tasks SET sprint_id = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            WHERE id = ? OR parent_id = ?"#,
+    )
+    .bind(sprint_id)
+    .bind(story.id)
+    .bind(story.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(err)?;
+    let story = load_by_id(&mut tx, story.id).await?;
+    let out = story_json(&mut tx, &story).await?;
+    tx.commit().await.map_err(err)?;
+    Ok(out)
+}
+
+pub async fn story_set_branch(pool: &SqlitePool, key: &str, branch: &str) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let story = load_story(&mut tx, key).await?;
+    sqlx::query(
+        "UPDATE tasks SET feature_branch = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?",
+    )
+    .bind(branch)
+    .bind(story.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(err)?;
+    let story = load_by_id(&mut tx, story.id).await?;
+    let out = story_json(&mut tx, &story).await?;
+    tx.commit().await.map_err(err)?;
+    Ok(out)
+}
+
+pub async fn link_add(pool: &SqlitePool, key: &str, depends_on: &str) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let story = load_story(&mut tx, key).await?;
+    let other = load_story(&mut tx, depends_on).await?;
+    if other.project_id != story.project_id {
+        return Err("a Story can only depend on a Story of the same project".into());
+    }
+    if other.id == story.id {
+        return Err("a Story cannot depend on itself".into());
+    }
+    sqlx::query(
+        r#"INSERT OR IGNORE INTO task_links (task_id, depends_on_id, created_at)
+           VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))"#,
+    )
+    .bind(story.id)
+    .bind(other.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(err)?;
+    let out = story_json(&mut tx, &story).await?;
+    tx.commit().await.map_err(err)?;
+    Ok(out)
+}
+
+pub async fn link_remove(pool: &SqlitePool, key: &str, depends_on: &str) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let story = load_story(&mut tx, key).await?;
+    let other = load(&mut tx, depends_on).await?;
+    sqlx::query("DELETE FROM task_links WHERE task_id = ? AND depends_on_id = ?")
+        .bind(story.id)
+        .bind(other.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(err)?;
+    let out = story_json(&mut tx, &story).await?;
+    tx.commit().await.map_err(err)?;
+    Ok(out)
+}
+
+// ─── Run trail ──────────────────────────────────────────────────────────────
+
+pub async fn review_record(
+    pool: &SqlitePool,
+    key: &str,
+    verdict: &str,
+    commit: &str,
+    findings_url: Option<&str>,
+    actor: Actor,
+) -> Result<Value, String> {
+    if !matches!(verdict, "passed" | "failed") {
+        return Err(format!("'{verdict}' is not a Review verdict (passed, failed)"));
+    }
+    let mut tx = pool.begin().await.map_err(err)?;
+    let story = load_story(&mut tx, key).await?;
+    require_building(&story, "Review")?;
+    let round = count_events(&mut tx, story.id, "review_round", None).await? + 1;
+    sqlx::query(
+        r#"UPDATE tasks SET review_verdict = ?, reviewed_commit = ?, findings_url = ?,
+                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?"#,
+    )
+    .bind(verdict)
+    .bind(commit)
+    .bind(findings_url)
+    .bind(story.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(err)?;
+    let event = json!({ "round": round, "verdict": verdict, "commit": commit, "findings_url": findings_url });
+    log(&mut tx, story.id, actor, "review_round", "", &event.to_string()).await?;
+    let story = load_by_id(&mut tx, story.id).await?;
+    let out = story_json(&mut tx, &story).await?;
+    tx.commit().await.map_err(err)?;
+    Ok(out)
+}
+
+pub async fn run_stop(pool: &SqlitePool, key: &str, reason: &str, actor: Actor) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let story = load_story(&mut tx, key).await?;
+    require_building(&story, "Stopping a Run")?;
+    if story.run_stopped != 0 {
+        return Err(format!("{}'s Run is already stopped", story.key()));
+    }
+    let owner = role_person(&mut tx, "owner").await?;
+    sqlx::query(
+        r#"UPDATE tasks SET run_stopped = 1, assignee_id = ?,
+                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?"#,
+    )
+    .bind(owner)
+    .bind(story.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(err)?;
+    log(&mut tx, story.id, actor, "run_stopped", "", &json!({ "reason": reason }).to_string()).await?;
+    let story = load_by_id(&mut tx, story.id).await?;
+    let out = story_json(&mut tx, &story).await?;
+    tx.commit().await.map_err(err)?;
+    Ok(out)
+}
+
+pub async fn run_restart(pool: &SqlitePool, key: &str, actor: Actor) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let story = load_story(&mut tx, key).await?;
+    if story.run_stopped == 0 {
+        return Err(format!("{}'s Run is not stopped", story.key()));
+    }
+    let agent = role_person(&mut tx, "agent").await?;
+    sqlx::query(
+        r#"UPDATE tasks SET run_stopped = 0, assignee_id = ?,
+                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?"#,
+    )
+    .bind(agent)
+    .bind(story.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(err)?;
+    log(&mut tx, story.id, actor, "run_restarted", "", "").await?;
+    let story = load_by_id(&mut tx, story.id).await?;
+    let out = story_json(&mut tx, &story).await?;
+    tx.commit().await.map_err(err)?;
+    Ok(out)
+}
+
+pub async fn pr_open(pool: &SqlitePool, key: &str, url: &str, target: &str, actor: Actor) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let story = load_story(&mut tx, key).await?;
+    sqlx::query(
+        r#"INSERT INTO task_prs (task_id, url, target, state, created_at, updated_at)
+           VALUES (?, ?, ?, 'open', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))"#,
+    )
+    .bind(story.id)
+    .bind(url)
+    .bind(target)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::Database(d) if d.message().contains("UNIQUE") => format!("{url} is already recorded on {key}"),
+        e => e.to_string(),
+    })?;
+    touch(&mut tx, story.id).await?;
+    log(&mut tx, story.id, actor, "pr_opened", "", &json!({ "url": url, "target": target }).to_string()).await?;
+    let out = story_json(&mut tx, &story).await?;
+    tx.commit().await.map_err(err)?;
+    Ok(out)
+}
+
+pub async fn pr_set_state(pool: &SqlitePool, key: &str, url: &str, state: &str, actor: Actor) -> Result<Value, String> {
+    if !matches!(state, "merged" | "closed") {
+        return Err(format!("'{state}' is not a PR outcome (merged, closed)"));
+    }
+    let mut tx = pool.begin().await.map_err(err)?;
+    let story = load_story(&mut tx, key).await?;
+    let updated = sqlx::query(
+        r#"UPDATE task_prs SET state = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            WHERE task_id = ? AND url = ? AND state = 'open'"#,
+    )
+    .bind(state)
+    .bind(story.id)
+    .bind(url)
+    .execute(&mut *tx)
+    .await
+    .map_err(err)?
+    .rows_affected();
+    if updated == 0 {
+        return Err(format!("no open PR {url} on {key}"));
+    }
+    touch(&mut tx, story.id).await?;
+    if state == "merged" {
+        log(&mut tx, story.id, actor, "pr_merged", "", &json!({ "url": url }).to_string()).await?;
+    }
+    let out = story_json(&mut tx, &story).await?;
+    tx.commit().await.map_err(err)?;
+    Ok(out)
+}
+
+// ─── Subtasks ───────────────────────────────────────────────────────────────
+
+pub struct NewSubtask<'a> {
+    pub story: &'a str,
+    pub title: &'a str,
+    pub description: &'a str,
+    pub bug: bool,
+    pub story_points: i64,
+    pub risk: bool,
+}
+
+pub async fn subtask_create(pool: &SqlitePool, s: NewSubtask<'_>, actor: Actor) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let story = load_story(&mut tx, s.story).await?;
+    if matches!(story.status.as_str(), "done" | "canceled") {
+        return Err(format!("{} is {}; it takes no new Subtasks", story.key(), story.status));
+    }
+    let kind = if s.bug { "bug" } else { "task" };
+    let id = insert_task(
+        &mut tx, story.project_id, story.sprint_id, Some(story.id), kind, "todo", s.title,
+        s.description, "medium", None, s.story_points, s.risk, "",
+    )
+    .await?;
+    let sub = load_by_id(&mut tx, id).await?;
+    log(&mut tx, sub.id, actor, "created", "", "todo").await?;
+    if s.bug {
+        let event = json!({ "subtask": sub.key(), "title": s.title });
+        log(&mut tx, story.id, actor, "bug_subtask_filed", "", &event.to_string()).await?;
+    }
+    touch(&mut tx, story.id).await?;
+    let out = json!({ "key": sub.key(), "type": kind, "status": "todo", "story": story.key() });
+    tx.commit().await.map_err(err)?;
+    Ok(out)
+}
+
+pub async fn subtask_move(pool: &SqlitePool, key: &str, to: &str, actor: Actor) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let (sub, story) = load_subtask(&mut tx, key).await?;
+    ladder::check_subtask_move(&sub.status, to)?;
+    sqlx::query(
+        "UPDATE tasks SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?",
+    )
+    .bind(to)
+    .bind(sub.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(err)?;
+    log(&mut tx, sub.id, actor, "status_changed", &sub.status, to).await?;
+    let event = json!({ "subtask": sub.key(), "from": sub.status, "to": to });
+    log(&mut tx, story.id, actor, "subtask_status_changed", "", &event.to_string()).await?;
+    let out = json!({ "key": sub.key(), "status": to, "story": story.key() });
+    tx.commit().await.map_err(err)?;
+    Ok(out)
+}
+
+pub async fn subtask_handoff(pool: &SqlitePool, key: &str, agent: &str, model: &str, actor: Actor) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let (sub, story) = load_subtask(&mut tx, key).await?;
+    require_building(&story, "Handing a Subtask to an agent")?;
+    let event = json!({ "subtask": sub.key(), "agent": agent, "model": model });
+    log(&mut tx, story.id, actor, "subtask_handoff", "", &event.to_string()).await?;
+    tx.commit().await.map_err(err)?;
+    Ok(event)
+}
+
+pub async fn subtask_verify(pool: &SqlitePool, key: &str, passed: bool, reason: &str, actor: Actor) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let (sub, story) = load_subtask(&mut tx, key).await?;
+    require_building(&story, "Verify")?;
+    let round = count_events(&mut tx, story.id, "verify_round", Some(&sub.key())).await? + 1;
+    let event = json!({
+        "subtask": sub.key(),
+        "round": round,
+        "result": if passed { "pass" } else { "fail" },
+        "reason": reason,
+    });
+    log(&mut tx, story.id, actor, "verify_round", "", &event.to_string()).await?;
+    tx.commit().await.map_err(err)?;
+    Ok(event)
+}
+
+// ─── Releases ───────────────────────────────────────────────────────────────
+
+async fn release_row(tx: &mut Tx<'_>, project: &str, version: &str) -> Result<(i64, i64, String, String), String> {
+    let (pid, ladder, kind) = project_id(tx, project).await?;
+    if ladder != "factory" {
+        return Err(format!("{project} is a legacy project; the Factory does not write to it"));
+    }
+    let (id, state): (i64, String) = sqlx::query_as("SELECT id, state FROM releases WHERE project_id = ? AND version = ?")
+        .bind(pid)
+        .bind(version)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(err)?
+        .ok_or_else(|| format!("{project} has no Release {version}"))?;
+    Ok((id, pid, state, kind))
+}
+
+fn check_version(version: &str) -> Result<(), String> {
+    let parts: Vec<&str> = version.split('.').collect();
+    if parts.len() == 3 && parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())) {
+        Ok(())
+    } else {
+        Err(format!("'{version}' is not a version like 1.6.0"))
+    }
+}
+
+pub async fn release_show(pool: &SqlitePool, project: &str, version: &str) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let (id, _, state, _) = release_row(&mut tx, project, version).await?;
+    let stories: Vec<(String, String, String)> = sqlx::query_as(
+        r#"SELECT p.key || '-' || t.task_number, t.title, t.status FROM tasks t
+             JOIN projects p ON p.id = t.project_id WHERE t.release_id = ? ORDER BY t.task_number"#,
+    )
+    .bind(id)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(err)?;
+    Ok(json!({
+        "project": project.to_uppercase(),
+        "version": version,
+        "state": state,
+        "stories": stories.into_iter().map(|(k, t, s)| json!({ "key": k, "title": t, "status": s })).collect::<Vec<_>>(),
+    }))
+}
+
+pub async fn release_create(pool: &SqlitePool, project: &str, version: &str) -> Result<Value, String> {
+    check_version(version)?;
+    let mut tx = pool.begin().await.map_err(err)?;
+    let (pid, ladder, _) = project_id(&mut tx, project).await?;
+    if ladder != "factory" {
+        return Err(format!("{project} is a legacy project; the Factory does not write to it"));
+    }
+    sqlx::query(
+        "INSERT INTO releases (project_id, version, state, created_at) VALUES (?, ?, 'planned', strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+    )
+    .bind(pid)
+    .bind(version)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::Database(d) if d.message().contains("UNIQUE") => format!("{project} already has a Release {version}"),
+        e => e.to_string(),
+    })?;
+    tx.commit().await.map_err(err)?;
+    release_show(pool, project, version).await
+}
+
+pub async fn release_move(pool: &SqlitePool, project: &str, version: &str, to: &str) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let (id, _, state, kind) = release_row(&mut tx, project, version).await?;
+    ladder::check_release_move(&state, to, kind == "client")?;
+    sqlx::query(
+        r#"UPDATE releases SET state = ?,
+                  released_at = CASE WHEN ? = 'released' THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE released_at END
+            WHERE id = ?"#,
+    )
+    .bind(to)
+    .bind(to)
+    .bind(id)
+    .execute(&mut *tx)
+    .await
+    .map_err(err)?;
+    tx.commit().await.map_err(err)?;
+    release_show(pool, project, version).await
+}
+
+/// Pick a `tested` Story into a Release. Returns warnings (never refusals) for
+/// depends-on Stories that are neither done nor in the same Release.
+pub async fn release_pick(pool: &SqlitePool, version: &str, key: &str, actor: Actor) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let story = load_story(&mut tx, key).await?;
+    let (rid, _, state, _) = release_row(&mut tx, &story.project_key, version).await?;
+    if !matches!(state.as_str(), "planned" | "user_testing") {
+        return Err(format!("Release {version} is {state}; its pick is closed"));
+    }
+    if story.status != "tested" {
+        return Err(format!("only tested Stories can be picked; {} is {}", story.key(), story.status));
+    }
+    if story.release_id == Some(rid) {
+        return Err(format!("{} is already in Release {version}", story.key()));
+    }
+    if story.release_id.is_some() {
+        return Err(format!("{} is already in another Release; remove it first", story.key()));
+    }
+    let warnings: Vec<String> = sqlx::query_scalar(
+        r#"SELECT p.key || '-' || t.task_number || ' (' || t.status || ') is a dependency outside this Release'
+             FROM task_links l JOIN tasks t ON t.id = l.depends_on_id JOIN projects p ON p.id = t.project_id
+            WHERE l.task_id = ? AND t.status <> 'done' AND (t.release_id IS NULL OR t.release_id <> ?)"#,
+    )
+    .bind(story.id)
+    .bind(rid)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(err)?;
+    sqlx::query("UPDATE tasks SET release_id = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?")
+        .bind(rid)
+        .bind(story.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(err)?;
+    let event = json!({ "version": version, "warnings": warnings });
+    log(&mut tx, story.id, actor, "release_picked", "", &event.to_string()).await?;
+    tx.commit().await.map_err(err)?;
+    Ok(json!({ "story": story.key(), "version": version, "warnings": warnings }))
+}
+
+pub async fn release_remove(pool: &SqlitePool, key: &str, actor: Actor) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let story = load_story(&mut tx, key).await?;
+    let rid = story.release_id.ok_or_else(|| format!("{} is not in a Release", story.key()))?;
+    let (version, state): (String, String) = sqlx::query_as("SELECT version, state FROM releases WHERE id = ?")
+        .bind(rid)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(err)?;
+    if state == "released" {
+        return Err(format!("Release {version} is already released"));
+    }
+    sqlx::query("UPDATE tasks SET release_id = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?")
+        .bind(story.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(err)?;
+    log(&mut tx, story.id, actor, "release_removed", "", &json!({ "version": version }).to_string()).await?;
+    tx.commit().await.map_err(err)?;
+    Ok(json!({ "story": story.key(), "removed_from": version }))
+}

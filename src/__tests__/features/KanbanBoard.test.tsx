@@ -15,25 +15,25 @@ const makeTasks = (): Task[] => [
     id: 1, project_id: 1, task_number: 1, sprint_id: null, parent_id: null,
     title: "Todo task", description: "", type: "task", status: "todo",
     priority: "low", assignee_id: null, story_points: 1, due_date: null,
-    created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "",
+    created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "", feature_branch: null, review_verdict: null, reviewed_commit: null, findings_url: null, run_stopped: false, risk: false, release_id: null,
   },
   {
     id: 2, project_id: 1, task_number: 1, sprint_id: null, parent_id: null,
     title: "In progress task", description: "", type: "bug", status: "in_progress",
     priority: "high", assignee_id: null, story_points: 2, due_date: null,
-    created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "",
+    created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "", feature_branch: null, review_verdict: null, reviewed_commit: null, findings_url: null, run_stopped: false, risk: false, release_id: null,
   },
   {
     id: 3, project_id: 1, task_number: 1, sprint_id: null, parent_id: null,
     title: "In review task", description: "", type: "story", status: "in_review",
     priority: "medium", assignee_id: null, story_points: 3, due_date: null,
-    created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "",
+    created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "", feature_branch: null, review_verdict: null, reviewed_commit: null, findings_url: null, run_stopped: false, risk: false, release_id: null,
   },
   {
     id: 4, project_id: 1, task_number: 1, sprint_id: null, parent_id: null,
     title: "Done task", description: "", type: "epic", status: "done",
     priority: "critical", assignee_id: null, story_points: 5, due_date: null,
-    created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "",
+    created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "", feature_branch: null, review_verdict: null, reviewed_commit: null, findings_url: null, run_stopped: false, risk: false, release_id: null,
   },
 ];
 
@@ -110,7 +110,7 @@ describe("KanbanBoard — priority ordering (FB-10)", () => {
       id: i + 1, project_id: 1, task_number: i + 1, sprint_id: null, parent_id: null,
       title: `${priority} card`, description: "", type: "task", status: "todo",
       priority, assignee_id: null, story_points: 1, due_date: null,
-      created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "",
+      created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "", feature_branch: null, review_verdict: null, reviewed_commit: null, findings_url: null, run_stopped: false, risk: false, release_id: null,
     })
   );
 

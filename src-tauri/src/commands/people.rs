@@ -12,6 +12,8 @@ pub struct Person {
     pub role: String,
     /// Optional profile photo as a base64 data URL. NULL = use colored initials.
     pub avatar_data: Option<String>,
+    /// Software Factory: 'owner' | 'agent' | NULL.
+    pub factory_role: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

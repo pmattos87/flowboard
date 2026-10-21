@@ -23,6 +23,14 @@ pub struct Task {
     pub created_at: String,
     pub updated_at: String,
     pub labels: String,
+    // Software Factory fields (migration 010); written only by flowboard-cli.
+    pub feature_branch: Option<String>,
+    pub review_verdict: Option<String>,
+    pub reviewed_commit: Option<String>,
+    pub findings_url: Option<String>,
+    pub run_stopped: bool,
+    pub risk: bool,
+    pub release_id: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]

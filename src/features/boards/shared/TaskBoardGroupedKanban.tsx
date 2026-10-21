@@ -43,6 +43,12 @@ const STORY_STATUS_COLOR: Record<TaskStatus, string> = {
   ready_for_development: "text-emerald-400",
   canceled: "text-gray-500",
   done: "text-emerald-400",
+  backlog: "text-gray-400",
+  ready: "text-emerald-400",
+  building: "text-blue-400",
+  integrated_tests: "text-yellow-400",
+  tested: "text-emerald-400",
+  user_testing: "text-yellow-400",
 };
 
 function ProgressBar({ done, total }: { done: number; total: number }) {

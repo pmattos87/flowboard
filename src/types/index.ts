@@ -6,7 +6,14 @@ export type TaskStatus =
   | "refining"
   | "ready_for_development"
   | "canceled"
-  | "done";
+  | "done"
+  // Software Factory Story ladder (SF-2); only on projects with ladder = "factory".
+  | "backlog"
+  | "ready"
+  | "building"
+  | "integrated_tests"
+  | "tested"
+  | "user_testing";
 export type TaskPriority = "low" | "medium" | "high" | "critical";
 export type SprintStatus = "backlog" | "active" | "completed";
 
@@ -21,6 +28,10 @@ export interface Project {
   logo_data: string | null;
   /** Manual sort order for the sidebar (ascending). */
   position: number;
+  /** Software Factory status ladder. */
+  ladder: "legacy" | "factory";
+  /** Software Factory project kind. */
+  kind: "internal" | "client";
 }
 
 export interface Person {
@@ -31,6 +42,8 @@ export interface Person {
   role: string;
   /** Optional profile photo as a base64 data URL. null = use colored initials. */
   avatar_data: string | null;
+  /** Software Factory role: who is "Pedro" (owner) and who is the Agent. */
+  factory_role: "owner" | "agent" | null;
 }
 
 export interface Sprint {
@@ -60,6 +73,14 @@ export interface Task {
   created_at: string;
   updated_at: string;
   labels: string;
+  // Software Factory fields (SF-2), written only by flowboard-cli.
+  feature_branch: string | null;
+  review_verdict: "passed" | "failed" | null;
+  reviewed_commit: string | null;
+  findings_url: string | null;
+  run_stopped: boolean;
+  risk: boolean;
+  release_id: number | null;
 }
 
 export interface Comment {
