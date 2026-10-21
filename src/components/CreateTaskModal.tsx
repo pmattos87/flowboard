@@ -14,12 +14,13 @@ import {
 import { useCreateTask } from "@/hooks/useTasks";
 import { usePeople } from "@/hooks/usePeople";
 import { useSprints } from "@/hooks/useSprints";
+import { useProject } from "@/hooks/useProjects";
 import { useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
 import { statusOptionsForType } from "@/features/boards/shared/boardConstants";
 import {
   isSprintScheduleBlocked,
-  SPRINT_GATE_TOAST,
+  sprintGateToast,
 } from "@/features/boards/shared/sprintBoardGrouping";
 import type { TaskPriority, TaskStatus, TaskType } from "@/types";
 
@@ -67,6 +68,7 @@ export function CreateTaskModal() {
   const createTask = useCreateTask();
   const { data: people } = usePeople();
   const { data: sprints } = useSprints(activeProjectId ?? undefined);
+  const { data: project } = useProject(activeProjectId);
 
   const [form, setForm] = useState<TaskForm>(emptyForm());
   const [error, setError] = useState<string | null>(null);
@@ -86,6 +88,14 @@ export function CreateTaskModal() {
       type: createTaskPrefill.type ?? f.type,
     }));
   }, [createTaskModalOpen, createTaskPrefill]);
+
+  // The form starts at `todo`; on a Factory project a Story starts in backlog
+  // instead (SF-31), so fall back to the first status the ladder offers.
+  const statusOptions = statusOptionsForType(form.type, project?.ladder);
+  const status = statusOptions.some((o) => o.value === form.status)
+    ? form.status
+    : statusOptions[0].value;
+  const gate = sprintGateToast(project?.ladder);
 
   const lockType = createTaskPrefill?.lockType ?? false;
   const typeOptions = lockType
@@ -107,8 +117,8 @@ export function CreateTaskModal() {
     if (!title || activeProjectId == null) return;
     // FB-90: the select's own guard can be sidestepped by picking a sprint while
     // the status is still valid and then changing the status, so re-check here.
-    if (form.sprint_id !== null && isSprintScheduleBlocked({ ...form, sprint_id: null }, form.sprint_id)) {
-      toast.warning(SPRINT_GATE_TOAST.title, { description: SPRINT_GATE_TOAST.description });
+    if (form.sprint_id !== null && isSprintScheduleBlocked({ ...form, status, sprint_id: null }, form.sprint_id, project?.ladder)) {
+      toast.warning(gate.title, { description: gate.description });
       return;
     }
     try {
@@ -116,7 +126,7 @@ export function CreateTaskModal() {
         project_id: activeProjectId,
         title,
         type: form.type,
-        status: form.status,
+        status,
         priority: form.priority,
         sprint_id: form.sprint_id,
         parent_id: form.parent_id,
@@ -191,11 +201,11 @@ export function CreateTaskModal() {
                 <Label htmlFor="task-status" className="text-gray-300">Status</Label>
                 <select
                   id="task-status"
-                  value={form.status}
+                  value={status}
                   onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as TaskStatus }))}
                   className="w-full rounded-md bg-gray-800 border border-gray-700 text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  {statusOptionsForType(form.type).map((o) => (
+                  {statusOptions.map((o) => (
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </select>
@@ -226,9 +236,9 @@ export function CreateTaskModal() {
                   onChange={(e) => {
                     const v = e.target.value ? Number(e.target.value) : null;
                     // FB-90: same gate the Sprint Planning Board applies to drops.
-                    if (v !== null && isSprintScheduleBlocked({ ...form, sprint_id: null }, v)) {
-                      toast.warning(SPRINT_GATE_TOAST.title, {
-                        description: SPRINT_GATE_TOAST.description,
+                    if (v !== null && isSprintScheduleBlocked({ ...form, status, sprint_id: null }, v, project?.ladder)) {
+                      toast.warning(gate.title, {
+                        description: gate.description,
                       });
                       // `form` is unchanged, so React has no reason to re-render
                       // and the <select> would keep showing the rejected sprint.

@@ -10,7 +10,7 @@ import {
   Minus,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { TaskPriority, TaskStatus, TaskType } from "@/types";
+import type { Project, TaskPriority, TaskStatus, TaskType } from "@/types";
 
 export type BoardColumn = { status: TaskStatus; label: string; dotClass: string; Icon?: LucideIcon };
 
@@ -35,6 +35,28 @@ export const DISCOVERY_COLUMNS: BoardColumn[] = [
   { status: "ready_for_development", label: "READY FOR DEVELOPMENT", dotClass: "bg-emerald-500" },
 ];
 
+// Software Factory ladder (SF-31). On a project with ladder = "factory" the
+// boards and pickers use these instead, so they only offer statuses on the
+// ladder; the backend refuses any move the ladder does not allow.
+export const FACTORY_DISCOVERY_COLUMNS: BoardColumn[] = [
+  { status: "backlog",  label: "BACKLOG",  dotClass: "bg-gray-400" },
+  { status: "refining", label: "REFINING", dotClass: "bg-blue-400" },
+  { status: "canceled", label: "CANCELED", dotClass: "bg-gray-500", Icon: Ban },
+  { status: "ready",    label: "READY",    dotClass: "bg-emerald-500" },
+];
+
+export const FACTORY_STORY_COLUMNS: BoardColumn[] = [
+  { status: "ready",            label: "READY",            dotClass: "bg-gray-400" },
+  { status: "building",         label: "BUILDING",         dotClass: "bg-blue-500" },
+  { status: "integrated_tests", label: "INTEGRATED TESTS", dotClass: "bg-yellow-400" },
+  { status: "tested",           label: "TESTED",           dotClass: "bg-orange-400" },
+  { status: "user_testing",     label: "USER TESTING",     dotClass: "bg-purple-400" },
+  { status: "canceled",         label: "CANCELED",         dotClass: "bg-gray-500", Icon: Ban },
+  { status: "done",             label: "DONE",             dotClass: "bg-emerald-500" },
+];
+
+export const FACTORY_SUBTASK_COLUMNS: BoardColumn[] = COLUMNS.filter((c) => c.status !== "in_review");
+
 // Status <option>s for the detail-panel / create-modal pickers. The discovery
 // statuses "refining" and "ready_for_development" belong to the story lifecycle
 // (FB-85), so they are offered only for stories & epics — tasks & bugs keep the
@@ -57,8 +79,27 @@ const STORY_STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
   { value: "done",                  label: "Done" },
 ];
 
-export function statusOptionsForType(type: TaskType): { value: TaskStatus; label: string }[] {
-  return type === "story" || type === "epic" ? STORY_STATUS_OPTIONS : DEV_STATUS_OPTIONS;
+const FACTORY_STORY_STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
+  { value: "backlog",          label: "Backlog" },
+  { value: "refining",         label: "Refining" },
+  { value: "ready",            label: "Ready" },
+  { value: "building",         label: "Building" },
+  { value: "integrated_tests", label: "Integrated Tests" },
+  { value: "tested",           label: "Tested" },
+  { value: "user_testing",     label: "User Testing" },
+  { value: "canceled",         label: "Canceled" },
+  { value: "done",             label: "Done" },
+];
+
+const FACTORY_SUBTASK_STATUS_OPTIONS = DEV_STATUS_OPTIONS.filter((o) => o.value !== "in_review");
+
+export function statusOptionsForType(
+  type: TaskType,
+  ladder: Project["ladder"] = "legacy",
+): { value: TaskStatus; label: string }[] {
+  const story = type === "story" || type === "epic";
+  if (ladder === "factory") return story ? FACTORY_STORY_STATUS_OPTIONS : FACTORY_SUBTASK_STATUS_OPTIONS;
+  return story ? STORY_STATUS_OPTIONS : DEV_STATUS_OPTIONS;
 }
 
 export const TYPE_META: Record<TaskType, { Icon: LucideIcon; colorClass: string }> = {

@@ -29,7 +29,7 @@ import {
   isSprintScheduleBlocked,
   parseSprintDroppableId,
   sprintDroppableId,
-  SPRINT_GATE_TOAST,
+  sprintGateToast,
   type SprintBoardRow,
   type SprintBoardRowKey,
   type SprintDropPatch,
@@ -246,8 +246,8 @@ export function SprintPlanningBoard() {
   }, [sprints]);
 
   const rows = useMemo(
-    () => buildSprintBoardRows(effectiveTasks, sprints ?? [], boardSprintFilter),
-    [effectiveTasks, sprints, boardSprintFilter],
+    () => buildSprintBoardRows(effectiveTasks, sprints ?? [], boardSprintFilter, project?.ladder),
+    [effectiveTasks, sprints, boardSprintFilter, project?.ladder],
   );
 
   const projectKey = project?.key ?? "FB";
@@ -306,12 +306,13 @@ export function SprintPlanningBoard() {
     // FB-85: a story can only be scheduled into a sprint once it reaches
     // "Ready for Development". Guards the backlog -> sprint move (moving between
     // sprints or back to the backlog stays unrestricted).
-    if (isSprintScheduleBlocked(task, target)) {
-      toast.warning(SPRINT_GATE_TOAST.title, { description: SPRINT_GATE_TOAST.description });
+    if (isSprintScheduleBlocked(task, target, project?.ladder)) {
+      const gate = sprintGateToast(project?.ladder);
+      toast.warning(gate.title, { description: gate.description });
       return;
     }
 
-    const decision = computeSprintDropPayload(task, target);
+    const decision = computeSprintDropPayload(task, target, project?.ladder);
     if (!decision) return;
 
     setOverrides((prev) => ({ ...prev, [task.id]: decision.override }));
