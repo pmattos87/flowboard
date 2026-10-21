@@ -617,21 +617,21 @@ pub async fn story_edit(pool: &SqlitePool, key: &str, e: StoryEdit<'_>) -> Resul
     Ok(out)
 }
 
-pub async fn story_move(pool: &SqlitePool, key: &str, to: &str, actor: Actor) -> Result<Value, String> {
-    let mut tx = pool.begin().await.map_err(err)?;
-    let story = load_story(&mut tx, key).await?;
+/// Move a loaded Story inside `tx`: check the ladder, hand it to the new
+/// status's owner and write the trail event.
+async fn move_story(tx: &mut Tx<'_>, story: &Row, to: &str, actor: Actor) -> Result<(), String> {
     let facts = StoryFacts {
         status: &story.status,
         in_sprint: story.sprint_id.is_some(),
         client_project: story.project_kind == "client",
-        open_subtasks: open_subtasks(&mut tx, story.id, false).await?,
+        open_subtasks: open_subtasks(tx, story.id, false).await?,
         run_stopped: story.run_stopped != 0,
     };
     ladder::check_story_move(&facts, to)?;
     let assignee = match ladder::story_owner(to) {
-        Owner::Pedro => Some(role_person(&mut tx, "owner").await?),
-        Owner::Agent => Some(role_person(&mut tx, "agent").await?),
-        Owner::ClientContact => Some(primary_contact(&mut tx, story.project_id).await?),
+        Owner::Pedro => Some(role_person(tx, "owner").await?),
+        Owner::Agent => Some(role_person(tx, "agent").await?),
+        Owner::ClientContact => Some(primary_contact(tx, story.project_id).await?),
         Owner::Nobody => None,
     };
     sqlx::query(
@@ -641,10 +641,16 @@ pub async fn story_move(pool: &SqlitePool, key: &str, to: &str, actor: Actor) ->
     .bind(to)
     .bind(assignee)
     .bind(story.id)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map_err(err)?;
-    log(&mut tx, story.id, actor, "stage_entered", &story.status, to).await?;
+    log(tx, story.id, actor, "stage_entered", &story.status, to).await
+}
+
+pub async fn story_move(pool: &SqlitePool, key: &str, to: &str, actor: Actor) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let story = load_story(&mut tx, key).await?;
+    move_story(&mut tx, &story, to, actor).await?;
     let story = load_by_id(&mut tx, story.id).await?;
     let out = story_json(&mut tx, &story).await?;
     tx.commit().await.map_err(err)?;
@@ -1100,6 +1106,13 @@ fn check_version(version: &str) -> Result<(), String> {
     }
 }
 
+fn version_taken(project: &str, version: &str, e: sqlx::Error) -> String {
+    match e {
+        sqlx::Error::Database(d) if d.message().contains("UNIQUE") => format!("{project} already has a Release {version}"),
+        e => e.to_string(),
+    }
+}
+
 pub async fn release_show(pool: &SqlitePool, project: &str, version: &str) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let (id, _, state, _) = release_row(&mut tx, project, version).await?;
@@ -1133,18 +1146,89 @@ pub async fn release_create(pool: &SqlitePool, project: &str, version: &str) -> 
     .bind(version)
     .execute(&mut *tx)
     .await
-    .map_err(|e| match e {
-        sqlx::Error::Database(d) if d.message().contains("UNIQUE") => format!("{project} already has a Release {version}"),
-        e => e.to_string(),
-    })?;
+    .map_err(|e| version_taken(project, version, e))?;
     tx.commit().await.map_err(err)?;
     release_show(pool, project, version).await
 }
 
-pub async fn release_move(pool: &SqlitePool, project: &str, version: &str, to: &str) -> Result<Value, String> {
+/// The project's Releases, oldest first, with how many Stories each holds.
+pub async fn release_list(pool: &SqlitePool, project: &str) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let (pid, ladder, _) = project_id(&mut tx, project).await?;
+    if ladder != "factory" {
+        return Err(format!("{project} is a legacy project; the Factory does not write to it"));
+    }
+    let rows: Vec<(String, String, String, Option<String>, i64)> = sqlx::query_as(
+        r#"SELECT r.version, r.state, r.created_at, r.released_at,
+                  (SELECT COUNT(*) FROM tasks t WHERE t.release_id = r.id)
+             FROM releases r WHERE r.project_id = ? ORDER BY r.id"#,
+    )
+    .bind(pid)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(err)?;
+    Ok(json!({
+        "project": project.to_uppercase(),
+        "releases": rows.into_iter().map(|(v, s, c, r, n)| json!({
+            "version": v, "state": s, "created_at": c, "released_at": r, "stories": n,
+        })).collect::<Vec<_>>(),
+    }))
+}
+
+/// Change a planned Release's version. Closed once the Release leaves planned.
+pub async fn release_set_version(pool: &SqlitePool, project: &str, version: &str, new_version: &str) -> Result<Value, String> {
+    check_version(new_version)?;
+    let mut tx = pool.begin().await.map_err(err)?;
+    let (id, _, state, _) = release_row(&mut tx, project, version).await?;
+    if state != "planned" {
+        return Err(format!("Release {version} is {state}; only a planned Release changes version"));
+    }
+    sqlx::query("UPDATE releases SET version = ? WHERE id = ?")
+        .bind(new_version)
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| version_taken(project, new_version, e))?;
+    tx.commit().await.map_err(err)?;
+    release_show(pool, project, new_version).await
+}
+
+/// Move a Release; its picked Stories move with it in the same transaction: to
+/// user_testing when the Release goes to user_testing, to done when it goes to
+/// released. Refuses an empty Release, and a pick that isn't at the status the
+/// move starts from (tested, or user_testing for a Release leaving user_testing).
+pub async fn release_move(pool: &SqlitePool, project: &str, version: &str, to: &str, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let (id, _, state, kind) = release_row(&mut tx, project, version).await?;
     ladder::check_release_move(&state, to, kind == "client")?;
+    let story_to = match to {
+        "user_testing" => Some("user_testing"),
+        "released" => Some("done"),
+        _ => None,
+    };
+    if let Some(story_to) = story_to {
+        let picks = sqlx::query_as::<_, Row>(&format!("{ROW_SQL} WHERE t.release_id = ? ORDER BY t.task_number"))
+            .bind(id)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(err)?;
+        if picks.is_empty() {
+            return Err(format!("Release {version} has no picked Stories"));
+        }
+        let from = if state == "user_testing" { "user_testing" } else { "tested" };
+        for story in &picks {
+            if story.status != from {
+                return Err(format!(
+                    "{} is {}; every pick must be {from} for Release {version} to go to {to}",
+                    story.key(),
+                    story.status
+                ));
+            }
+            move_story(&mut tx, story, story_to, actor)
+                .await
+                .map_err(|e| format!("{}: {e}", story.key()))?;
+        }
+    }
     sqlx::query(
         r#"UPDATE releases SET state = ?,
                   released_at = CASE WHEN ? = 'released' THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE released_at END

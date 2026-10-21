@@ -6,6 +6,7 @@ pub mod comments;
 pub mod dev;
 pub mod people;
 pub mod projects;
+pub mod releases;
 pub mod sprints;
 pub mod tasks;
 pub mod time_logs;

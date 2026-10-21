@@ -5,6 +5,9 @@ import type {
   Comment,
   Person,
   Project,
+  ReleaseDetail,
+  ReleasePickResult,
+  ReleaseSummary,
   Sprint,
   Task,
   TaskPriority,
@@ -91,6 +94,19 @@ export const getSprint = (id: number) => invoke<Sprint>("get_sprint", { id });
 export const updateSprint = (id: number, payload: SprintUpdatePayload) =>
   invoke<Sprint>("update_sprint", { id, payload });
 export const deleteSprint = (id: number) => invoke<void>("delete_sprint", { id });
+
+// ─── Releases (Factory projects) ───────────────────────────
+
+export const listReleases = (projectKey: string) =>
+  invoke<{ project: string; releases: ReleaseSummary[] }>("list_releases", { projectKey });
+export const getRelease = (projectKey: string, version: string) =>
+  invoke<ReleaseDetail>("get_release", { projectKey, version });
+export const createRelease = (projectKey: string, version: string) =>
+  invoke<ReleaseDetail>("create_release", { projectKey, version });
+export const pickReleaseStory = (version: string, storyKey: string) =>
+  invoke<ReleasePickResult>("pick_release_story", { version, storyKey });
+export const removeReleaseStory = (storyKey: string) =>
+  invoke<{ story: string; removed_from: string }>("remove_release_story", { storyKey });
 
 // ─── Tasks ─────────────────────────────────────────────────
 

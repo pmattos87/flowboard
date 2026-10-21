@@ -164,6 +164,14 @@ pub struct ReleaseMove {
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
+pub struct ReleaseSetVersion {
+    pub project: String,
+    pub version: String,
+    /// Semver, e.g. 1.7.0
+    pub new_version: String,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
 pub struct Pick {
     pub version: String,
     /// Story key; the Release is looked up in the Story's project
@@ -307,9 +315,20 @@ impl FlowboardMcp {
         out(ops::release_create(&self.pool, &p.project, &p.version).await)
     }
 
-    #[tool(description = "Move a Release: planned, user_testing, released, canceled")]
+    #[tool(description = "List a project's Releases with their state and Story count")]
+    async fn release_list(&self, Parameters(p): Parameters<Project>) -> Result<String, String> {
+        out(ops::release_list(&self.pool, &p.project).await)
+    }
+
+    #[tool(description = "Change a planned Release's version")]
+    async fn release_set_version(&self, Parameters(p): Parameters<ReleaseSetVersion>) -> Result<String, String> {
+        out(ops::release_set_version(&self.pool, &p.project, &p.version, &p.new_version).await)
+    }
+
+    #[tool(description = "Move a Release: planned, user_testing, released, canceled. Its picked Stories move with it \
+                          (user_testing -> user_testing, released -> done); refused when it is empty or a pick is not ready")]
     async fn release_move(&self, Parameters(p): Parameters<ReleaseMove>) -> Result<String, String> {
-        out(ops::release_move(&self.pool, &p.project, &p.version, &p.to).await)
+        out(ops::release_move(&self.pool, &p.project, &p.version, &p.to, AGENT).await)
     }
 
     #[tool(description = "Pick a tested Story into a Release; warns about unreleased dependencies")]
