@@ -404,9 +404,32 @@ pub async fn project_show(pool: &SqlitePool, key: &str) -> Result<Value, String>
     }))
 }
 
+/// Open items of a project that don't fit the Factory ladder: anything but a
+/// top-level `story` in a Story status, or a `task`/`bug` under a story in a
+/// Subtask status. Returns their keys.
+async fn unmapped_items(tx: &mut Tx<'_>, project_id: i64, key: &str) -> Result<Vec<String>, String> {
+    let quoted = |statuses: &[&str]| statuses.iter().map(|s| format!("'{s}'")).collect::<Vec<_>>().join(",");
+    let open = |statuses: &[&str]| quoted(&statuses.iter().copied().filter(|s| !matches!(*s, "done" | "canceled")).collect::<Vec<_>>());
+    let numbers: Vec<i64> = sqlx::query_scalar(&format!(
+        r#"SELECT t.task_number FROM tasks t LEFT JOIN tasks parent ON parent.id = t.parent_id
+            WHERE t.project_id = ? AND t.status NOT IN ('done','canceled')
+              AND NOT (t.parent_id IS NULL AND t.type = 'story' AND t.status IN ({}))
+              AND NOT (t.parent_id IS NOT NULL AND t.type IN ('task','bug') AND parent.type = 'story'
+                       AND t.status IN ({}))
+            ORDER BY t.task_number"#,
+        open(ladder::STORY_STATUSES),
+        open(ladder::SUBTASK_STATUSES),
+    ))
+    .bind(project_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(err)?;
+    Ok(numbers.into_iter().map(|n| format!("{key}-{n}")).collect())
+}
+
 /// Set a project's ladder and/or kind. Switching to the Factory ladder is
-/// refused while the project has open items: mapping them is a Rollout step,
-/// and an unmapped status would make a card vanish from every board.
+/// refused while an open item isn't mapped to it yet: mapping is a Rollout
+/// step, and an unmapped item would vanish from every board.
 pub async fn project_set(
     pool: &SqlitePool,
     key: &str,
@@ -420,16 +443,12 @@ pub async fn project_set(
             return Err(format!("'{l}' is not a ladder (legacy, factory)"));
         }
         if l == "factory" && current_ladder != "factory" {
-            let open: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM tasks WHERE project_id = ? AND status NOT IN ('done','canceled')",
-            )
-            .bind(id)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(err)?;
-            if open > 0 {
+            let unmapped = unmapped_items(&mut tx, id, key).await?;
+            if !unmapped.is_empty() {
                 return Err(format!(
-                    "{key} has {open} open item(s) on the legacy ladder; map them before switching to the Factory ladder"
+                    "{key} has {} open item(s) not mapped to the Factory ladder ({}); map them before switching",
+                    unmapped.len(),
+                    unmapped.join(", ")
                 ));
             }
         }
