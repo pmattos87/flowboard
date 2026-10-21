@@ -43,7 +43,6 @@ pub fn run() {
             commands::tasks::list_tasks,
             commands::tasks::get_task,
             commands::tasks::update_task,
-            commands::tasks::delete_task,
             commands::comments::create_comment,
             commands::comments::list_comments,
             commands::comments::update_comment,
