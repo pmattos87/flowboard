@@ -64,6 +64,23 @@ async fn cli_moves_a_story_and_refuses_illegal_moves() {
 }
 
 #[tokio::test]
+async fn cli_lists_releases_and_changes_a_planned_version() {
+    let db = seeded_db("releases").await;
+    setup(&db);
+    ok(&db, &["release", "create", "TF", "1.6.0"]);
+    let shown = ok(&db, &["release", "set-version", "TF", "1.6.0", "1.7.0"]);
+    assert_eq!(shown["version"], "1.7.0");
+
+    let list = ok(&db, &["release", "list", "TF"]);
+    assert_eq!(list["releases"][0]["version"], "1.7.0");
+    assert_eq!(list["releases"][0]["stories"], 0);
+
+    let (code, _, stderr) = cli(&db, &["release", "move", "TF", "1.7.0", "released"]);
+    assert_eq!(code, 1);
+    assert!(stderr["error"].as_str().unwrap().contains("no picked Stories"), "{stderr}");
+}
+
+#[tokio::test]
 async fn cli_refuses_legacy_projects() {
     let db = seeded_db("legacy").await;
     ok(&db, &["people", "set-role", "1", "owner"]);
@@ -120,7 +137,7 @@ async fn mcp_serves_tools_and_returns_refusals_as_errors() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    for n in ["story_move", "subtask_verify", "review_record", "release_pick"] {
+    for n in ["story_move", "subtask_verify", "review_record", "release_pick", "release_list", "release_set_version"] {
         assert!(names.contains(&n), "missing tool {n}: {names:?}");
     }
     assert!(!names.contains(&"project_set"), "ladder changes must stay CLI-only");

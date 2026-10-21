@@ -360,9 +360,154 @@ async fn release_pick_warns_on_unreleased_dependencies() {
 
     ops::release_remove(&fx.pool, &b, Actor::Owner).await.unwrap();
     assert!(actions(&fx, &b).await.contains(&"release_removed".to_string()));
-    assert!(ops::release_move(&fx.pool, "SF", "1.6.0", "user_testing").await.is_err());
-    ops::release_move(&fx.pool, "SF", "1.6.0", "released").await.unwrap();
+    assert!(ops::release_move(&fx.pool, "SF", "1.6.0", "user_testing", Actor::Owner).await.is_err());
     assert!(ops::release_create(&fx.pool, "SF", "1.6").await.is_err());
+}
+
+async fn tested(fx: &Fx, title: &str) -> String {
+    let s = story(fx, title).await;
+    ready_in_sprint(fx, &s).await;
+    for to in ["building", "integrated_tests", "tested"] {
+        mv(fx, &s, to).await.unwrap();
+    }
+    s
+}
+
+async fn status(fx: &Fx, key: &str) -> String {
+    ops::story_show(&fx.pool, key).await.unwrap()["status"].as_str().unwrap().to_string()
+}
+
+async fn release_state(fx: &Fx, version: &str) -> String {
+    ops::release_show(&fx.pool, "SF", version).await.unwrap()["state"].as_str().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn releasing_moves_the_picked_stories_to_done() {
+    let fx = setup("internal").await;
+    let a = tested(&fx, "a").await;
+    let b = tested(&fx, "b").await;
+    ops::release_create(&fx.pool, "SF", "1.6.0").await.unwrap();
+    for k in [&a, &b] {
+        ops::release_pick(&fx.pool, "1.6.0", k, Actor::Owner).await.unwrap();
+    }
+
+    ops::release_move(&fx.pool, "SF", "1.6.0", "released", Actor::Agent).await.unwrap();
+    assert_eq!(release_state(&fx, "1.6.0").await, "released");
+    for k in [&a, &b] {
+        assert_eq!(status(&fx, k).await, "done");
+        assert_eq!(assignee(&fx, k).await, None);
+        assert_eq!(actions(&fx, k).await.last().unwrap(), "stage_entered");
+    }
+}
+
+#[tokio::test]
+async fn release_move_refuses_an_empty_release_and_a_pick_that_is_not_ready() {
+    let fx = setup("internal").await;
+    ops::release_create(&fx.pool, "SF", "1.6.0").await.unwrap();
+    let err = ops::release_move(&fx.pool, "SF", "1.6.0", "released", Actor::Agent).await.unwrap_err();
+    assert!(err.contains("no picked Stories"), "{err}");
+
+    let a = tested(&fx, "a").await;
+    let b = tested(&fx, "b").await;
+    for k in [&a, &b] {
+        ops::release_pick(&fx.pool, "1.6.0", k, Actor::Owner).await.unwrap();
+    }
+    mv(&fx, &b, "building").await.unwrap();
+    let err = ops::release_move(&fx.pool, "SF", "1.6.0", "released", Actor::Agent).await.unwrap_err();
+    assert!(err.contains(&format!("{b} is building")), "{err}");
+    assert_eq!(status(&fx, &a).await, "tested", "a refused move changes no pick");
+    assert_eq!(release_state(&fx, "1.6.0").await, "planned");
+
+    // A pick the ladder itself refuses (a stopped Run) is refused the same way.
+    mv(&fx, &b, "integrated_tests").await.unwrap();
+    mv(&fx, &b, "tested").await.unwrap();
+    sqlx::query("UPDATE tasks SET run_stopped = 1 WHERE task_number = ? AND project_id = (SELECT id FROM projects WHERE key = 'SF')")
+        .bind(b.rsplit_once('-').unwrap().1.parse::<i64>().unwrap())
+        .execute(&fx.pool)
+        .await
+        .unwrap();
+    let err = ops::release_move(&fx.pool, "SF", "1.6.0", "released", Actor::Agent).await.unwrap_err();
+    assert!(err.starts_with(&format!("{b}: ")) && err.contains("Run is stopped"), "{err}");
+    assert_eq!(status(&fx, &a).await, "tested");
+    assert_eq!(release_state(&fx, "1.6.0").await, "planned");
+
+    let empty = "1.7.0";
+    ops::release_create(&fx.pool, "SF", empty).await.unwrap();
+    ops::release_move(&fx.pool, "SF", empty, "canceled", Actor::Agent).await.expect("an empty Release can be canceled");
+}
+
+#[tokio::test]
+async fn client_release_carries_its_stories_through_user_testing() {
+    let fx = setup("client").await;
+    let a = tested(&fx, "a").await;
+    let b = tested(&fx, "b").await;
+    ops::release_create(&fx.pool, "SF", "2.0.0").await.unwrap();
+    for k in [&a, &b] {
+        ops::release_pick(&fx.pool, "2.0.0", k, Actor::Owner).await.unwrap();
+    }
+
+    ops::release_move(&fx.pool, "SF", "2.0.0", "user_testing", Actor::Agent).await.unwrap();
+    for k in [&a, &b] {
+        assert_eq!(status(&fx, k).await, "user_testing");
+        assert_eq!(assignee(&fx, k).await, Some(fx.client));
+    }
+
+    // The bug loop sends one back to building; the Release can't be released until it returns.
+    mv(&fx, &b, "building").await.unwrap();
+    let err = ops::release_move(&fx.pool, "SF", "2.0.0", "released", Actor::Agent).await.unwrap_err();
+    assert!(err.contains(&format!("{b} is building")) && err.contains("must be user_testing"), "{err}");
+    assert_eq!(status(&fx, &a).await, "user_testing");
+
+    for to in ["integrated_tests", "tested", "user_testing"] {
+        mv(&fx, &b, to).await.unwrap();
+    }
+    ops::release_move(&fx.pool, "SF", "2.0.0", "released", Actor::Agent).await.unwrap();
+    for k in [&a, &b] {
+        assert_eq!(status(&fx, k).await, "done");
+    }
+}
+
+#[tokio::test]
+async fn release_set_version_only_while_planned() {
+    let fx = setup("internal").await;
+    ops::release_create(&fx.pool, "SF", "1.6.0").await.unwrap();
+    ops::release_create(&fx.pool, "SF", "1.5.2").await.unwrap();
+
+    let err = ops::release_set_version(&fx.pool, "SF", "1.6.0", "1.6").await.unwrap_err();
+    assert!(err.contains("not a version"), "{err}");
+    let err = ops::release_set_version(&fx.pool, "SF", "1.6.0", "1.5.2").await.unwrap_err();
+    assert!(err.contains("already has a Release 1.5.2"), "{err}");
+    let err = ops::release_set_version(&fx.pool, "SF", "9.9.9", "1.7.0").await.unwrap_err();
+    assert!(err.contains("no Release 9.9.9"), "{err}");
+
+    let shown = ops::release_set_version(&fx.pool, "SF", "1.6.0", "1.7.0").await.unwrap();
+    assert_eq!(shown["version"], "1.7.0");
+    assert!(ops::release_show(&fx.pool, "SF", "1.6.0").await.is_err());
+
+    ops::release_move(&fx.pool, "SF", "1.7.0", "canceled", Actor::Agent).await.unwrap();
+    let err = ops::release_set_version(&fx.pool, "SF", "1.7.0", "1.8.0").await.unwrap_err();
+    assert!(err.contains("is canceled"), "{err}");
+}
+
+#[tokio::test]
+async fn release_list_shows_each_release_with_its_story_count() {
+    let fx = setup("internal").await;
+    assert_eq!(ops::release_list(&fx.pool, "sf").await.unwrap()["releases"], serde_json::json!([]));
+    let a = tested(&fx, "a").await;
+    ops::release_create(&fx.pool, "SF", "1.6.0").await.unwrap();
+    ops::release_create(&fx.pool, "SF", "1.7.0").await.unwrap();
+    ops::release_pick(&fx.pool, "1.6.0", &a, Actor::Owner).await.unwrap();
+    ops::release_move(&fx.pool, "SF", "1.6.0", "released", Actor::Agent).await.unwrap();
+
+    let list = ops::release_list(&fx.pool, "SF").await.unwrap();
+    let rs = list["releases"].as_array().unwrap();
+    assert_eq!(rs.len(), 2);
+    assert_eq!((rs[0]["version"].as_str(), rs[0]["state"].as_str(), rs[0]["stories"].as_i64()), (Some("1.6.0"), Some("released"), Some(1)));
+    assert!(rs[0]["released_at"].is_string());
+    assert_eq!((rs[1]["version"].as_str(), rs[1]["state"].as_str(), rs[1]["stories"].as_i64()), (Some("1.7.0"), Some("planned"), Some(0)));
+
+    let err = ops::release_list(&fx.pool, "LG").await.unwrap_err();
+    assert!(err.contains("legacy"), "{err}");
 }
 
 #[tokio::test]

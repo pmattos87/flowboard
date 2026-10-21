@@ -210,6 +210,11 @@ enum SubtaskCmd {
 enum ReleaseCmd {
     Create { project: String, version: String },
     Show { project: String, version: String },
+    /// The project's Releases, oldest first
+    List { project: String },
+    /// Change a planned Release's version
+    SetVersion { project: String, version: String, new_version: String },
+    /// Move a Release; its picked Stories move with it
     Move { project: String, version: String, to: String },
     /// Pick a tested Story into a Release of its project
     Pick { version: String, story: String },
@@ -324,8 +329,12 @@ async fn run(cli: Cli, pool: SqlitePool) -> Result<Value, String> {
         Cmd::Release(r) => match r {
             ReleaseCmd::Create { project, version } => ops::release_create(p, &project, &version).await,
             ReleaseCmd::Show { project, version } => ops::release_show(p, &project, &version).await,
+            ReleaseCmd::List { project } => ops::release_list(p, &project).await,
+            ReleaseCmd::SetVersion { project, version, new_version } => {
+                ops::release_set_version(p, &project, &version, &new_version).await
+            }
             ReleaseCmd::Move { project, version, to } => {
-                ops::release_move(p, &project, &version, &to).await
+                ops::release_move(p, &project, &version, &to, actor).await
             }
             ReleaseCmd::Pick { version, story } => ops::release_pick(p, &version, &story, actor).await,
             ReleaseCmd::Remove { story } => ops::release_remove(p, &story, actor).await,
