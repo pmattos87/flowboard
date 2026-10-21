@@ -949,6 +949,112 @@ pub async fn subtask_verify(pool: &SqlitePool, key: &str, passed: bool, reason: 
     Ok(event)
 }
 
+// ─── The app's edits ────────────────────────────────────────────────────────
+
+/// Apply the app's status and sprint edits on a task. On a Factory project a
+/// Story's status and sprint, and a Subtask's status, go through the same
+/// operations as the CLI and the MCP: same ladder, assignee rule and trail.
+/// Returns `false`, changing nothing, when the task is on a legacy project.
+pub async fn app_move(
+    pool: &SqlitePool,
+    id: i64,
+    status: Option<&str>,
+    sprint_id: Option<Option<i64>>,
+) -> Result<bool, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let row = load_by_id(&mut tx, id).await?;
+    if row.ladder != "factory" {
+        return Ok(false);
+    }
+    let parent = match row.parent_id {
+        Some(p) => Some(load_by_id(&mut tx, p).await?),
+        None => None,
+    };
+    tx.rollback().await.map_err(err)?;
+
+    let status = status.filter(|s| *s != row.status);
+    let sprint_id = sprint_id.filter(|s| *s != row.sprint_id);
+    if status.is_none() && sprint_id.is_none() {
+        return Ok(true);
+    }
+    let key = row.key();
+    let is_story = row.kind == "story" && parent.is_none();
+    let is_subtask = matches!(row.kind.as_str(), "task" | "bug")
+        && parent.as_ref().is_some_and(|p| p.kind == "story");
+    if is_story {
+        if status.is_some() && sprint_id.is_some() {
+            return Err("on a Factory project, change a Story's sprint and its status separately".into());
+        }
+        if let Some(s) = sprint_id {
+            story_set_sprint(pool, &key, s).await?;
+        }
+        if let Some(to) = status {
+            story_move(pool, &key, to, Actor::Owner).await?;
+        }
+    } else if is_subtask {
+        if sprint_id.is_some() {
+            return Err(format!("{key} follows its Story's sprint; move the Story instead"));
+        }
+        if let Some(to) = status {
+            subtask_move(pool, &key, to, Actor::Owner).await?;
+        }
+    } else {
+        return Err(format!("{key} is neither a Story nor a Subtask, so it has no place on the Factory ladder"));
+    }
+    Ok(true)
+}
+
+/// The status and sprint the app may create a task with. On a Factory project
+/// a Story starts in backlog or refining, outside sprints; a Subtask starts in
+/// todo, in its Story's sprint. `None` on a legacy project.
+pub async fn app_create_status(
+    pool: &SqlitePool,
+    project_id: i64,
+    parent_id: Option<i64>,
+    kind: &str,
+    status: Option<&str>,
+    sprint_id: Option<i64>,
+) -> Result<Option<(String, Option<i64>)>, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let ladder: String = sqlx::query_scalar("SELECT ladder FROM projects WHERE id = ?")
+        .bind(project_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(err)?;
+    if ladder != "factory" {
+        return Ok(None);
+    }
+    match parent_id {
+        None => {
+            if kind != "story" {
+                return Err("on a Factory project, a task or bug belongs to a Story; create it from the Story".into());
+            }
+            let status = status.unwrap_or("backlog");
+            if !matches!(status, "backlog" | "refining") {
+                return Err(format!("a new Story starts in backlog or refining, not {status}"));
+            }
+            if sprint_id.is_some() {
+                return Err("a Story enters a sprint only at ready".into());
+            }
+            Ok(Some((status.to_string(), None)))
+        }
+        Some(p) => {
+            let story = load_by_id(&mut tx, p).await?;
+            if story.kind != "story" || !matches!(kind, "task" | "bug") {
+                return Err("on a Factory project, only tasks and bugs go under a Story".into());
+            }
+            if matches!(story.status.as_str(), "done" | "canceled") {
+                return Err(format!("{} is {}; it takes no new Subtasks", story.key(), story.status));
+            }
+            let status = status.unwrap_or("todo");
+            if status != "todo" {
+                return Err(format!("a new Subtask starts in todo, not {status}"));
+            }
+            Ok(Some((status.to_string(), story.sprint_id)))
+        }
+    }
+}
+
 // ─── Releases ───────────────────────────────────────────────────────────────
 
 async fn release_row(tx: &mut Tx<'_>, project: &str, version: &str) -> Result<(i64, i64, String, String), String> {

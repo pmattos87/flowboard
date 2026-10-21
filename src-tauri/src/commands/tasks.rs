@@ -1,4 +1,5 @@
 use super::deserialize_optional_field;
+use crate::factory;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use tauri::State;
@@ -101,8 +102,23 @@ async fn resolve_actor_id(
 
 pub async fn create_task_inner(
     pool: &SqlitePool,
-    payload: TaskCreate,
+    mut payload: TaskCreate,
 ) -> Result<Task, String> {
+    // On a Factory project the ladder decides where a new task may start (SF-31).
+    let kind = payload.r#type.as_deref().unwrap_or("task");
+    if let Some((status, sprint_id)) = factory::ops::app_create_status(
+        pool,
+        payload.project_id,
+        payload.parent_id,
+        kind,
+        payload.status.as_deref(),
+        payload.sprint_id,
+    )
+    .await?
+    {
+        payload.status = Some(status);
+        payload.sprint_id = sprint_id;
+    }
     let resolved_status = payload
         .status
         .clone()
@@ -234,9 +250,21 @@ pub async fn get_task(pool: State<'_, SqlitePool>, id: i64) -> Result<Task, Stri
 pub async fn update_task_inner(
     pool: &SqlitePool,
     id: i64,
-    payload: TaskUpdate,
+    mut payload: TaskUpdate,
 ) -> Result<Task, String> {
+    // On a Factory project, status and sprint changes go through the ladder
+    // operations (SF-31); the rest of the payload is applied below as usual.
+    let before = get_task_inner(pool, id).await?;
+    if factory::ops::app_move(pool, id, payload.status.as_deref(), payload.sprint_id).await? {
+        payload.status = None;
+        payload.sprint_id = None;
+    }
     let current = get_task_inner(pool, id).await?;
+    // A stage move reassigns the Story; a payload that just echoes the old
+    // assignee must not undo that.
+    if current.assignee_id != before.assignee_id && payload.assignee_id == Some(before.assignee_id) {
+        payload.assignee_id = None;
+    }
 
     let new_sprint_id = payload.sprint_id.unwrap_or(current.sprint_id);
     let sprint_id_changed = new_sprint_id != current.sprint_id;
@@ -989,5 +1017,173 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(n, 3, "deleted number 1 is not reused");
+    }
+
+    // ─── Factory projects (SF-31) ───────────────────────────────────────────
+
+    struct Factory {
+        pool: SqlitePool,
+        project_id: i64,
+        pedro: i64,
+        agent: i64,
+        sprint_id: i64,
+    }
+
+    async fn factory_project() -> Factory {
+        use crate::factory::ops;
+        let pool = new_test_pool().await;
+        let project_id = seed_named_project(&pool, "SF").await;
+        let pedro = seed_person(&pool, "Pedro").await;
+        let agent = seed_person(&pool, "Claude").await;
+        let sprint_id = seed_sprint(&pool, project_id, "S1").await;
+        ops::people_set_role(&pool, pedro, Some("owner")).await.unwrap();
+        ops::people_set_role(&pool, agent, Some("agent")).await.unwrap();
+        ops::project_set(&pool, "SF", Some("factory"), None).await.unwrap();
+        Factory { pool, project_id, pedro, agent, sprint_id }
+    }
+
+    async fn create_in(f: &Factory, t: &str, parent_id: Option<i64>, status: Option<&str>) -> Result<super::Task, String> {
+        create_task_inner(
+            &f.pool,
+            TaskCreate {
+                project_id: f.project_id,
+                sprint_id: None,
+                parent_id,
+                title: t.into(),
+                description: None,
+                r#type: Some(t.into()),
+                status: status.map(Into::into),
+                priority: None,
+                assignee_id: None,
+                story_points: None,
+                due_date: None,
+                labels: None,
+            },
+        )
+        .await
+    }
+
+    async fn set_status(f: &Factory, id: i64, status: &str) -> Result<super::Task, String> {
+        update_task_inner(&f.pool, id, TaskUpdate { status: Some(status.into()), ..empty_update() }).await
+    }
+
+    #[tokio::test]
+    async fn factory_status_changes_follow_the_ladder() {
+        let f = factory_project().await;
+        let story = create_in(&f, "story", None, None).await.unwrap();
+        assert_eq!(story.status, "backlog");
+
+        let story = set_status(&f, story.id, "refining").await.unwrap();
+        assert_eq!(story.status, "refining");
+        assert_eq!(story.assignee_id, Some(f.pedro));
+        let action: String = sqlx::query_scalar(
+            "SELECT action FROM activity_log WHERE task_id = ? ORDER BY id DESC LIMIT 1",
+        )
+        .bind(story.id)
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+        assert_eq!(action, "stage_entered");
+
+        let err = set_status(&f, story.id, "building").await.unwrap_err();
+        assert!(err.contains("cannot move from refining to building"), "{err}");
+        let err = set_status(&f, story.id, "ready_for_development").await.unwrap_err();
+        assert!(err.contains("not a Story status"), "{err}");
+        let err = set_status(&f, story.id, "todo").await.unwrap_err();
+        assert!(err.contains("not a Story status"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn factory_sprint_changes_happen_only_at_ready() {
+        let f = factory_project().await;
+        let story = create_in(&f, "story", None, Some("refining")).await.unwrap();
+        let sub = create_in(&f, "task", Some(story.id), None).await.unwrap();
+
+        // The legacy sprint drop sent status and sprint together.
+        let err = update_task_inner(
+            &f.pool,
+            story.id,
+            TaskUpdate { sprint_id: Some(Some(f.sprint_id)), status: Some("todo".into()), ..empty_update() },
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("separately"), "{err}");
+
+        let err = update_task_inner(&f.pool, story.id, TaskUpdate { sprint_id: Some(Some(f.sprint_id)), ..empty_update() })
+            .await
+            .unwrap_err();
+        assert!(err.contains("only at ready"), "{err}");
+
+        set_status(&f, story.id, "ready").await.unwrap();
+        let story = update_task_inner(&f.pool, story.id, TaskUpdate { sprint_id: Some(Some(f.sprint_id)), ..empty_update() })
+            .await
+            .unwrap();
+        assert_eq!(story.sprint_id, Some(f.sprint_id));
+        assert_eq!(story.status, "ready");
+        assert_eq!(sprint_of(&f.pool, sub.id).await, Some(f.sprint_id));
+
+        let err = update_task_inner(&f.pool, sub.id, TaskUpdate { sprint_id: Some(None), ..empty_update() })
+            .await
+            .unwrap_err();
+        assert!(err.contains("follows its Story's sprint"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_stage_move_keeps_its_assignee_when_the_payload_echoes_the_old_one() {
+        let f = factory_project().await;
+        let story = create_in(&f, "story", None, Some("refining")).await.unwrap();
+        set_status(&f, story.id, "ready").await.unwrap();
+        update_task_inner(&f.pool, story.id, TaskUpdate { sprint_id: Some(Some(f.sprint_id)), ..empty_update() })
+            .await
+            .unwrap();
+        // The detail panel saves its whole draft, old assignee included.
+        let story = update_task_inner(
+            &f.pool,
+            story.id,
+            TaskUpdate {
+                status: Some("building".into()),
+                assignee_id: Some(Some(f.pedro)),
+                title: Some("renamed".into()),
+                ..empty_update()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(story.status, "building");
+        assert_eq!(story.assignee_id, Some(f.agent));
+        assert_eq!(story.title, "renamed");
+    }
+
+    #[tokio::test]
+    async fn a_stranded_factory_story_can_be_moved_back_onto_the_ladder() {
+        let f = factory_project().await;
+        let story = create_in(&f, "story", None, None).await.unwrap();
+        sqlx::query("UPDATE tasks SET status = 'todo' WHERE id = ?")
+            .bind(story.id)
+            .execute(&f.pool)
+            .await
+            .unwrap();
+        let story = set_status(&f, story.id, "refining").await.unwrap();
+        assert_eq!(story.status, "refining");
+    }
+
+    #[tokio::test]
+    async fn factory_creation_starts_on_the_ladder() {
+        let f = factory_project().await;
+        let err = create_in(&f, "task", None, None).await.unwrap_err();
+        assert!(err.contains("belongs to a Story"), "{err}");
+        let err = create_in(&f, "story", None, Some("todo")).await.unwrap_err();
+        assert!(err.contains("backlog or refining"), "{err}");
+
+        let story = create_in(&f, "story", None, Some("refining")).await.unwrap();
+        set_status(&f, story.id, "ready").await.unwrap();
+        update_task_inner(&f.pool, story.id, TaskUpdate { sprint_id: Some(Some(f.sprint_id)), ..empty_update() })
+            .await
+            .unwrap();
+        let bug = create_in(&f, "bug", Some(story.id), None).await.unwrap();
+        assert_eq!(bug.status, "todo");
+        assert_eq!(bug.sprint_id, Some(f.sprint_id));
+        let err = create_in(&f, "task", Some(story.id), Some("in_review")).await.unwrap_err();
+        assert!(err.contains("starts in todo"), "{err}");
     }
 }
