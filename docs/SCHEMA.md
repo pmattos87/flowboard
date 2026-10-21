@@ -75,8 +75,10 @@ task_prs         (id, task_id, url, target, state, created_at, updated_at)
 
 - Story ladder (Factory projects): `backlog ⇄ refining ⇄ ready → building ⇄ integrated_tests
   → tested → user_testing (Client only) → done`; bug loop back to `building` from
-  `integrated_tests`/`tested`/`user_testing`; any open status → `canceled`.
-  Subtask ladder: `todo ⇄ in_progress → done`, `todo`/`in_progress` → `canceled`.
+  `integrated_tests`/`tested`/`user_testing`; any open status → `canceled`; `canceled` →
+  `backlog`/`refining`/`ready` (reopen; inside a sprint only `ready`). `done` is terminal.
+  Subtask ladder: `todo ⇄ in_progress → done`, `todo`/`in_progress` → `canceled`,
+  `canceled` → `todo` (reopen).
 - A Story in a sprint is `ready` or later; `building` and beyond require a sprint.
   Forward moves from `building` on require every Subtask done/canceled and the Run not stopped.
 - Assignee is set by the move: `building` → agent, `user_testing` → primary contact,
