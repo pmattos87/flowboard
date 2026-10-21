@@ -4,6 +4,7 @@ import { usePeople } from "@/hooks/usePeople";
 import { useProject } from "@/hooks/useProjects";
 import { RefreshButton } from "@/components/RefreshButton";
 import { TaskBoardGroupedKanban } from "./shared/TaskBoardGroupedKanban";
+import { COLUMNS, FACTORY_SUBTASK_COLUMNS } from "./shared/boardConstants";
 import { SprintFilterSelect } from "./shared/SprintFilterSelect";
 
 export function TaskBoard() {
@@ -35,6 +36,7 @@ export function TaskBoard() {
         tasks={allTasks ?? []}
         people={people}
         projectKey={project?.key ?? "FB"}
+        columns={project?.ladder === "factory" ? FACTORY_SUBTASK_COLUMNS : COLUMNS}
       />
     </div>
   );

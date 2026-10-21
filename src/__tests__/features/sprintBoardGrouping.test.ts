@@ -5,7 +5,9 @@ import {
   isSprintScheduleBlocked,
   parseSprintDroppableId,
   sprintDroppableId,
+  sprintGateToast,
 } from "@/features/boards/shared/sprintBoardGrouping";
+import { statusOptionsForType } from "@/features/boards/shared/boardConstants";
 import type { Sprint, Task } from "@/types";
 
 const sprint = (
@@ -224,5 +226,37 @@ describe("isSprintScheduleBlocked (FB-85)", () => {
       const item: Task = { ...story(1, null, "medium", "todo"), type };
       expect(isSprintScheduleBlocked(item, 11)).toBe(false);
     }
+  });
+});
+
+describe("Factory ladder (SF-31)", () => {
+  it("plans stories from ready, not ready_for_development", () => {
+    const tasks = [story(1, null, "medium", "ready"), story(2, null), story(3, null, "medium", "refining")];
+    const rows = buildSprintBoardRows(tasks, [], "backlog", "factory");
+    expect(rows[0].tasks.map((t) => t.id)).toEqual([1]);
+  });
+
+  it("drops a story into or out of a sprint without touching its status", () => {
+    const ready = story(1, null, "medium", "ready");
+    expect(computeSprintDropPayload(ready, 7, "factory")?.payload).toEqual({ sprint_id: 7 });
+    const scheduled = story(2, 7, "medium", "ready");
+    expect(computeSprintDropPayload(scheduled, "backlog", "factory")?.payload).toEqual({ sprint_id: null });
+  });
+
+  it("gates scheduling on ready", () => {
+    expect(isSprintScheduleBlocked(story(1, null, "medium", "ready"), 7, "factory")).toBe(false);
+    expect(isSprintScheduleBlocked(story(2, null), 7, "factory")).toBe(true);
+    expect(sprintGateToast("factory").title).toContain("Ready");
+  });
+
+  it("offers only ladder statuses in the pickers", () => {
+    const storyStatuses = statusOptionsForType("story", "factory").map((o) => o.value);
+    expect(storyStatuses).toEqual([
+      "backlog", "refining", "ready", "building", "integrated_tests", "tested", "user_testing", "canceled", "done",
+    ]);
+    const subtaskStatuses = statusOptionsForType("task", "factory").map((o) => o.value);
+    expect(subtaskStatuses).toEqual(["todo", "in_progress", "canceled", "done"]);
+    // Legacy projects keep their lists.
+    expect(statusOptionsForType("story").map((o) => o.value)).toContain("ready_for_development");
   });
 });

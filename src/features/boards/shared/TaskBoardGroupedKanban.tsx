@@ -15,7 +15,7 @@ import type { Person, Task, TaskStatus } from "@/types";
 import { useUiStore } from "@/stores/uiStore";
 import { useUpdateTask } from "@/hooks/useTasks";
 import type { TaskUpdatePayload } from "@/lib/commands";
-import { COLUMNS, PRIORITY_META, TYPE_META, sortByPriority } from "./boardConstants";
+import { COLUMNS, PRIORITY_META, TYPE_META, sortByPriority, type BoardColumn } from "./boardConstants";
 import { TaskCard } from "./TaskCard";
 import {
   buildTaskBoardRows,
@@ -31,6 +31,8 @@ interface TaskBoardGroupedKanbanProps {
   tasks: Task[];
   people: Person[];
   projectKey: string;
+  /** Column set to render. Defaults to the shared 5-status workflow columns. */
+  columns?: BoardColumn[];
 }
 
 // Tint the story type icon by the story's own status so it's visible at a glance
@@ -255,12 +257,14 @@ function StoryRow({
   onToggle,
   people,
   projectKey,
+  columns,
 }: {
   row: TaskBoardRow;
   collapsed: boolean;
   onToggle: () => void;
   people: Person[];
   projectKey: string;
+  columns: BoardColumn[];
 }) {
   const storyId = row.story?.id ?? null;
   const storySprintId = row.story?.sprint_id ?? null;
@@ -274,8 +278,8 @@ function StoryRow({
         projectKey={projectKey}
       />
       {!collapsed && (
-        <div className="grid grid-cols-5 gap-3 p-3">
-          {COLUMNS.map((col) => {
+        <div className={`grid ${columns.length === 4 ? "grid-cols-4" : "grid-cols-5"} gap-3 p-3`}>
+          {columns.map((col) => {
             const colTasks = sortByPriority(
               row.children.filter((c) => c.status === col.status)
             );
@@ -305,6 +309,7 @@ export function TaskBoardGroupedKanban({
   tasks,
   people,
   projectKey,
+  columns = COLUMNS,
 }: TaskBoardGroupedKanbanProps) {
   const activeProjectId = useUiStore((s) => s.activeProjectId);
   const boardSprintFilter = useUiStore((s) => s.boardSprintFilter);
@@ -453,6 +458,7 @@ export function TaskBoardGroupedKanban({
             onToggle={() => toggleGroup(row.key)}
             people={people}
             projectKey={projectKey}
+            columns={columns}
           />
         ))}
       </div>
