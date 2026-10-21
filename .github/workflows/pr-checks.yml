@@ -1,0 +1,9 @@
+name: PR checks
+
+on:
+  pull_request:
+    branches: [develop, main, 'release/**']
+
+jobs:
+  factory:
+    uses: pmattos87/software-factory/.github/workflows/pr-checks.yml@main
