@@ -46,6 +46,7 @@ import {
   SPRINT_GATE_TOAST,
 } from "@/features/boards/shared/sprintBoardGrouping";
 import { Avatar } from "@/components/Avatar";
+import { MarkdownDescription } from "@/components/MarkdownDescription";
 import type {
   Attachment,
   Comment,
@@ -937,15 +938,12 @@ export function TaskDetailPanel() {
               {/* Description */}
               <div>
                 <Label className="text-gray-500 text-[11px]">Description</Label>
-                <Textarea
+                <MarkdownDescription
                   value={draft.description}
-                  onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
-                  onBlur={() => {
+                  onChange={(description) => setDraft((d) => ({ ...d, description }))}
+                  onCommit={() => {
                     if (draft.description !== task.description) save({ description: draft.description });
                   }}
-                  placeholder="Add a description…"
-                  rows={4}
-                  className="bg-gray-800 border-gray-700 text-gray-100 text-sm"
                 />
               </div>
 

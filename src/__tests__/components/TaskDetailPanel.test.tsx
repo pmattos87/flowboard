@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
@@ -125,6 +125,25 @@ describe("TaskDetailPanel — open state", () => {
     const closeBtn = screen.getByRole("button", { name: /close panel/i });
     await user.click(closeBtn);
     expect(useUiStore.getState().selectedTaskId).toBeNull();
+  });
+});
+
+describe("TaskDetailPanel — Markdown description (FB-100)", () => {
+  it("saves the edited raw Markdown unchanged via update_task", async () => {
+    setupInvoke();
+    const user = userEvent.setup();
+    useUiStore.setState({ selectedTaskId: 7 });
+    renderPanel();
+    await waitFor(() => expect(screen.getByText("The login page crashes.")).toBeInTheDocument());
+
+    const raw = "## Steps\n\n- open `/login`\n- submit  \n\n```\nTypeError\n```\n";
+    await user.click(screen.getByRole("button", { name: /edit description/i }));
+    fireEvent.change(screen.getByDisplayValue("The login page crashes."), { target: { value: raw } });
+    await user.tab();
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("update_task", { id: 7, payload: { description: raw } }),
+    );
   });
 });
 
