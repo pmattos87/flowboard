@@ -6,6 +6,10 @@
 
 ### Added
 - Task descriptions render as Markdown (headings, lists, inline and fenced code) in the task detail panel. Click the description, or press Enter on it, to edit the raw text; leaving the field saves it unchanged. Links show as text and images are not loaded (`react-markdown`, D-012, FB-100).
+- `flowboard-cli release list` / `release set-version` (and the `release_list` / `release_set_version` MCP tools): list a Factory project's Releases with their state and Story count, and change a Release's version while it is still planned (SF-43).
+
+### Changed
+- Moving a Release moves its picked Stories in the same transaction: `user_testing` sends them to user_testing, `released` to done, each through the Story ladder with its trail event. The move is refused, and nothing changes, when the Release has no picks or a pick isn't tested (or user_testing, for a Release leaving user_testing) (SF-43).
 
 ### Changed
 - The task detail panel's Delete button is now **Cancel task**: it sets the status to `canceled` without a confirmation, keeps comments, time logs, attachments and activity, and is hidden on canceled or done issues. Reopen through the Status picker. Canceling a Story does not cancel its open Subtasks (FB-98, FB-106).
