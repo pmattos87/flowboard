@@ -125,6 +125,15 @@ describe("runGraph", () => {
     expect(g.orchestrator.state).toBe("current");
   });
 
+  it("a bug filed during Build is not the bug loop", () => {
+    const g = graph(
+      { status: "building" },
+      [sub(2, "todo", "bug")],
+      [stage("building"), ev("bug_subtask_filed", { subtask: "FB-2", title: "Review round 1 findings" })],
+    );
+    expect(g.bugLoop).toBe(false);
+  });
+
   it("a restarted Run shows Stop as passed", () => {
     const g = graph({ status: "building" }, [], [stage("building"), ev("run_stopped", { reason: "x" }), ev("run_restarted")]);
     expect(g.stop.state).toBe("done");

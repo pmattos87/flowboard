@@ -35,7 +35,7 @@ export interface RunGraph {
   /** Review → Integrate → Release → Production, in order. */
   ship: RunNode[];
   fix: RunNode;
-  /** A bug Subtask was filed: the bug loop back to Build is live. */
+  /** A bug Subtask was filed from integrated tests or later: the loop back to Build is live. */
   bugLoop: boolean;
 }
 
@@ -53,6 +53,20 @@ function str(v: unknown): string {
 function shortDate(at: string): string {
   if (!at) return "";
   return new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/**
+ * Whether a bug Subtask was filed while the Story sat in integrated tests or
+ * later. Bug Subtasks filed during Build (Review findings among them) are the
+ * findings loop or ordinary rework, not the bug loop.
+ */
+function bugFoundAfterIntegrate(trail: TrailEvent[]): boolean {
+  let stage = "backlog";
+  for (const e of trail) {
+    if (e.action === "stage_entered") stage = str(e.new);
+    else if (e.action === "bug_subtask_filed" && rank(stage) >= rank("integrated_tests")) return true;
+  }
+  return false;
 }
 
 export interface RunGraphInput {
@@ -226,6 +240,6 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
     docs,
     ship,
     fix,
-    bugLoop: trail.some((e) => e.action === "bug_subtask_filed"),
+    bugLoop: bugFoundAfterIntegrate(trail),
   };
 }
