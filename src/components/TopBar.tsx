@@ -10,6 +10,7 @@ import { useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/Avatar";
 import { ProjectBadge } from "@/components/ProjectBadge";
+import { storyPagePath } from "@/features/story/useStoryCardDecor";
 
 const LAST_VISIT_KEY = "lastInboxVisit";
 
@@ -173,16 +174,23 @@ export function TopBar() {
     setQuery("");
     setShowResults(false);
     switch (r.kind) {
-      case "task":
-        setSelectedTaskId(r.id);
+      case "task": {
+        const task = tasks.find((t) => t.id === r.id);
+        const path = task ? storyPagePath(activeProject, task) : null;
+        if (path) navigate(path);
+        else setSelectedTaskId(r.id);
         break;
+      }
       case "sprint":
         setBoardSprintFilter(r.id);
         navigate("/board/sprint-planning");
         break;
       case "project":
         setActiveProjectId(r.id);
-        navigate("/board/task");
+        // A Factory project has no Task board (SF-61).
+        navigate(
+          allProjects.find((p) => p.id === r.id)?.ladder === "factory" ? "/board/user-story" : "/board/task",
+        );
         break;
       case "person":
         navigate("/people");

@@ -6,6 +6,7 @@ import { useSprints } from "@/hooks/useSprints";
 import { RefreshButton } from "@/components/RefreshButton";
 import { KanbanBoard } from "./shared/KanbanBoard";
 import { COLUMNS, FACTORY_STORY_COLUMNS } from "./shared/boardConstants";
+import { useStoryCardDecor } from "@/features/story/useStoryCardDecor";
 import { SprintFilterSelect } from "./shared/SprintFilterSelect";
 import { matchesSprintFilter, sprintFilterLabel } from "./shared/sprintFilter";
 
@@ -16,6 +17,7 @@ export function UserStoryBoard() {
   const { data: people = [] } = usePeople();
   const { data: project } = useProject(activeProjectId);
   const { data: sprints } = useSprints(activeProjectId ?? undefined);
+  const decorate = useStoryCardDecor(project, allTasks);
 
   if (activeProjectId == null) {
     return (
@@ -55,6 +57,7 @@ export function UserStoryBoard() {
           people={people}
           projectKey={project?.key ?? "FB"}
           columns={project?.ladder === "factory" ? FACTORY_STORY_COLUMNS : COLUMNS}
+          decorate={decorate}
         />
       )}
     </div>

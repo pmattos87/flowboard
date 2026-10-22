@@ -8,6 +8,7 @@ pub mod people;
 pub mod projects;
 pub mod releases;
 pub mod sprints;
+pub mod stories;
 pub mod tasks;
 pub mod time_logs;
 

@@ -17,6 +17,8 @@ import { useTasks, useUpdateTask } from "@/hooks/useTasks";
 import { useDeleteSprint, useSprints } from "@/hooks/useSprints";
 import { usePeople } from "@/hooks/usePeople";
 import { useProject } from "@/hooks/useProjects";
+import { useStoryCardDecor } from "@/features/story/useStoryCardDecor";
+import type { CardDecor } from "./shared/TaskCard";
 import { SprintFormDialog } from "@/features/sprints/SprintFormDialog";
 import { RefreshButton } from "@/components/RefreshButton";
 import type { Sprint, SprintStatus, Task } from "@/types";
@@ -63,6 +65,7 @@ function SprintSection({
   onDelete,
   people,
   projectKey,
+  decorate,
 }: {
   row: SprintBoardRow;
   collapsed: boolean;
@@ -71,6 +74,7 @@ function SprintSection({
   onDelete: (sprint: Sprint) => void;
   people: ReturnType<typeof usePeople>["data"];
   projectKey: string;
+  decorate?: (task: Task) => CardDecor;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: sprintDroppableId(row.key) });
   const sprint = row.sprint;
@@ -167,6 +171,7 @@ function SprintSection({
                 task={task}
                 people={peopleList}
                 projectKey={projectKey}
+                decor={decorate?.(task)}
               />
             ))
           )}
@@ -186,6 +191,7 @@ export function SprintPlanningBoard() {
   const { data: sprints } = useSprints(activeProjectId ?? undefined);
   const { data: people } = usePeople();
   const { data: project } = useProject(activeProjectId);
+  const decorate = useStoryCardDecor(project, allTasks);
   const updateTask = useUpdateTask();
   const deleteSprint = useDeleteSprint();
 
@@ -410,6 +416,7 @@ export function SprintPlanningBoard() {
               onDelete={(s) => setDeletingId(s.id)}
               people={people}
               projectKey={projectKey}
+              decorate={decorate}
             />
           ))}
         </div>
@@ -421,6 +428,7 @@ export function SprintPlanningBoard() {
               people={people ?? []}
               projectKey={projectKey}
               isOverlay
+              decor={decorate?.(activeTask)}
             />
           ) : null}
         </DragOverlay>

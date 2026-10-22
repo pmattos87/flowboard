@@ -1,7 +1,7 @@
 import { useDroppable } from "@dnd-kit/core";
 import type { LucideIcon } from "lucide-react";
 import type { Person, Task, TaskStatus } from "@/types";
-import { TaskCard } from "./TaskCard";
+import { TaskCard, type CardDecor } from "./TaskCard";
 
 interface KanbanColumnProps {
   status: TaskStatus;
@@ -11,6 +11,7 @@ interface KanbanColumnProps {
   tasks: Task[];
   people: Person[];
   projectKey: string;
+  decorate?: (task: Task) => CardDecor;
 }
 
 export function KanbanColumn({
@@ -21,6 +22,7 @@ export function KanbanColumn({
   tasks,
   people,
   projectKey,
+  decorate,
 }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
 
@@ -54,6 +56,7 @@ export function KanbanColumn({
             task={task}
             people={people}
             projectKey={projectKey}
+            decor={decorate?.(task)}
           />
         ))}
       </div>

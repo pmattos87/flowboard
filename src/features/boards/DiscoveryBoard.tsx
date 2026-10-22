@@ -5,12 +5,14 @@ import { useProject } from "@/hooks/useProjects";
 import { RefreshButton } from "@/components/RefreshButton";
 import { KanbanBoard } from "./shared/KanbanBoard";
 import { DISCOVERY_COLUMNS, FACTORY_DISCOVERY_COLUMNS } from "./shared/boardConstants";
+import { useStoryCardDecor } from "@/features/story/useStoryCardDecor";
 
 export function DiscoveryBoard() {
   const activeProjectId = useUiStore((s) => s.activeProjectId);
   const { data: allTasks } = useTasks(activeProjectId != null ? { project_id: activeProjectId } : undefined);
   const { data: people = [] } = usePeople();
   const { data: project } = useProject(activeProjectId);
+  const decorate = useStoryCardDecor(project, allTasks);
 
   if (activeProjectId == null) {
     return (
@@ -40,6 +42,7 @@ export function DiscoveryBoard() {
         people={people}
         projectKey={project?.key ?? "FB"}
         columns={project?.ladder === "factory" ? FACTORY_DISCOVERY_COLUMNS : DISCOVERY_COLUMNS}
+        decorate={decorate}
       />
     </div>
   );

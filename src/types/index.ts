@@ -150,3 +150,61 @@ export interface ReleasePickResult {
   version: string;
   warnings: string[];
 }
+
+// ─── Software Factory Story page (SF-61) ───────────────────
+
+/** `get_story`: the Factory's view of a Story. */
+export interface StoryView {
+  key: string;
+  title: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  labels: string;
+  /** The assignee's name. */
+  assignee: string | null;
+  sprint_id: number | null;
+  feature_branch: string | null;
+  review: {
+    verdict: "passed" | "failed" | null;
+    commit: string | null;
+    findings_url: string | null;
+  };
+  release: { version: string; state: ReleaseState } | null;
+  flags: { stopped: boolean; waiting_on_bugs: number };
+  prs: { url: string; target: string; state: string }[];
+  /** Keys of the Stories this one depends on. */
+  depends_on: string[];
+  subtasks: {
+    key: string;
+    title: string;
+    type: TaskType;
+    status: TaskStatus;
+    story_points: number;
+    risk: boolean;
+  }[];
+  description: string;
+}
+
+/** One `list_active_runs` row: a Factory Story with a Run under way. */
+export interface ActiveRun {
+  key: string;
+  /** The project's name. */
+  project: string;
+  title: string;
+  status: TaskStatus;
+  assignee: string | null;
+  /** Assigned to the owner: it is Pedro's move. */
+  needs_pedro: boolean;
+  flags: { stopped: boolean; waiting_on_bugs: number };
+  stage_entered_at: string;
+}
+
+/** One `get_story_trail` event. `new` is parsed when it holds a JSON object. */
+export interface TrailEvent {
+  at: string;
+  action: string;
+  old: string;
+  new: string | Record<string, unknown>;
+  /** Who did it (a person's name). */
+  by: string;
+}
