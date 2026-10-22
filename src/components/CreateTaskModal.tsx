@@ -55,7 +55,7 @@ const emptyForm = (): TaskForm => ({
 const TYPE_OPTIONS: { value: TaskType; label: string; icon: React.ReactNode; color: string }[] = [
   { value: "story", label: "Story", icon: <BookOpen className="h-3.5 w-3.5" />, color: "text-emerald-400 border-emerald-600 bg-emerald-900/40" },
   { value: "bug", label: "Bug", icon: <Bug className="h-3.5 w-3.5" />, color: "text-red-400 border-red-600 bg-red-900/40" },
-  { value: "subtask", label: "Task", icon: <CheckSquare className="h-3.5 w-3.5" />, color: "text-blue-400 border-blue-600 bg-blue-900/40" },
+  { value: "subtask", label: "Subtask", icon: <CheckSquare className="h-3.5 w-3.5" />, color: "text-blue-400 border-blue-600 bg-blue-900/40" },
   { value: "epic", label: "Epic", icon: <Layers className="h-3.5 w-3.5" />, color: "text-purple-400 border-purple-600 bg-purple-900/40" },
 ];
 
@@ -147,7 +147,7 @@ export function CreateTaskModal() {
     <Dialog open={createTaskModalOpen} onOpenChange={handleOpenChange}>
       <DialogContent className="bg-gray-900 border-gray-800 text-white sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{lockType ? "Create story" : "Create task"}</DialogTitle>
+          <DialogTitle>{lockType ? "Create story" : "Create subtask"}</DialogTitle>
         </DialogHeader>
 
         {activeProjectId == null ? (
@@ -163,7 +163,7 @@ export function CreateTaskModal() {
                 id="task-title"
                 value={form.title}
                 onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-                placeholder="Task title"
+                placeholder="Subtask title"
                 className="bg-gray-800 border-gray-700 text-gray-100"
                 required
                 autoFocus
@@ -346,7 +346,7 @@ export function CreateTaskModal() {
                 disabled={!form.title.trim() || createTask.isPending}
                 className="bg-blue-600 hover:bg-blue-500 text-white"
               >
-                {createTask.isPending ? "Creating…" : lockType ? "Create story" : "Create task"}
+                {createTask.isPending ? "Creating…" : lockType ? "Create story" : "Create subtask"}
               </Button>
             </div>
           </form>

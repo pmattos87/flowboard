@@ -40,7 +40,7 @@ const KIND_BADGE: Record<
   SearchResult["kind"],
   { label: string; color: string }
 > = {
-  task:    { label: "TASK",    color: "text-blue-400" },
+  task:    { label: "SUBTASK",    color: "text-blue-400" },
   sprint:  { label: "SPRINT",  color: "text-yellow-400" },
   project: { label: "PROJECT", color: "text-emerald-400" },
   person:  { label: "PERSON",  color: "text-purple-400" },

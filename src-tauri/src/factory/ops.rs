@@ -1150,7 +1150,7 @@ pub async fn app_create_status(
         Some(p) => {
             let story = load_by_id(&mut tx, p).await?;
             if story.kind != "story" || !matches!(kind, "subtask" | "bug") {
-                return Err("on a Factory project, only tasks and bugs go under a Story".into());
+                return Err("on a Factory project, only subtasks and bugs go under a Story".into());
             }
             if matches!(story.status.as_str(), "done" | "canceled") {
                 return Err(format!("{} is {}; it takes no new Subtasks", story.key(), story.status));

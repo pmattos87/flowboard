@@ -120,7 +120,7 @@ function GroupedColumn({
             })
           }
           className="ml-auto text-gray-500 hover:text-gray-200 rounded p-0.5 hover:bg-gray-800"
-          aria-label={`Add task to ${label}`}
+          aria-label={`Add subtask to ${label}`}
         >
           <Plus className="h-3 w-3" />
         </button>

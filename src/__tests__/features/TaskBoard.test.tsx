@@ -96,6 +96,14 @@ describe("TaskBoard — with project", () => {
     expect(screen.queryByText("An epic task")).not.toBeInTheDocument();
   });
 
+  it("labels the per-column add button 'Add subtask to ...'", async () => {
+    renderBoard();
+    await waitFor(() => expect(screen.getByText("Unparented")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("Expand group"));
+    expect(screen.getAllByLabelText(/^Add subtask to /).length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText(/^Add task to /)).not.toBeInTheDocument();
+  });
+
   it("collapses all groups by default, hiding their children until expanded", async () => {
     renderBoard();
     await waitFor(() => expect(screen.getByText("Unparented")).toBeInTheDocument());
