@@ -22,6 +22,8 @@ const SECTIONS: { state: ReleaseState; label: string }[] = [
 ];
 
 const linkButton = "text-xs text-blue-400 hover:text-blue-300 disabled:text-gray-600";
+const listClasses = "divide-y divide-gray-700";
+const rowClasses = "flex items-center gap-2 py-1.5 text-sm hover:bg-gray-700/40";
 
 /** A planned or user_testing Release: its picks, and the tested Stories it can take. */
 function OpenRelease({ projectKey, release, candidates }: { projectKey: string; release: ReleaseSummary; candidates: Task[] }) {
@@ -32,32 +34,34 @@ function OpenRelease({ projectKey, release, candidates }: { projectKey: string; 
 
   return (
     <div className="mt-3 space-y-3">
-      <ul className="space-y-1">
+      <ul className={listClasses}>
         {(data?.stories ?? []).map((s) => (
-          <li key={s.key} className="flex items-center gap-2 text-sm text-gray-200">
-            <span className="font-mono text-xs text-gray-400">{s.key}</span>
+          <li key={s.key} className={`${rowClasses} text-gray-200`}>
+            <span className="font-mono text-xs text-gray-400 shrink-0">{s.key}</span>
+            <span className="shrink-0 rounded-full bg-gray-700 px-2 py-0.5 text-xs text-gray-200">
+              {s.status.replace("_", " ")}
+            </span>
             <span className="truncate flex-1">{s.title}</span>
-            <span className="text-xs text-gray-500">{s.status.replace("_", " ")}</span>
-            <button type="button" className={linkButton} disabled={busy} onClick={() => remove.mutate(s.key)}>
+            <button type="button" className={`${linkButton} shrink-0`} disabled={busy} onClick={() => remove.mutate(s.key)}>
               Remove
             </button>
           </li>
         ))}
-        {data && data.stories.length === 0 && <li className="text-sm text-gray-500">No stories picked yet.</li>}
+        {data && data.stories.length === 0 && <li className={`${rowClasses} text-gray-500`}>No stories picked yet.</li>}
       </ul>
       {candidates.length > 0 && (
         <div>
           <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Tested, not in a release</p>
-          <ul className="space-y-1">
+          <ul className={listClasses}>
             {candidates.map((t) => {
               const key = `${projectKey}-${t.task_number}`;
               return (
-                <li key={t.id} className="flex items-center gap-2 text-sm text-gray-300">
-                  <span className="font-mono text-xs text-gray-500">{key}</span>
+                <li key={t.id} className={`${rowClasses} text-gray-300`}>
+                  <span className="font-mono text-xs text-gray-500 shrink-0">{key}</span>
                   <span className="truncate flex-1">{t.title}</span>
                   <button
                     type="button"
-                    className={linkButton}
+                    className={`${linkButton} shrink-0`}
                     disabled={busy}
                     onClick={() => pick.mutate({ version: release.version, storyKey: key })}
                   >

@@ -116,6 +116,24 @@ describe("ReleasesPage", () => {
     );
   });
 
+  it("shows a picked Story's status as a pill between its key and title", async () => {
+    const user = userEvent.setup();
+    mockFactory();
+    renderPage();
+    const picked = (await screen.findByText("Already picked")).closest("li") as HTMLElement;
+    const key = within(picked).getByText("FB-90");
+    const pill = within(picked).getByText("tested");
+    const title = within(picked).getByText("Already picked");
+    expect(pill.className).toContain("rounded-full");
+    expect(key.compareDocumentPosition(pill) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(pill.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await user.click(within(picked).getByRole("button", { name: "Remove" }));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("remove_release_story", { storyKey: "FB-90" }),
+    );
+  });
+
   it("shows the depends-on warnings a pick returns", async () => {
     const user = userEvent.setup();
     mockFactory({
