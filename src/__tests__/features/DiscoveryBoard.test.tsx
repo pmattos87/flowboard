@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { DiscoveryBoard } from "@/features/boards/DiscoveryBoard";
 import { useUiStore } from "@/stores/uiStore";
+import { MemoryRouter } from "react-router-dom";
 
 const mockInvoke = vi.mocked(invoke);
 
@@ -49,7 +50,9 @@ function renderBoard() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <DiscoveryBoard />
+      <MemoryRouter>
+        <DiscoveryBoard />
+      </MemoryRouter>
     </QueryClientProvider>
   );
 }
