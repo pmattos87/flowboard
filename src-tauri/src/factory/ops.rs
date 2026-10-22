@@ -719,6 +719,37 @@ pub async fn story_set_branch(pool: &SqlitePool, key: &str, branch: &str) -> Res
     Ok(out)
 }
 
+/// Post a comment on a Story as the actor's person (Review findings, for one).
+/// Returns the comment; `flowboard://comment/<id>` is how other fields link to it.
+pub async fn story_comment(pool: &SqlitePool, key: &str, body: &str, actor: Actor) -> Result<Value, String> {
+    if body.trim().is_empty() {
+        return Err("a comment needs a body".into());
+    }
+    let mut tx = pool.begin().await.map_err(err)?;
+    let story = load_story(&mut tx, key).await?;
+    let author = role_person(&mut tx, actor.role()).await?;
+    let (id, created_at): (i64, String) = sqlx::query_as(
+        r#"INSERT INTO comments (task_id, author_id, body, created_at)
+           VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+           RETURNING id, created_at"#,
+    )
+    .bind(story.id)
+    .bind(author)
+    .bind(body)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(err)?;
+    touch(&mut tx, story.id).await?;
+    tx.commit().await.map_err(err)?;
+    Ok(json!({
+        "id": id,
+        "key": story.key(),
+        "author_id": author,
+        "created_at": created_at,
+        "url": format!("flowboard://comment/{id}"),
+    }))
+}
+
 pub async fn link_add(pool: &SqlitePool, key: &str, depends_on: &str) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let story = load_story(&mut tx, key).await?;

@@ -2,6 +2,11 @@
 
 **All notable changes to this project will be documented in this file.**
 
+## [Unreleased]
+
+### Added
+- `flowboard-cli story comment <KEY> --body <text> | --body-file <file>` (and the `story_comment` MCP tool): post a comment on a Factory Story as the acting person (the agent by default). It returns the comment's id and a `flowboard://comment/<id>` link, which the Factory's Review uses as a round's findings link. Refused on legacy projects, on Subtasks and for an empty body (SF-58).
+
 ## [1.6.0] - 2026-10-22
 
 ### Added
