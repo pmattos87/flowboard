@@ -7,6 +7,8 @@ import type {
   Project,
   ReleaseDetail,
   ReleasePickResult,
+  StoryView,
+  TrailEvent,
   ReleaseSummary,
   Sprint,
   Task,
@@ -107,6 +109,12 @@ export const pickReleaseStory = (version: string, storyKey: string) =>
   invoke<ReleasePickResult>("pick_release_story", { version, storyKey });
 export const removeReleaseStory = (storyKey: string) =>
   invoke<{ story: string; removed_from: string }>("remove_release_story", { storyKey });
+
+// ─── Stories (Factory projects) ────────────────────────────
+
+export const getStory = (key: string) => invoke<StoryView>("get_story", { key });
+export const getStoryTrail = (key: string) => invoke<TrailEvent[]>("get_story_trail", { key });
+export const restartRun = (key: string) => invoke<StoryView>("restart_run", { key });
 
 // ─── Tasks ─────────────────────────────────────────────────
 
