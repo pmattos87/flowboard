@@ -292,6 +292,36 @@ async fn legacy_projects_are_refused() {
     assert!(mv(&fx, "LG-1", "refining").await.unwrap_err().contains("legacy"));
     let err = ops::project_set(&fx.pool, "LG", Some("factory"), None).await.unwrap_err();
     assert!(err.contains("open item"), "{err}");
+    let err = ops::story_comment(&fx.pool, "LG-1", "hi", Actor::Agent).await.unwrap_err();
+    assert!(err.contains("legacy"), "{err}");
+}
+
+#[tokio::test]
+async fn a_comment_is_posted_as_the_actor() {
+    let fx = setup("internal").await;
+    let s = story(&fx, "Commented").await;
+    let c = ops::story_comment(&fx.pool, &s, "## Findings\n- none", Actor::Agent).await.unwrap();
+    let id = c["id"].as_i64().unwrap();
+    assert_eq!(c["url"], format!("flowboard://comment/{id}"));
+    let (author, body): (i64, String) = sqlx::query_as("SELECT author_id, body FROM comments WHERE id = ?")
+        .bind(id)
+        .fetch_one(&fx.pool)
+        .await
+        .unwrap();
+    assert_eq!(author, fx.agent);
+    assert_eq!(body, "## Findings\n- none");
+
+    let c = ops::story_comment(&fx.pool, &s, "from Pedro", Actor::Owner).await.unwrap();
+    assert_eq!(c["author_id"], fx.pedro);
+}
+
+#[tokio::test]
+async fn a_comment_needs_a_body_and_a_story() {
+    let fx = setup("internal").await;
+    let s = story(&fx, "Parent").await;
+    assert!(ops::story_comment(&fx.pool, &s, "  \n", Actor::Agent).await.unwrap_err().contains("body"));
+    let sub = subtask(&fx, &s, false).await;
+    assert!(ops::story_comment(&fx.pool, &sub, "x", Actor::Agent).await.unwrap_err().contains("not a Story"));
 }
 
 #[tokio::test]

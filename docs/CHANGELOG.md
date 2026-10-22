@@ -5,6 +5,11 @@
 ## [Unreleased]
 
 ### Added
+- `flowboard-cli story comment <KEY> --body <text> | --body-file <file>` (and the `story_comment` MCP tool): post a comment on a Factory Story as the acting person (the agent by default). It returns the comment's id and a `flowboard://comment/<id>` link, which the Factory's Review uses as a round's findings link. Refused on legacy projects, on Subtasks and for an empty body (SF-58).
+
+## [1.6.0] - 2026-10-22
+
+### Added
 - Task descriptions render as Markdown (headings, lists, inline and fenced code) in the task detail panel. Click the description, or press Enter on it, to edit the raw text; leaving the field saves it unchanged. Links show as text and images are not loaded (`react-markdown`, D-012, FB-100).
 - `flowboard-cli release list` / `release set-version` (and the `release_list` / `release_set_version` MCP tools): list a Factory project's Releases with their state and Story count, and change a Release's version while it is still planned (SF-43).
 - **Releases** page (sidebar) on Factory projects: Releases grouped by state, each open one listing its picked Stories (Remove) and the tested Stories not yet in a Release (Pick). **New release** picks the ticked tested Stories and suggests the version: the last released version with the minor bumped if any ticked branch is `feat/`, otherwise the patch; empty before the first release. A pick's depends-on warnings show as a toast. Every action goes through the Factory's Release operations, as the owner (SF-44).
