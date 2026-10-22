@@ -223,14 +223,25 @@ export function RunGraphView({ graph }: { graph: RunGraph }) {
 
   const width = contentWidth + 2 * PAD;
   const height = bugY + 32;
+  // Each lane sits in a dim box. The boxes leave the gaps between them to the
+  // long connections, and the left padding to the return loops.
+  const laneX = PAD - 10;
+  const laneW = contentWidth + 20;
   const lanes = [
-    { y: planLabelY, label: "PLAN" },
-    { y: buildLabelY, label: "BUILD · PER-SUBTASK LOOP" },
-    { y: shipLabelY, label: "REVIEW → INTEGRATE → RELEASE" },
+    { label: "PLAN", top: planLabelY - 10, bottom: planY + H + 22 },
+    { label: "BUILD · PER-SUBTASK LOOP", top: buildLabelY - 10, bottom: buildBottom + 12 },
+    { label: "REVIEW → INTEGRATE → RELEASE", top: shipLabelY - 10, bottom: bugY + 14 },
   ];
 
   return (
     <FitFrame width={width} height={height}>
+        {lanes.map((l) => (
+          <div
+            key={l.label}
+            className="absolute rounded-xl border border-gray-800/70 bg-white/[0.02]"
+            style={{ left: laneX, top: l.top, width: laneW, height: l.bottom - l.top }}
+          />
+        ))}
         <svg className="absolute inset-0" width={width} height={height}>
           {edges.map((e, i) => {
             const st = edgeStyle(e);
@@ -258,8 +269,8 @@ export function RunGraphView({ graph }: { graph: RunGraph }) {
           })}
         </svg>
         {lanes.map((l) => (
-          // The canvas colour behind the text, so a wire passing under a lane title breaks around it.
-          <div key={l.label} className="absolute text-[10px] tracking-widest text-gray-500 font-semibold bg-[#0b0d12] px-1 -ml-1" style={{ left: PAD, top: l.y }}>
+          // The lane box's colour behind the text, so a wire passing under a lane title breaks around it.
+          <div key={l.label} className="absolute text-[10px] tracking-widest text-gray-500 font-semibold bg-[#101217] px-1 -ml-1" style={{ left: PAD, top: l.top + 10 }}>
             {l.label}
           </div>
         ))}

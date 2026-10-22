@@ -174,7 +174,7 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
   const failedRounds = reviewRounds.filter((e) => str(obj(e).verdict) === "failed").length;
   const review: RunNode = {
     id: "review",
-    title: "Codex Review",
+    title: "Code review",
     kind: "review",
     caption: reviewRounds.length > 0 ? `round ${reviewRounds.length} · ${lastVerdict}` : "whole Story diff",
     state:
