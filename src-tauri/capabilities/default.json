@@ -10,6 +10,7 @@
     { "identifier": "fs:allow-stat", "allow": [{ "path": "$HOME/**" }] },
     "notification:default",
     { "identifier": "opener:allow-open-path", "allow": [{ "path": "$HOME/**" }] },
+    { "identifier": "opener:allow-open-url", "allow": [{ "url": "https://github.com/*" }] },
     "sql:default"
   ]
 }

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
   ActivityLog,
   Attachment,
@@ -115,6 +116,8 @@ export const removeReleaseStory = (storyKey: string) =>
 export const getStory = (key: string) => invoke<StoryView>("get_story", { key });
 export const getStoryTrail = (key: string) => invoke<TrailEvent[]>("get_story_trail", { key });
 export const restartRun = (key: string) => invoke<StoryView>("restart_run", { key });
+/** Opens a GitHub page in the browser; the capability allows https://github.com/* only. */
+export const openGithubUrl = (url: string) => openUrl(url);
 
 // ─── Tasks ─────────────────────────────────────────────────
 

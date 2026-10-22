@@ -1,5 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ExternalLink } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { MarkdownDescription } from "@/components/MarkdownDescription";
 import { TaskFields, useTaskDraft } from "@/components/TaskFields";
@@ -10,9 +11,11 @@ import { useTasks } from "@/hooks/useTasks";
 import { useRestartRun, useStory, useStoryTrail } from "@/hooks/useStory";
 import { statusOptionsForType } from "@/features/boards/shared/boardConstants";
 import { cn } from "@/lib/utils";
+import { openGithubUrl } from "@/lib/commands";
 import type { StoryView, TrailEvent } from "@/types";
 import { StoryFlags } from "./StoryFlags";
 import { StorySubtasks } from "./StorySubtasks";
+import { branchUrl, githubRepoUrl, prLabel } from "./githubLinks";
 
 // The dedicated Story page of a Factory project (SF-61). It replaces the
 // detail slide-over for Stories there; legacy projects keep the slide-over.
@@ -20,23 +23,42 @@ import { StorySubtasks } from "./StorySubtasks";
 const H3 = "text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3";
 const CARD = "rounded-lg border border-gray-800 bg-gray-900 p-4";
 
+const FIELD_CLS = "min-h-8 flex items-center gap-1.5 px-2 py-1 rounded-md bg-gray-800 border border-gray-700 text-sm break-all";
+
 function LinkField({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="space-y-1">
       <div className="text-gray-500 text-[11px]">{label}</div>
-      <div
-        className={cn(
-          "min-h-8 flex items-center px-2 py-1 rounded-md bg-gray-800 border border-gray-700 text-gray-200 text-sm break-all select-text",
-          mono && "font-mono text-xs",
-        )}
-      >
-        {value}
-      </div>
+      <div className={cn(FIELD_CLS, "text-gray-200 select-text", mono && "font-mono text-xs")}>{value}</div>
+    </div>
+  );
+}
+
+/** One GitHub page per row, opened in the browser. */
+function GithubLinks({ label, links }: { label: string; links: { text: string; url: string }[] }) {
+  return (
+    <div className="space-y-1">
+      <div className="text-gray-500 text-[11px]">{label}</div>
+      {links.map((l) => (
+        <button
+          key={l.url}
+          type="button"
+          onClick={() =>
+            openGithubUrl(l.url).catch((err) => toast.error(`Failed to open ${l.url}: ${String(err)}`))
+          }
+          title={l.url}
+          className={cn(FIELD_CLS, "w-full text-left font-mono text-xs text-blue-400 hover:text-blue-300 hover:border-gray-600")}
+        >
+          <span className="flex-1">{l.text}</span>
+          <ExternalLink className="h-3 w-3 shrink-0" />
+        </button>
+      ))}
     </div>
   );
 }
 
 function LinksCard({ story }: { story: StoryView }) {
+  const repo = githubRepoUrl(story.prs);
   const review = story.review.verdict
     ? `${story.review.verdict}${story.review.commit ? ` · ${story.review.commit.slice(0, 7)}` : ""}`
     : "— not reviewed";
@@ -44,12 +66,19 @@ function LinksCard({ story }: { story: StoryView }) {
     <section className={CARD}>
       <h3 className={H3}>Links</h3>
       <div className="space-y-2">
-        <LinkField label="Feature branch" value={story.feature_branch ?? "— not cut"} mono={story.feature_branch != null} />
-        <LinkField
-          label="PR"
-          value={story.prs.length > 0 ? story.prs.map((p) => `${p.url} (${p.state} → ${p.target})`).join("\n") : "— not opened"}
-          mono={story.prs.length > 0}
-        />
+        {story.feature_branch && repo ? (
+          <GithubLinks
+            label="Feature branch"
+            links={[{ text: story.feature_branch, url: branchUrl(repo, story.feature_branch) }]}
+          />
+        ) : (
+          <LinkField label="Feature branch" value={story.feature_branch ?? "— not cut"} mono={story.feature_branch != null} />
+        )}
+        {story.prs.length > 0 ? (
+          <GithubLinks label="PR" links={story.prs.map((p) => ({ text: prLabel(p), url: p.url }))} />
+        ) : (
+          <LinkField label="PR" value="— not opened" />
+        )}
         <LinkField label="Review verdict" value={review} />
         <LinkField
           label="Release"

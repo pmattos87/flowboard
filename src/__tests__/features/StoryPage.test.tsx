@@ -6,8 +6,10 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { StoryPage } from "@/features/story/StoryPage";
 import type { StoryView } from "@/types";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(() => Promise.resolve()) }));
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }));
@@ -102,6 +104,18 @@ describe("StoryPage", () => {
     await screen.findByDisplayValue("Export contract");
     expect(screen.queryByRole("button", { name: "Restart Run" })).not.toBeInTheDocument();
     expect(screen.queryByText("stopped")).not.toBeInTheDocument();
+  });
+
+  it("links the branch and PR to GitHub once a PR exists", async () => {
+    setupInvoke(
+      factoryProject,
+      storyView({ prs: [{ url: "https://github.com/o/r/pull/77", state: "open", target: "develop" }] }),
+    );
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: /feat\/FB-12-export/ }));
+    expect(openUrl).toHaveBeenCalledWith("https://github.com/o/r/tree/feat/FB-12-export");
+    await userEvent.click(screen.getByRole("button", { name: /#77 · open → develop/ }));
+    expect(openUrl).toHaveBeenCalledWith("https://github.com/o/r/pull/77");
   });
 
   it("refuses a legacy project without asking for the Story", async () => {
