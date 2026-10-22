@@ -2,7 +2,7 @@
 
 **All notable changes to this project will be documented in this file.**
 
-## [Unreleased]
+## [1.6.0] - 2026-10-22
 
 ### Added
 - Task descriptions render as Markdown (headings, lists, inline and fenced code) in the task detail panel. Click the description, or press Enter on it, to edit the raw text; leaving the field saves it unchanged. Links show as text and images are not loaded (`react-markdown`, D-012, FB-100).
@@ -11,6 +11,14 @@
 
 ### Changed
 - Moving a Release moves its picked Stories in the same transaction: `user_testing` sends them to user_testing, `released` to done, each through the Story ladder with its trail event. The move is refused, and nothing changes, when the Release has no picks or a pick isn't tested (or user_testing, for a Release leaving user_testing) (SF-43).
+- The Releases page is tidier: content is centered at a max width, and the Planned, User testing, Released and Canceled headings show a count badge. An open Release card (planned or user testing) shows the version on the left and a readiness summary on the right (for example "2 stories · 1 tested · 1 building", with coloured dots), above a Story / Status / Action table: the title over a muted key, a coloured status pill (emerald for tested or done, amber for building, integrated tests or user testing, gray otherwise) and outlined Remove buttons with accessible labels. The "Tested, not in a release" candidates sit under the table in the same row layout, with a Tested pill and an outlined Pick button. Released and canceled Releases are compact collapsible rows (version, story count, state pill, and the release date for released) that load their Stories only when expanded, without an Action column. Display only: no data, hook or backend changes (FB-110).
+
+### Changed
+- The task detail panel's Delete button is now **Cancel task**: it sets the status to `canceled` without a confirmation, keeps comments, time logs, attachments and activity, and is hidden on canceled or done issues. Reopen through the Status picker. Canceling a Story does not cancel its open Subtasks (FB-98, FB-106).
+- On the Factory ladder `canceled` is no longer terminal: a canceled Story reopens to `backlog`, `refining` or `ready` (inside a sprint only `ready`), and a canceled Subtask to `todo`. `done` stays terminal. The flowboard MCP and CLI accept these moves (FB-105).
+
+### Removed
+- The `delete_task` Tauri command, its `deleteTask` wrapper and the `useDeleteTask` hook. The app has no hard-delete path for an issue (FB-107).
 
 ## [1.5.1] - 2026-08-05
 

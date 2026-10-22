@@ -9,7 +9,6 @@ import {
   useTask,
   useCreateTask,
   useUpdateTask,
-  useDeleteTask,
   taskKeys,
 } from "@/hooks/useTasks";
 
@@ -128,17 +127,5 @@ describe("useUpdateTask", () => {
     expect(mockToast.success).toHaveBeenCalledWith("Task updated", {
       description: `"${fakeTask.title}" → done`,
     });
-  });
-});
-
-describe("useDeleteTask", () => {
-  it("calls deleteTask and invalidates taskKeys.all", async () => {
-    mockInvoke.mockResolvedValueOnce(undefined);
-    const { wrapper, qc } = makeWrapper();
-    const invalidate = vi.spyOn(qc, "invalidateQueries");
-    const { result } = renderHook(() => useDeleteTask(), { wrapper });
-    await result.current.mutateAsync(1);
-    expect(mockInvoke).toHaveBeenCalledWith("delete_task", { id: 1 });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: taskKeys.all });
   });
 });
