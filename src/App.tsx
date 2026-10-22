@@ -15,12 +15,15 @@ import ReportsPage from "@/features/reports/ReportsPage";
 import ReleasesPage from "@/features/releases/ReleasesPage";
 import { StoryPage } from "@/features/story/StoryPage";
 import { ActiveRunsPage } from "@/features/story/ActiveRunsPage";
+import { useDbChangeSync } from "@/hooks/useDbChangeSync";
 import About from "@/pages/About";
 import Inbox from "@/pages/Inbox";
 import People from "@/pages/People";
 import Settings from "@/pages/Settings";
 
 function App() {
+  useDbChangeSync();
+
   return (
     <HashRouter>
       <Routes>
