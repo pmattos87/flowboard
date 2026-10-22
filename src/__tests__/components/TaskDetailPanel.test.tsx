@@ -279,35 +279,150 @@ describe("TaskDetailPanel — Time Logs visibility (FB-31)", () => {
   });
 });
 
-describe("TaskDetailPanel — delete task (FB-3)", () => {
-  it("trash → confirm invokes delete_task and closes the panel", async () => {
-    setupInvoke();
+describe("TaskDetailPanel — cancel task (FB-3, FB-98)", () => {
+  function setupWithTask(taskOverride: Record<string, unknown>) {
+    const t = { ...fakeTask, ...taskOverride };
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "get_task") return Promise.resolve(t);
+      if (cmd === "get_project") return Promise.resolve(fakeProject);
+      if (cmd === "list_people") return Promise.resolve([]);
+      if (cmd === "list_sprints") return Promise.resolve([]);
+      if (cmd === "list_tasks") return Promise.resolve([t]);
+      if (cmd === "list_comments") return Promise.resolve([]);
+      if (cmd === "list_time_logs") return Promise.resolve([]);
+      if (cmd === "list_attachments") return Promise.resolve([]);
+      if (cmd === "update_task") return Promise.resolve(t);
+      return Promise.resolve(null);
+    });
+  }
+
+  function statusSelect() {
+    return screen.getAllByRole("combobox").find((el) =>
+      Array.from((el as HTMLSelectElement).options).some((o) => o.value === "canceled"),
+    ) as HTMLSelectElement;
+  }
+
+  // Every non-read command invoked since call index `from`. "Never deletes"
+  // means the only write a Cancel makes is update_task.
+  function writesSince(from: number) {
+    return mockInvoke.mock.calls
+      .slice(from)
+      .map(([cmd]) => cmd)
+      .filter((cmd) => !/^(get|list)_/.test(cmd));
+  }
+
+  it("Cancel task sets status canceled, never deletes, opens no dialog and keeps the panel open", async () => {
+    setupWithTask({});
     const user = userEvent.setup();
     useUiStore.setState({ selectedTaskId: 7 });
     renderPanel();
     await waitFor(() => expect(screen.getByDisplayValue("Fix login bug")).toBeInTheDocument());
 
-    await user.click(screen.getByRole("button", { name: /delete task/i }));
-    // Confirmation popup appears, then confirm.
-    const confirmBtn = await screen.findByRole("button", { name: /^delete$/i });
-    await user.click(confirmBtn);
+    const before = mockInvoke.mock.calls.length;
+    await user.click(screen.getByRole("button", { name: /cancel task/i }));
 
-    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith("delete_task", { id: 7 }));
-    expect(useUiStore.getState().selectedTaskId).toBeNull();
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("update_task", {
+        id: 7,
+        payload: { status: "canceled" },
+      }),
+    );
+    expect(writesSince(before)).toEqual(["update_task"]);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(useUiStore.getState().selectedTaskId).toBe(7);
+    expect(statusSelect().value).toBe("canceled");
   });
 
-  it("cancel in the confirmation popup does not delete", async () => {
-    setupInvoke();
+  it("hides Cancel task when the issue is already canceled", async () => {
+    setupWithTask({ status: "canceled" });
+    useUiStore.setState({ selectedTaskId: 7 });
+    renderPanel();
+    await waitFor(() => expect(screen.getByDisplayValue("Fix login bug")).toBeInTheDocument());
+
+    expect(screen.queryByRole("button", { name: /cancel task/i })).not.toBeInTheDocument();
+  });
+
+  it("hides Cancel task when the issue is done", async () => {
+    setupWithTask({ status: "done" });
+    useUiStore.setState({ selectedTaskId: 7 });
+    renderPanel();
+    await waitFor(() => expect(screen.getByDisplayValue("Fix login bug")).toBeInTheDocument());
+
+    expect(screen.queryByRole("button", { name: /cancel task/i })).not.toBeInTheDocument();
+  });
+
+  it("reopens a canceled issue through the Status picker", async () => {
+    setupWithTask({ status: "canceled" });
     const user = userEvent.setup();
     useUiStore.setState({ selectedTaskId: 7 });
     renderPanel();
     await waitFor(() => expect(screen.getByDisplayValue("Fix login bug")).toBeInTheDocument());
 
-    await user.click(screen.getByRole("button", { name: /delete task/i }));
-    await user.click(await screen.findByRole("button", { name: /cancel/i }));
+    await user.selectOptions(statusSelect(), "todo");
 
-    expect(mockInvoke).not.toHaveBeenCalledWith("delete_task", expect.anything());
-    expect(useUiStore.getState().selectedTaskId).toBe(7);
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("update_task", {
+        id: 7,
+        payload: { status: "todo" },
+      }),
+    );
+  });
+
+  it("on a factory-ladder Story, cancels and then reopens to backlog through update_task", async () => {
+    let current: Record<string, unknown> = {
+      ...fakeTask,
+      type: "story",
+      status: "refining",
+    };
+    mockInvoke.mockImplementation((cmd, args) => {
+      if (cmd === "get_task") return Promise.resolve(current);
+      if (cmd === "get_project") return Promise.resolve({ ...fakeProject, ladder: "factory" });
+      if (cmd === "list_people") return Promise.resolve([]);
+      if (cmd === "list_sprints") return Promise.resolve([]);
+      if (cmd === "list_tasks") return Promise.resolve([current]);
+      if (cmd === "list_comments") return Promise.resolve([]);
+      if (cmd === "list_time_logs") return Promise.resolve([]);
+      if (cmd === "list_attachments") return Promise.resolve([]);
+      if (cmd === "update_task") {
+        const { payload } = args as { payload: Record<string, unknown> };
+        current = { ...current, ...payload };
+        return Promise.resolve(current);
+      }
+      return Promise.resolve(null);
+    });
+    const user = userEvent.setup();
+    useUiStore.setState({ selectedTaskId: 7 });
+    renderPanel();
+    await waitFor(() => expect(screen.getByDisplayValue("Fix login bug")).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: /cancel task/i }));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("update_task", {
+        id: 7,
+        payload: { status: "canceled" },
+      }),
+    );
+    // After the refetch the Cancel button is gone and the picker shows canceled.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /cancel task/i })).not.toBeInTheDocument(),
+    );
+    const select = statusSelect();
+    expect(select.value).toBe("canceled");
+    const values = Array.from(select.options).map((o) => o.value);
+    expect(values).toContain("backlog");
+
+    await user.selectOptions(select, "backlog");
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("update_task", {
+        id: 7,
+        payload: { status: "backlog" },
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /cancel task/i })).toBeInTheDocument(),
+    );
+    // Cancel and reopen are the only writes: two update_task calls, no delete.
+    expect(writesSince(0)).toEqual(["update_task", "update_task"]);
   });
 });
 
@@ -448,7 +563,7 @@ describe("CommentsSection — edit a comment (FB-46)", () => {
     await user.click(await screen.findByRole("button", { name: /edit comment/i }));
     await user.clear(screen.getByLabelText(/edit comment body/i));
     await user.type(screen.getByLabelText(/edit comment body/i), "Discarded");
-    await user.click(screen.getByRole("button", { name: /cancel/i }));
+    await user.click(screen.getByRole("button", { name: /^cancel$/i }));
 
     expect(mockInvoke).not.toHaveBeenCalledWith("update_comment", expect.anything());
     expect(screen.getByText("Original body")).toBeInTheDocument();

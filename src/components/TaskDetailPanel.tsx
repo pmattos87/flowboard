@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  Ban,
   BookOpen,
   Bug,
   CheckSquare,
@@ -13,18 +14,10 @@ import {
 import { open as openFilePicker } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useDeleteTask, useTask, useTasks, useUpdateTask } from "@/hooks/useTasks";
+import { useTask, useTasks, useUpdateTask } from "@/hooks/useTasks";
 import {
   useComments,
   useCreateComment,
@@ -627,8 +620,6 @@ export function TaskDetailPanel() {
 
   const { data: task, isLoading } = useTask(selectedTaskId);
   const updateTask = useUpdateTask();
-  const deleteTask = useDeleteTask();
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const { data: people } = usePeople();
   const { data: sprints } = useSprints(task?.project_id);
   const { data: project } = useProject(task?.project_id);
@@ -688,16 +679,10 @@ export function TaskDetailPanel() {
   const sprintsSafe = sprints ?? [];
   const storyOptions = (projectTasks ?? []).filter((t) => t.type === "story");
   const showParent = task?.type === "task" || task?.type === "bug";
-  const childCount = task
-    ? (projectTasks ?? []).filter((t) => t.parent_id === task.id).length
-    : 0;
 
-  const handleDelete = async () => {
-    if (!task) return;
-    await deleteTask.mutateAsync(task.id);
-    setConfirmDelete(false);
-    setSelectedTaskId(null);
-  };
+  // Cancel is reversible (reopen via the Status picker), so no confirmation and
+  // the panel stays open. Only this issue is canceled, never its children.
+  const handleCancel = () => handleSelectChange("status", "canceled", "canceled");
 
   // Reparenting to a story inherits the story's sprint so the child stays in the
   // same sprint as its parent (matches the Task Board DnD reparent behavior).
@@ -746,14 +731,14 @@ export function TaskDetailPanel() {
             </span>
           )}
           <div className="flex-1" />
-          {task && (
+          {task && task.status !== "canceled" && task.status !== "done" && (
             <button
               type="button"
-              onClick={() => setConfirmDelete(true)}
+              onClick={handleCancel}
               className="p-1.5 rounded text-gray-500 hover:text-red-400 hover:bg-gray-800 transition-colors"
-              aria-label="Delete task"
+              aria-label="Cancel task"
             >
-              <Trash2 className="h-4 w-4" />
+              <Ban className="h-4 w-4" />
             </button>
           )}
           <button
@@ -968,38 +953,6 @@ export function TaskDetailPanel() {
           )}
         </div>
       </div>
-
-      {/* Delete confirmation */}
-      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <DialogContent className="bg-gray-900 border-gray-800 text-gray-100">
-          <DialogHeader>
-            <DialogTitle>Delete {taskKey}?</DialogTitle>
-            <DialogDescription className="text-gray-400">
-              {childCount > 0
-                ? `This will also delete its ${childCount} subtask${childCount === 1 ? "" : "s"}. This can't be undone.`
-                : "This can't be undone."}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setConfirmDelete(false)}
-              className="bg-transparent border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white"
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleteTask.isPending}
-            >
-              {deleteTask.isPending ? "Deleting…" : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

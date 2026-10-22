@@ -12,6 +12,13 @@
 ### Changed
 - Moving a Release moves its picked Stories in the same transaction: `user_testing` sends them to user_testing, `released` to done, each through the Story ladder with its trail event. The move is refused, and nothing changes, when the Release has no picks or a pick isn't tested (or user_testing, for a Release leaving user_testing) (SF-43).
 
+### Changed
+- The task detail panel's Delete button is now **Cancel task**: it sets the status to `canceled` without a confirmation, keeps comments, time logs, attachments and activity, and is hidden on canceled or done issues. Reopen through the Status picker. Canceling a Story does not cancel its open Subtasks (FB-98, FB-106).
+- On the Factory ladder `canceled` is no longer terminal: a canceled Story reopens to `backlog`, `refining` or `ready` (inside a sprint only `ready`), and a canceled Subtask to `todo`. `done` stays terminal. The flowboard MCP and CLI accept these moves (FB-105).
+
+### Removed
+- The `delete_task` Tauri command, its `deleteTask` wrapper and the `useDeleteTask` hook. The app has no hard-delete path for an issue (FB-107).
+
 ## [1.5.1] - 2026-08-05
 
 ### Added

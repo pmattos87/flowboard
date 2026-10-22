@@ -75,6 +75,9 @@ fn story_edge(from: &str, to: &str) -> bool {
             | ("tested", "done")
             | ("user_testing", "building")
             | ("user_testing", "done")
+            | ("canceled", "backlog")
+            | ("canceled", "refining")
+            | ("canceled", "ready")
     )
 }
 
@@ -145,6 +148,7 @@ pub fn check_subtask_move(from: &str, to: &str) -> Result<(), String> {
                 | ("in_progress", "todo")
                 | ("in_progress", "done")
                 | ("in_progress", "canceled")
+                | ("canceled", "todo")
         );
     if legal {
         Ok(())
@@ -232,9 +236,26 @@ mod tests {
 
     #[test]
     fn finished_stories_cannot_move() {
-        for s in ["done", "canceled"] {
-            for to in STORY_STATUSES {
-                assert!(check_story_move(&facts(s), to).is_err(), "{s} -> {to}");
+        for to in STORY_STATUSES {
+            assert!(check_story_move(&facts("done"), to).is_err(), "done -> {to}");
+        }
+    }
+
+    #[test]
+    fn canceled_stories_can_be_reopened() {
+        let mut f = facts("canceled");
+        f.in_sprint = false;
+        for to in ["backlog", "refining", "ready"] {
+            check_story_move(&f, to).unwrap_or_else(|e| panic!("canceled -> {to}: {e}"));
+        }
+        f.in_sprint = true;
+        check_story_move(&f, "ready").unwrap();
+        let err = check_story_move(&f, "refining").unwrap_err();
+        assert!(err.contains("remove it from the sprint"), "{err}");
+        for in_sprint in [false, true] {
+            f.in_sprint = in_sprint;
+            for to in ["building", "integrated_tests", "tested", "user_testing", "done", "canceled"] {
+                assert!(check_story_move(&f, to).is_err(), "canceled -> {to}");
             }
         }
     }
@@ -348,6 +369,9 @@ mod tests {
         check_subtask_move("todo", "canceled").unwrap();
         assert!(check_subtask_move("todo", "done").is_err());
         assert!(check_subtask_move("done", "in_progress").is_err());
+        check_subtask_move("canceled", "todo").unwrap();
+        assert!(check_subtask_move("canceled", "in_progress").is_err());
+        assert!(check_subtask_move("canceled", "done").is_err());
         assert!(check_subtask_move("todo", "in_review").is_err());
     }
 

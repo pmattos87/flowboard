@@ -157,7 +157,6 @@ export const listTasks = (filters?: TaskListFilters) =>
 export const getTask = (id: number) => invoke<Task>("get_task", { id });
 export const updateTask = (id: number, payload: TaskUpdatePayload) =>
   invoke<Task>("update_task", { id, payload });
-export const deleteTask = (id: number) => invoke<void>("delete_task", { id });
 
 // ─── Comments ──────────────────────────────────────────────
 
