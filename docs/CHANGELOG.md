@@ -2,7 +2,7 @@
 
 **All notable changes to this project will be documented in this file.**
 
-## [Unreleased]
+## [1.6.0] - 2026-10-22
 
 ### Added
 - Task descriptions render as Markdown (headings, lists, inline and fenced code) in the task detail panel. Click the description, or press Enter on it, to edit the raw text; leaving the field saves it unchanged. Links show as text and images are not loaded (`react-markdown`, D-012, FB-100).
