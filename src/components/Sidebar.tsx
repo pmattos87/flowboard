@@ -11,6 +11,7 @@ import {
   Package,
   Plus,
   Settings as SettingsIcon,
+  Workflow,
   Users,
 } from "lucide-react";
 import {
@@ -40,6 +41,7 @@ const NAV_ITEMS = [
   { to: "/roadmap", label: "Roadmap", icon: MapIcon },
   { to: "/reports", label: "Reports", icon: BarChart3 },
   { to: "/releases", label: "Releases", icon: Package },
+  { to: "/runs", label: "Active Runs", icon: Workflow },
   { to: "/people", label: "People", icon: Users },
   { to: "/inbox", label: "Inbox", icon: Inbox },
 ];
