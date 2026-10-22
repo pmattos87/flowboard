@@ -6,19 +6,29 @@ use std::str::FromStr;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
+pub mod watch;
+
 pub static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 /// Open (and create on first run) the SQLite pool at `<appDataDir>/flowboard.db`,
 /// applying all pending migrations first.
 pub async fn init_pool(app: &AppHandle) -> Result<SqlitePool, String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("failed to resolve app data dir: {e}"))?;
+    let app_data_dir = app_data_dir(app)?;
     std::fs::create_dir_all(&app_data_dir)
         .map_err(|e| format!("failed to create app data dir: {e}"))?;
 
     open_and_migrate(&app_data_dir.join("flowboard.db")).await
+}
+
+fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map_err(|e| format!("failed to resolve app data dir: {e}"))
+}
+
+/// Path of the app database; the file exists once `init_pool` has run.
+pub fn db_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app_data_dir(app)?.join("flowboard.db"))
 }
 
 fn sqlite_url(path: &Path, mode: &str) -> String {
