@@ -16,7 +16,7 @@ const KIND: Record<NodeKind, { Icon: LucideIcon; cls: string; label: string }> =
   flowboard: { Icon: LayoutGrid, cls: "text-blue-400",   label: "FLOWBOARD" },
   agent:     { Icon: Bot,        cls: "text-teal-400",   label: "AGENT" },
   git:       { Icon: GitBranch,  cls: "text-gray-400",   label: "GIT" },
-  review:    { Icon: Search,     cls: "text-pink-400",   label: "REVIEW" },
+  review:    { Icon: Search,     cls: "text-indigo-400", label: "REVIEW" },
   skill:     { Icon: Send,       cls: "text-green-400",  label: "SKILL" },
 };
 
@@ -98,7 +98,7 @@ interface Edge { a: Box; b: Box; pts?: [number, number][]; label?: string; lx?: 
 
 function edgeStyle(e: Edge) {
   if (e.loop === "bug") return e.active ? { stroke: "#f59e0b", dash: "6 5", op: 0.85 } : { stroke: "#4b5563", dash: "6 5", op: 0.6 };
-  if (e.loop === "findings") return e.active ? { stroke: "#ec4899", dash: "6 5", op: 0.85 } : { stroke: "#4b5563", dash: "6 5", op: 0.6 };
+  if (e.loop === "findings") return e.active ? { stroke: "#818cf8", dash: "6 5", op: 0.85 } : { stroke: "#4b5563", dash: "6 5", op: 0.6 };
   if (e.a.state === "stopped" || e.b.state === "stopped") return { stroke: "#ef4444", dash: "", op: 0.9 };
   if (e.a.state !== "todo" && e.b.state !== "todo") return { stroke: "#34d399", dash: "", op: 0.7 };
   return { stroke: "#4b5563", dash: "5 5", op: 0.8 };
