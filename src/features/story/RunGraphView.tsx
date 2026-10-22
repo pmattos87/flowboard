@@ -1,4 +1,5 @@
-import { Bot, Clock, GitBranch, LayoutGrid, Search, Send, Sparkles, Zap } from "lucide-react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { Bot, Clock, GitBranch, LayoutGrid, Maximize2, Search, Send, Sparkles, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { NodeKind, NodeState, RunGraph, RunNode, SubtaskNode } from "./runGraph";
@@ -7,7 +8,14 @@ import type { NodeKind, NodeState, RunGraph, RunNode, SubtaskNode } from "./runG
 // docs/reference/run-view-mockup.png but drawn for this Run: Plan, Build (one
 // node per Subtask) and Review → Production, with the findings and bug loops.
 
-const W = 196, H = 56, SW = 196, SH = 50, COL = 250, X0 = 20;
+const W = 196, H = 56, SW = 196, SH = 50;
+/** Gap between nodes in a row, and inside the Build group. */
+const GAP = 80, BUILD_GAP = 90;
+const COL = W + GAP;
+/** Outer padding; the return loops run in the left padding, clear of every card. */
+const PAD = 48;
+const BUG_X = 14, FIX_X = 30;
+const SUB_STEP = SH + 22;
 
 const KIND: Record<NodeKind, { Icon: LucideIcon; cls: string; label: string }> = {
   trigger:   { Icon: Zap,        cls: "text-amber-400",  label: "TRIGGER" },
@@ -122,89 +130,107 @@ export function RunGraphView({ graph }: { graph: RunGraph }) {
     return box;
   };
 
+  // Every row is centered over the widest one (the Review row, usually).
+  const rowWidth = (n: number) => n * W + (n - 1) * GAP;
+  const buildWidth = W + BUILD_GAP + SW + BUILD_GAP + W + BUILD_GAP + W;
+  const contentWidth = Math.max(rowWidth(graph.plan.length), rowWidth(graph.ship.length), buildWidth);
+  const centered = (w: number) => PAD + (contentWidth - w) / 2;
+
   // Plan
-  const planY = 38;
-  const plan = graph.plan.map((n, i) => place(n, X0 + i * COL, planY));
+  const planLabelY = 16;
+  const planY = planLabelY + 28;
+  const planX = centered(rowWidth(graph.plan.length));
+  const plan = graph.plan.map((n, i) => place(n, planX + i * COL, planY));
   plan.slice(1).forEach((b, i) => edges.push({ a: plan[i], b }));
 
-  // Build: Subtasks fan out from the Orchestrator and back into Verify.
-  const buildLabelY = 150;
-  const subTop = buildLabelY + 32;
+  // Build: Subtasks fan out from the Orchestrator and back into Verify, both
+  // centered on the stack.
+  const startTurnY = planY + H + 40;
+  const buildLabelY = startTurnY + 30;
+  const subTop = buildLabelY + 40;
   const count = Math.max(graph.subtasks.length, 1);
-  const subsHeight = count * (SH + 16) - 16;
+  const subsHeight = count * SUB_STEP - (SUB_STEP - SH);
   const mid = subTop + subsHeight / 2;
-  const orch = place(graph.orchestrator, X0, mid - H / 2);
+  const buildX = centered(buildWidth);
+  const subX = buildX + W + BUILD_GAP;
+  const verifyX = subX + SW + BUILD_GAP;
+  const branchX = verifyX + W + BUILD_GAP;
+  const branch = Math.max(86, subsHeight / 2 - H / 2);
+  const orch = place(graph.orchestrator, buildX, mid - H / 2);
   const subBoxes: Box[] = graph.subtasks.map((s, i) => {
-    const box = { x: 260, y: subTop + i * (SH + 16), w: SW, h: SH, state: s.state };
+    const box = { x: subX, y: subTop + i * SUB_STEP, w: SW, h: SH, state: s.state };
     nodes.push({ box, el: <SubtaskBox key={s.id} node={s} x={box.x} y={box.y} /> });
     return box;
   });
-  const verify = place(graph.verify, 540, mid - H / 2);
-  const stop = place(graph.stop, 800, mid - H / 2 - 72);
-  const docs = place(graph.docs, 800, mid - H / 2 + 72);
+  const verify = place(graph.verify, verifyX, mid - H / 2);
+  const stop = place(graph.stop, branchX, mid - H / 2 - branch);
+  const docs = place(graph.docs, branchX, mid - H / 2 + branch);
   const start = plan[plan.length - 1];
   const startX = start.x + W / 2;
+  const orchX = orch.x + W / 2;
   edges.push({
-    a: start, b: orch, label: "Pedro starts the Run", lx: (startX + X0 + W / 2) / 2, ly: 128,
-    pts: [[startX, planY + H], [startX, 128], [X0 + W / 2, 128], [X0 + W / 2, orch.y]],
+    a: start, b: orch, label: "Pedro starts the Run", lx: (startX + orchX) / 2, ly: startTurnY,
+    pts: [[startX, planY + H], [startX, startTurnY], [orchX, startTurnY], [orchX, orch.y]],
   });
   if (subBoxes.length === 0) edges.push({ a: orch, b: verify });
   subBoxes.forEach((b) => edges.push({ a: orch, b }, { a: b, b: verify }));
   edges.push({ a: verify, b: stop, label: "fails twice" }, { a: verify, b: docs, label: "all pass" });
 
   // Review → Integrate → Release → Production
-  const buildBottom = Math.max(subTop + subsHeight, docs.y + H + 20);
-  const shipLabelY = buildBottom + 40;
-  const shipY = shipLabelY + 26;
-  const ship = graph.ship.map((n, i) => place(n, X0 + i * COL, shipY));
-  const fix = place(graph.fix, X0 + COL, shipY + 118);
-  const turnY = shipLabelY - 16;
+  const buildBottom = Math.max(subTop + subsHeight, docs.y + H + 22);
+  const turnY = buildBottom + 36;
+  const shipLabelY = turnY + 26;
+  const shipY = shipLabelY + 30;
+  const shipX = centered(rowWidth(graph.ship.length));
+  const ship = graph.ship.map((n, i) => place(n, shipX + i * COL, shipY));
+  const fix = place(graph.fix, shipX + COL, shipY + H + 64);
+  const reviewX = shipX + W / 2;
+  const turnRightX = docs.x + W + 34;
   edges.push({
-    a: docs, b: ship[0], label: "every Subtask verified", lx: 560, ly: turnY,
-    pts: [[docs.x + W, docs.y + H / 2], [docs.x + W + 34, docs.y + H / 2], [docs.x + W + 34, turnY], [X0 + W / 2, turnY], [X0 + W / 2, shipY]],
+    a: docs, b: ship[0], label: "every Subtask verified", lx: (reviewX + turnRightX) / 2, ly: turnY,
+    pts: [[docs.x + W, docs.y + H / 2], [turnRightX, docs.y + H / 2], [turnRightX, turnY], [reviewX, turnY], [reviewX, shipY]],
   });
-  // Labels sit above the row: the gap between two nodes is narrower than the text.
+  // Labels sit above the row, centered on the gap, clear of the cards.
   const shipLabels: Record<string, string> = { pr: "clean", release: "passed → tested", production: "approved" };
   ship.slice(1).forEach((b, i) =>
-    edges.push({ a: ship[i], b, label: shipLabels[graph.ship[i + 1].id], lx: b.x - (COL - W) / 2, ly: shipY - 9 }),
+    edges.push({ a: ship[i], b, label: shipLabels[graph.ship[i + 1].id], lx: b.x - GAP / 2, ly: shipY - 9 }),
   );
   const findingsLive = graph.fix.state !== "todo";
   edges.push({
-    a: ship[0], b: fix, label: "findings", lx: X0 + W / 2 + 42, ly: fix.y + H / 2, loop: "findings", active: findingsLive,
-    pts: [[X0 + W / 2, shipY + H], [X0 + W / 2, fix.y + H / 2], [fix.x, fix.y + H / 2]],
+    a: ship[0], b: fix, label: "findings", lx: reviewX + 42, ly: fix.y + H / 2, loop: "findings", active: findingsLive,
+    pts: [[reviewX, shipY + H], [reviewX, fix.y + H / 2], [fix.x, fix.y + H / 2]],
   });
   // The findings go back to the builders as a bug Subtask; once it passes
-  // Verify, the normal path takes the Story to Review round 2.
-  // Out of the node's right side and under its caption, so the line never
-  // crosses the caption; the label sits left of the node.
-  const fixLoopY = fix.y + H + 28;
+  // Verify, the normal path takes the Story to Review round 2. The loop leaves
+  // the node's right side, runs under its caption, then up the left padding.
+  const fixLoopY = fix.y + H + 30;
   edges.push({
     a: fix, b: orch, loop: "findings", active: findingsLive,
-    label: "bug Subtask → rebuild, then re-review", lx: 140, ly: fixLoopY,
+    label: "bug Subtask → rebuild, then re-review", lx: (FIX_X + fix.x) / 2 + 20, ly: fixLoopY,
     pts: [
       [fix.x + W, fix.y + H / 2], [fix.x + W + 18, fix.y + H / 2], [fix.x + W + 18, fixLoopY],
-      [14, fixLoopY], [14, orch.y + H / 2 + 12], [orch.x, orch.y + H / 2 + 12],
+      [FIX_X, fixLoopY], [FIX_X, orch.y + H / 2 + 12], [orch.x, orch.y + H / 2 + 12],
     ],
   });
   const integrated = ship.find((_, i) => graph.ship[i].id === "integrated") ?? ship[0];
-  const bugY = fixLoopY + 22;
+  const integratedX = integrated.x + W / 2;
+  const bugY = fixLoopY + 28;
   edges.push({
     a: integrated, b: orch, loop: "bug", active: graph.bugLoop,
-    label: "bug found → bug Subtask, Story holds", lx: (integrated.x + W / 2) / 2 + 40, ly: bugY,
-    pts: [[integrated.x + W / 2, shipY + H], [integrated.x + W / 2, bugY], [6, bugY], [6, orch.y + H / 2], [orch.x, orch.y + H / 2]],
+    label: "bug found → bug Subtask, Story holds", lx: (BUG_X + integratedX) / 2 + 40, ly: bugY,
+    pts: [[integratedX, shipY + H], [integratedX, bugY], [BUG_X, bugY], [BUG_X, orch.y + H / 2], [orch.x, orch.y + H / 2]],
   });
 
-  const width = Math.max(...nodes.map((n) => n.box.x + n.box.w)) + 30;
-  const height = bugY + 24;
+  const width = contentWidth + 2 * PAD;
+  const height = bugY + 32;
   const lanes = [
-    { y: 12, label: "PLAN" },
+    { y: planLabelY, label: "PLAN" },
     { y: buildLabelY, label: "BUILD · PER-SUBTASK LOOP" },
     { y: shipLabelY, label: "REVIEW → INTEGRATE → RELEASE" },
   ];
 
   return (
-    <div className="rounded-lg border border-gray-800 bg-[#0b0d12] overflow-x-auto [background-image:radial-gradient(#1f2937_1px,transparent_1px)] [background-size:18px_18px]">
-      <div className="relative" style={{ width, height }}>
+    <FitFrame width={width} height={height}>
         <svg className="absolute inset-0" width={width} height={height}>
           {edges.map((e, i) => {
             const st = edgeStyle(e);
@@ -232,12 +258,54 @@ export function RunGraphView({ graph }: { graph: RunGraph }) {
           })}
         </svg>
         {lanes.map((l) => (
-          <div key={l.label} className="absolute text-[10px] tracking-widest text-gray-500 font-semibold" style={{ left: X0, top: l.y }}>
+          // The canvas colour behind the text, so a wire passing under a lane title breaks around it.
+          <div key={l.label} className="absolute text-[10px] tracking-widest text-gray-500 font-semibold bg-[#0b0d12] px-1 -ml-1" style={{ left: PAD, top: l.y }}>
             {l.label}
           </div>
         ))}
         {nodes.map((n) => n.el)}
+    </FitFrame>
+  );
+}
+
+/**
+ * The graph's frame. It opens fitted: scaled down to the panel's width (never
+ * up) and centered. "Actual size" shows it at 100% with the sideways scroll.
+ */
+function FitFrame({ width, height, children }: { width: number; height: number; children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [available, setAvailable] = useState(width);
+  const [fit, setFit] = useState(true);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => setAvailable(el.clientWidth);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const scale = fit && available > 0 ? Math.min(1, available / width) : 1;
+  return (
+    <div className="relative rounded-lg border border-gray-800 bg-[#0b0d12] [background-image:radial-gradient(#1f2937_1px,transparent_1px)] [background-size:18px_18px]">
+      <div ref={ref} className={fit ? "overflow-hidden" : "overflow-x-auto"}>
+        <div className="mx-auto" style={{ width: width * scale, height: height * scale }}>
+          <div className="relative origin-top-left" style={{ width, height, transform: scale < 1 ? `scale(${scale})` : undefined }}>
+            {children}
+          </div>
+        </div>
       </div>
+      <button
+        type="button"
+        onClick={() => setFit((f) => !f)}
+        className="absolute bottom-3 right-3 flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-gray-700 bg-gray-900/90 text-gray-300 hover:text-white hover:border-gray-600"
+      >
+        <Maximize2 className="h-3.5 w-3.5" />
+        {fit ? "Actual size" : "Fit graph"}
+      </button>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { RunGraphView, edgeStyle } from "@/features/story/RunGraphView";
 import { runGraph } from "@/features/story/runGraph";
 import type { Task, TrailEvent } from "@/types";
@@ -45,6 +45,14 @@ describe("RunGraphView", () => {
     expect(state("production")).toBe("todo");
     expect(screen.getByText("PLAN")).toBeInTheDocument();
     expect(screen.queryByText("User testing")).not.toBeInTheDocument();
+  });
+
+  it("opens fitted and toggles to actual size and back", () => {
+    const graph = runGraph({ story: task({}), subtasks: [], trail: [], projectKey: "FB", clientProject: false });
+    render(<RunGraphView graph={graph} />);
+    fireEvent.click(screen.getByRole("button", { name: "Actual size" }));
+    fireEvent.click(screen.getByRole("button", { name: "Fit graph" }));
+    expect(screen.getByRole("button", { name: "Actual size" })).toBeInTheDocument();
   });
 });
 
