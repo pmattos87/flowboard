@@ -46,7 +46,7 @@ Add a `VITE_APP_ENV` variable to a `.env.staging` file and render a small banner
 ### First production release (after Phase 4)
 
 1. Merge Phase X into `main` and tag `v0.X-tasks`.
-2. Run `npm run build` — produces an `.msi` / `.exe` installer under `src-tauri/target/release/bundle/`.
+2. Run `npm run build` — produces the NSIS setup `.exe` installer under `src-tauri/target/release/bundle/nsis/`.
 3. Install it. This is your production copy. It uses the production identifier and its own isolated data directory.
 
 ### For every subsequent phase
@@ -71,5 +71,5 @@ The staging config above covers **manual regression testing**, letting you freel
 |---|---|
 | Isolate test data from real data | Separate Tauri `identifier` per profile |
 | Run staging builds locally | `npm run dev:staging` |
-| Ship a production release | `npm run build` → install the output `.msi` |
+| Ship a production release | `npm run build` → install the output setup `.exe` |
 | Prevent logic regressions | Vitest unit/integration tests (no Tauri needed) |
