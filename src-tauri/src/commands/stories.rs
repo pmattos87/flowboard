@@ -21,3 +21,8 @@ pub async fn get_story_trail(pool: State<'_, SqlitePool>, key: String) -> Result
 pub async fn restart_run(pool: State<'_, SqlitePool>, key: String) -> Result<Value, String> {
     ops::run_restart(pool.inner(), &key, Actor::Owner).await
 }
+
+#[tauri::command]
+pub async fn list_active_runs(pool: State<'_, SqlitePool>) -> Result<Value, String> {
+    ops::active_runs(pool.inner()).await
+}

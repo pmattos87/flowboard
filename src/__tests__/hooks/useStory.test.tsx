@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import React from "react";
 import { toast } from "sonner";
-import { useRestartRun, useStory, useStoryTrail } from "@/hooks/useStory";
+import { useActiveRuns, useRestartRun, useStory, useStoryTrail } from "@/hooks/useStory";
 import { taskKeys } from "@/hooks/useTasks";
 
 vi.mock("sonner", () => ({
@@ -54,6 +54,17 @@ describe("useStoryTrail", () => {
     const { result } = renderHook(() => useStoryTrail("FB-7"), { wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(mockInvoke).toHaveBeenCalledWith("get_story_trail", { key: "FB-7" });
+    expect(result.current.data).toHaveLength(1);
+  });
+});
+
+describe("useActiveRuns", () => {
+  it("lists the active Runs", async () => {
+    mockInvoke.mockResolvedValueOnce([{ key: "FB-7" }]);
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useActiveRuns(), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockInvoke).toHaveBeenCalledWith("list_active_runs");
     expect(result.current.data).toHaveLength(1);
   });
 });

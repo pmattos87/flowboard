@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { getStory, getStoryTrail, restartRun } from "@/lib/commands";
+import { getStory, getStoryTrail, listActiveRuns, restartRun } from "@/lib/commands";
 import { taskKeys } from "@/hooks/useTasks";
 
 // Under the tasks prefix, so every task mutation (a Subtask drag, a Details
@@ -8,6 +8,7 @@ import { taskKeys } from "@/hooks/useTasks";
 export const storyKeys = {
   detail: (key: string) => [...taskKeys.all, "story", key] as const,
   trail: (key: string) => [...taskKeys.all, "story", key, "trail"] as const,
+  active: () => [...taskKeys.all, "active_runs"] as const,
 };
 
 /** Stories exist only on Factory projects; pass `enabled = false` otherwise. */
@@ -24,6 +25,13 @@ export function useStoryTrail(key: string | undefined, enabled = true) {
     queryKey: storyKeys.trail(key ?? ""),
     queryFn: () => getStoryTrail(key as string),
     enabled: enabled && key != null,
+  });
+}
+
+export function useActiveRuns() {
+  return useQuery({
+    queryKey: storyKeys.active(),
+    queryFn: listActiveRuns,
   });
 }
 

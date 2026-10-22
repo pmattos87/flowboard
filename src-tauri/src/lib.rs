@@ -47,6 +47,7 @@ pub fn run() {
             commands::stories::get_story,
             commands::stories::get_story_trail,
             commands::stories::restart_run,
+            commands::stories::list_active_runs,
             commands::tasks::create_task,
             commands::tasks::list_tasks,
             commands::tasks::get_task,

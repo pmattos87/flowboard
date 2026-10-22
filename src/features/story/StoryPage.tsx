@@ -15,6 +15,7 @@ import { openGithubUrl } from "@/lib/commands";
 import type { StoryView, TrailEvent } from "@/types";
 import { StoryFlags } from "./StoryFlags";
 import { StorySubtasks } from "./StorySubtasks";
+import { StoryRun } from "./StoryRun";
 import { branchUrl, githubRepoUrl, prLabel } from "./githubLinks";
 
 // The dedicated Story page of a Factory project (SF-61). It replaces the
@@ -138,7 +139,7 @@ export function StoryPage() {
   if (project && !isFactory) return <p className="text-sm text-gray-500">{project.name} is not a Factory project.</p>;
   if (tasks && !task) return <p className="text-sm text-gray-500">{key} is not a Story.</p>;
   if (error) return <p className="text-sm text-red-400">Failed to load {key}: {String(error)}</p>;
-  if (!task || !story) return <p className="text-sm text-gray-500">Loading…</p>;
+  if (!project || !task || !story) return <p className="text-sm text-gray-500">Loading…</p>;
 
   const typeBadge = TYPE_BADGE[task.type];
   const statusLabel =
@@ -213,6 +214,8 @@ export function StoryPage() {
           </section>
         </aside>
       </div>
+
+      <StoryRun story={task} storyKey={story.key} project={project} />
     </div>
   );
 }
