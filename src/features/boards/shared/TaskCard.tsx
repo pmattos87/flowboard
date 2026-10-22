@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, type ReactNode } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { User } from "lucide-react";
 import type { Person, Task } from "@/types";
@@ -6,21 +6,33 @@ import { useUiStore } from "@/stores/uiStore";
 import { Avatar } from "@/components/Avatar";
 import { PRIORITY_META, TYPE_META } from "./boardConstants";
 
+/** Per-card additions a board can make (SF-61): Run flags, a meta line, drag and click. */
+export interface CardDecor {
+  /** Shown under the title, e.g. the Run flags. */
+  badges?: ReactNode;
+  /** Shown above the footer, e.g. a Subtask's agent and Verify rounds. */
+  meta?: ReactNode;
+  dragDisabled?: boolean;
+  /** Replaces opening the detail panel on click. */
+  onOpen?: () => void;
+}
+
 interface TaskCardProps {
   task: Task;
   people: Person[];
   projectKey: string;
   isOverlay?: boolean;
+  decor?: CardDecor;
 }
 
-export function TaskCard({ task, people, projectKey, isOverlay = false }: TaskCardProps) {
+export function TaskCard({ task, people, projectKey, isOverlay = false, decor }: TaskCardProps) {
   const setSelectedTaskId = useUiStore((s) => s.setSelectedTaskId);
   const accMove = useRef(0);
 
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: task.id,
     data: { task },
-    disabled: isOverlay,
+    disabled: isOverlay || decor?.dragDisabled === true,
   });
 
   // While being dragged, render a placeholder *inside* the same setNodeRef element so
@@ -53,12 +65,13 @@ export function TaskCard({ task, people, projectKey, isOverlay = false }: TaskCa
       style={style}
       {...attributes}
       {...listeners}
-      className={`bg-gray-800 rounded-lg p-3 border border-gray-700/50 hover:border-gray-600 transition-colors select-none ${isOverlay ? "shadow-2xl ring-1 ring-blue-500/40" : "cursor-grab"}`}
+      className={`bg-gray-800 rounded-lg p-3 border border-gray-700/50 hover:border-gray-600 transition-colors select-none ${isOverlay ? "shadow-2xl ring-1 ring-blue-500/40" : decor?.dragDisabled ? "cursor-pointer" : "cursor-grab"}`}
       onMouseDown={() => { accMove.current = 0; }}
       onMouseMove={(e) => { accMove.current += Math.abs(e.movementX) + Math.abs(e.movementY); }}
       onClick={() => {
         if (accMove.current >= 5) return;
-        setSelectedTaskId(task.id);
+        if (decor?.onOpen) decor.onOpen();
+        else setSelectedTaskId(task.id);
       }}
     >
       {/* Title row */}
@@ -68,6 +81,8 @@ export function TaskCard({ task, people, projectKey, isOverlay = false }: TaskCa
           {task.title}
         </span>
       </div>
+
+      {decor?.badges && <div className="mb-2">{decor.badges}</div>}
 
       {/* Label badges */}
       {labels.length > 0 && (
@@ -82,6 +97,8 @@ export function TaskCard({ task, people, projectKey, isOverlay = false }: TaskCa
           ))}
         </div>
       )}
+
+      {decor?.meta && <div className="mb-1.5">{decor.meta}</div>}
 
       {/* Footer: priority icon + points + ticket ID + assignee */}
       <div className="flex items-center justify-between mt-1">
