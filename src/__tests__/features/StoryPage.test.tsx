@@ -94,8 +94,8 @@ describe("StoryPage", () => {
   it("shows the stop reason and restarts the Run", async () => {
     setupInvoke();
     renderPage();
-    // In the stopped box and as the graph's Stop caption.
-    expect(await screen.findAllByText("Verify failed twice on FB-14")).toHaveLength(2);
+    // In the stopped box, as the graph's Stop caption and in the trail.
+    expect(await screen.findAllByText("Verify failed twice on FB-14")).toHaveLength(3);
     await userEvent.click(screen.getByRole("button", { name: "Restart Run" }));
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith("restart_run", { key: "FB-12" }));
   });
