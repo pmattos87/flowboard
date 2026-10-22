@@ -7,7 +7,7 @@ import type { NodeKind, NodeState, RunGraph, RunNode, SubtaskNode } from "./runG
 // docs/reference/run-view-mockup.png but drawn for this Run: Plan, Build (one
 // node per Subtask) and Review → Production, with the findings and bug loops.
 
-const W = 176, H = 56, SW = 196, SH = 50, COL = 210, X0 = 20;
+const W = 196, H = 56, SW = 196, SH = 50, COL = 250, X0 = 20;
 
 const KIND: Record<NodeKind, { Icon: LucideIcon; cls: string; label: string }> = {
   trigger:   { Icon: Zap,        cls: "text-amber-400",  label: "TRIGGER" },
@@ -98,6 +98,7 @@ interface Edge { a: Box; b: Box; pts?: [number, number][]; label?: string; lx?: 
 
 function edgeStyle(e: Edge) {
   if (e.loop === "bug") return e.active ? { stroke: "#f59e0b", dash: "6 5", op: 0.85 } : { stroke: "#4b5563", dash: "6 5", op: 0.6 };
+  if (e.loop === "findings") return e.active ? { stroke: "#ec4899", dash: "6 5", op: 0.85 } : { stroke: "#4b5563", dash: "6 5", op: 0.6 };
   if (e.a.state === "stopped" || e.b.state === "stopped") return { stroke: "#ef4444", dash: "", op: 0.9 };
   if (e.a.state !== "todo" && e.b.state !== "todo") return { stroke: "#34d399", dash: "", op: 0.7 };
   return { stroke: "#4b5563", dash: "5 5", op: 0.8 };
@@ -153,14 +154,26 @@ export function RunGraphView({ graph }: { graph: RunGraph }) {
     a: docs, b: ship[0], label: "every Subtask verified", lx: 560, ly: turnY,
     pts: [[docs.x + W, docs.y + H / 2], [docs.x + W + 34, docs.y + H / 2], [docs.x + W + 34, turnY], [X0 + W / 2, turnY], [X0 + W / 2, shipY]],
   });
+  // Labels sit above the row: the gap between two nodes is narrower than the text.
   const shipLabels: Record<string, string> = { pr: "clean", release: "passed → tested", production: "approved" };
-  ship.slice(1).forEach((b, i) => edges.push({ a: ship[i], b, label: shipLabels[graph.ship[i + 1].id] }));
+  ship.slice(1).forEach((b, i) =>
+    edges.push({ a: ship[i], b, label: shipLabels[graph.ship[i + 1].id], lx: b.x - (COL - W) / 2, ly: shipY - 9 }),
+  );
+  const findingsLive = graph.fix.state !== "todo";
   edges.push({
-    a: ship[0], b: fix, label: "findings", lx: X0 + W / 2 + 42, ly: fix.y + H / 2, loop: "findings",
+    a: ship[0], b: fix, label: "findings", lx: X0 + W / 2 + 42, ly: fix.y + H / 2, loop: "findings", active: findingsLive,
     pts: [[X0 + W / 2, shipY + H], [X0 + W / 2, fix.y + H / 2], [fix.x, fix.y + H / 2]],
   });
+  // The findings go back to the builders as a bug Subtask; once it passes
+  // Verify, the normal path takes the Story to Review round 2.
+  const fixLoopY = fix.y + H + 24;
+  edges.push({
+    a: fix, b: orch, loop: "findings", active: findingsLive,
+    label: "bug Subtask → rebuild, then re-review", lx: (14 + fix.x + W / 2) / 2, ly: fixLoopY,
+    pts: [[fix.x + W / 2, fix.y + H], [fix.x + W / 2, fixLoopY], [14, fixLoopY], [14, orch.y + H / 2 + 12], [orch.x, orch.y + H / 2 + 12]],
+  });
   const integrated = ship.find((_, i) => graph.ship[i].id === "integrated") ?? ship[0];
-  const bugY = fix.y + H + 34;
+  const bugY = fixLoopY + 22;
   edges.push({
     a: integrated, b: orch, loop: "bug", active: graph.bugLoop,
     label: "bug found → bug Subtask, Story holds", lx: (integrated.x + W / 2) / 2 + 40, ly: bugY,
@@ -189,8 +202,8 @@ export function RunGraphView({ graph }: { graph: RunGraph }) {
               const [x1, y1] = right(e.a), [x2, y2] = left(e.b);
               const c = Math.max(30, (x2 - x1) / 2);
               d = `M${x1} ${y1} C${x1 + c} ${y1} ${x2 - c} ${y2} ${x2} ${y2}`;
-              lx = (x1 + x2) / 2;
-              ly = (y1 + y2) / 2;
+              lx = e.lx ?? (x1 + x2) / 2;
+              ly = e.ly ?? (y1 + y2) / 2;
             }
             return (
               <g key={i}>
