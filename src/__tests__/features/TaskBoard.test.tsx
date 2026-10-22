@@ -102,6 +102,28 @@ describe("TaskBoard — with project", () => {
     fireEvent.click(screen.getByLabelText("Expand group"));
     expect(screen.getAllByLabelText(/^Add subtask to /).length).toBeGreaterThan(0);
     expect(screen.queryByLabelText(/^Add task to /)).not.toBeInTheDocument();
+    // Unparented group names itself, plus the column.
+    expect(screen.getByLabelText("Add subtask to Unparented (TO DO)")).toBeInTheDocument();
+  });
+
+  it("names the Story in each add button so two expanded Stories stay distinguishable", async () => {
+    const secondStory = {
+      ...allTypeTasks[0], id: 5, title: "Another story", task_number: 5,
+    };
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "list_tasks") return Promise.resolve([...allTypeTasks, secondStory]);
+      if (cmd === "list_people") return Promise.resolve([]);
+      if (cmd === "list_sprints") return Promise.resolve([]);
+      if (cmd === "get_project") return Promise.resolve(fakeProject);
+      return Promise.resolve(null);
+    });
+    renderBoard();
+    await waitFor(() => expect(screen.getByText("Another story")).toBeInTheDocument());
+    for (const btn of screen.getAllByLabelText("Expand story")) fireEvent.click(btn);
+    const first = screen.getByLabelText("Add subtask to A story task (TO DO)");
+    const second = screen.getByLabelText("Add subtask to Another story (TO DO)");
+    expect(first).not.toBe(second);
+    expect(screen.queryByLabelText(/^Add task to /)).not.toBeInTheDocument();
   });
 
   it("collapses all groups by default, hiding their children until expanded", async () => {
