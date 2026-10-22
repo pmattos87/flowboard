@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
@@ -90,33 +90,26 @@ describe("Factory Story board", () => {
     expect(useUiStore.getState().selectedTaskId).toBeNull();
   });
 
-  it("hides canceled Stories until Show canceled is ticked", async () => {
+  it("keeps canceled Stories in their column", async () => {
     setup("factory");
     renderAt(<UserStoryBoard />);
-    await screen.findByText("Stopped story");
-    expect(screen.queryByText("Dropped story")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText("Show canceled"));
     expect(await screen.findByText("Dropped story")).toBeInTheDocument();
+    expect(screen.getByText("CANCELED")).toBeInTheDocument();
   });
 
-  it("hides canceled on the Discovery board too", async () => {
+  it("keeps canceled on the Discovery board too", async () => {
     setup("factory");
     renderAt(<DiscoveryBoard />);
-    await screen.findByText("Discovery Board");
-    await waitFor(() => expect(screen.getByLabelText("Show canceled")).toBeInTheDocument());
-    expect(screen.queryByText("Canceled idea")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText("Show canceled"));
     expect(await screen.findByText("Canceled idea")).toBeInTheDocument();
   });
 });
 
 describe("legacy Story board", () => {
-  it("keeps the slide-over, the CANCELED column and no flags", async () => {
+  it("keeps the slide-over and shows no flags", async () => {
     setup("legacy");
     renderAt(<UserStoryBoard />);
-    await screen.findByText("User Story Board");
-    await waitFor(() => expect(screen.getByText("CANCELED")).toBeInTheDocument());
-    expect(screen.queryByLabelText("Show canceled")).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByText("Dropped story"));
+    expect(useUiStore.getState().selectedTaskId).toBe(5);
     expect(screen.queryByText("stopped")).not.toBeInTheDocument();
   });
 });

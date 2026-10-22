@@ -55,11 +55,6 @@ export const FACTORY_STORY_COLUMNS: BoardColumn[] = [
   { status: "done",             label: "DONE",             dotClass: "bg-emerald-500" },
 ];
 
-// Factory Story boards hide CANCELED behind a "Show canceled" toggle (SF-61).
-export function withoutCanceled(columns: BoardColumn[], showCanceled: boolean): BoardColumn[] {
-  return showCanceled ? columns : columns.filter((c) => c.status !== "canceled");
-}
-
 export const FACTORY_SUBTASK_COLUMNS: BoardColumn[] = COLUMNS.filter((c) => c.status !== "in_review");
 
 // Status <option>s for the detail-panel / create-modal pickers. The discovery

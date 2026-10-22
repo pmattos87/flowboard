@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useUiStore } from "@/stores/uiStore";
 import { useTasks } from "@/hooks/useTasks";
 import { usePeople } from "@/hooks/usePeople";
@@ -6,7 +5,7 @@ import { useProject } from "@/hooks/useProjects";
 import { useSprints } from "@/hooks/useSprints";
 import { RefreshButton } from "@/components/RefreshButton";
 import { KanbanBoard } from "./shared/KanbanBoard";
-import { COLUMNS, FACTORY_STORY_COLUMNS, withoutCanceled } from "./shared/boardConstants";
+import { COLUMNS, FACTORY_STORY_COLUMNS } from "./shared/boardConstants";
 import { useStoryCardDecor } from "@/features/story/useStoryCardDecor";
 import { SprintFilterSelect } from "./shared/SprintFilterSelect";
 import { matchesSprintFilter, sprintFilterLabel } from "./shared/sprintFilter";
@@ -19,7 +18,6 @@ export function UserStoryBoard() {
   const { data: project } = useProject(activeProjectId);
   const { data: sprints } = useSprints(activeProjectId ?? undefined);
   const decorate = useStoryCardDecor(project, allTasks);
-  const [showCanceled, setShowCanceled] = useState(false);
 
   if (activeProjectId == null) {
     return (
@@ -45,18 +43,7 @@ export function UserStoryBoard() {
           <h1 className="text-lg font-semibold text-white">User Story Board</h1>
           <RefreshButton />
         </div>
-        <div className="ml-auto flex items-center gap-4">
-          {project?.ladder === "factory" && (
-            <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={showCanceled}
-                onChange={(e) => setShowCanceled(e.target.checked)}
-                className="accent-blue-500"
-              />
-              Show canceled
-            </label>
-          )}
+        <div className="ml-auto">
           <SprintFilterSelect projectId={activeProjectId} includeBacklog={false} />
         </div>
       </div>
@@ -69,7 +56,7 @@ export function UserStoryBoard() {
           tasks={tasks}
           people={people}
           projectKey={project?.key ?? "FB"}
-          columns={project?.ladder === "factory" ? withoutCanceled(FACTORY_STORY_COLUMNS, showCanceled) : COLUMNS}
+          columns={project?.ladder === "factory" ? FACTORY_STORY_COLUMNS : COLUMNS}
           decorate={decorate}
         />
       )}
