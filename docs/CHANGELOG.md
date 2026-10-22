@@ -11,6 +11,7 @@
 
 ### Changed
 - Moving a Release moves its picked Stories in the same transaction: `user_testing` sends them to user_testing, `released` to done, each through the Story ladder with its trail event. The move is refused, and nothing changes, when the Release has no picks or a pick isn't tested (or user_testing, for a Release leaving user_testing) (SF-43).
+- On the Releases page, a Release's picked Stories and the "Tested, not in a release" candidates are list rows with dividers and a hover background; the "No stories picked yet." placeholder is styled the same. A picked Story's status moves from the far right into a pill right after its key. Display only: Remove and Pick are unchanged (FB-110).
 
 ### Changed
 - The task detail panel's Delete button is now **Cancel task**: it sets the status to `canceled` without a confirmation, keeps comments, time logs, attachments and activity, and is hidden on canceled or done issues. Reopen through the Status picker. Canceling a Story does not cancel its open Subtasks (FB-98, FB-106).
