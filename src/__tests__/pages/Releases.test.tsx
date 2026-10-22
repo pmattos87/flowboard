@@ -39,15 +39,24 @@ const releases = [
 ];
 
 function mockFactory(overrides: Record<string, unknown> = {}) {
-  mockInvoke.mockImplementation((cmd: string) => {
+  mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
     if (cmd in overrides) return Promise.resolve(overrides[cmd]);
+    if (cmd === "get_release" && (args as { version?: string } | undefined)?.version === "1.5.1") {
+      return Promise.resolve({
+        project: "FB", version: "1.5.1", state: "released",
+        stories: [{ key: "FB-70", title: "Shipped story", status: "done" }],
+      });
+    }
     switch (cmd) {
       case "get_project": return Promise.resolve(project("factory"));
       case "list_tasks": return Promise.resolve(tasks);
       case "list_releases": return Promise.resolve({ project: "FB", releases });
       case "get_release": return Promise.resolve({
         project: "FB", version: "1.6.0", state: "planned",
-        stories: [{ key: "FB-90", title: "Already picked", status: "tested" }],
+        stories: [
+          { key: "FB-90", title: "Already picked", status: "tested" },
+          { key: "FB-91", title: "Half way", status: "building" },
+        ],
       });
       case "pick_release_story": return Promise.resolve({ story: "FB-100", version: "1.6.0", warnings: [] });
       default: return Promise.resolve(null);
@@ -86,12 +95,13 @@ describe("ReleasesPage", () => {
     expect(mockInvoke).not.toHaveBeenCalledWith("list_releases", expect.anything());
   });
 
-  it("lists Releases by state with an open Release's picks and the tested candidates", async () => {
+  it("lists Releases by state with count badges, the picks and the tested candidates", async () => {
     mockFactory();
     renderPage();
-    expect(await screen.findByText("Planned")).toBeInTheDocument();
-    expect(screen.getByText("Released")).toBeInTheDocument();
-    expect(screen.getByText(/released 2026-08-05/)).toBeInTheDocument();
+    const planned = (await screen.findByText("Planned")).closest("h2") as HTMLElement;
+    expect(within(planned).getByText("1")).toBeInTheDocument();
+    const released = screen.getByRole("heading", { name: /^Released/ });
+    expect(within(released).getByText("1")).toBeInTheDocument();
     expect(await screen.findByText("Already picked")).toBeInTheDocument();
     // Tested and unpicked only: not the picked one again, not the building one.
     expect(screen.getByText("Markdown descriptions")).toBeInTheDocument();
@@ -99,39 +109,122 @@ describe("ReleasesPage", () => {
     expect(screen.queryByText("Still building")).not.toBeInTheDocument();
   });
 
-  it("picks and removes a Story through the Release commands", async () => {
+  it("sits in a centered max-width container", async () => {
+    mockFactory();
+    renderPage();
+    await screen.findByText("Planned");
+    const box = screen.getByTestId("releases-container");
+    expect(box.className).toContain("max-w-6xl");
+    expect(box.className).toContain("mx-auto");
+    expect(within(box).getByRole("heading", { name: "Releases" })).toBeInTheDocument();
+    expect(within(box).getByRole("button", { name: /new release/i })).toBeInTheDocument();
+  });
+
+  it("summarises an open Release's readiness with only the statuses present", async () => {
+    mockFactory();
+    renderPage();
+    await screen.findByText("Already picked");
+    expect(screen.getByText("2 stories")).toBeInTheDocument();
+    expect(screen.getByText("1 tested")).toBeInTheDocument();
+    expect(screen.getByText("1 building")).toBeInTheDocument();
+    expect(screen.queryByText(/\d+ done/)).not.toBeInTheDocument();
+  });
+
+  it("lays picks out as a Story/Status/Action table with title over key and coloured pills", async () => {
+    mockFactory();
+    renderPage();
+    const tested = (await screen.findByText("Already picked")).closest("li") as HTMLElement;
+    for (const h of ["Story", "Status", "Action"]) expect(screen.getByText(h)).toBeInTheDocument();
+
+    const title = within(tested).getByText("Already picked");
+    const key = within(tested).getByText("FB-90");
+    expect(title.compareDocumentPosition(key) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const pill = within(tested).getByText("Tested");
+    expect(pill.className).toContain("rounded-full");
+    expect(pill.className).toContain("emerald");
+    expect(pill.querySelector("span")).not.toBeNull(); // the dot
+
+    const building = (await screen.findByText("Half way")).closest("li") as HTMLElement;
+    const buildingPill = within(building).getByText("Building");
+    expect(buildingPill.className).toContain("rounded-full");
+    expect(buildingPill.className).toContain("amber");
+  });
+
+  it("picks a candidate and removes a pick by their accessible names", async () => {
     const user = userEvent.setup();
     mockFactory();
     renderPage();
     const row = (await screen.findByText("Markdown descriptions")).closest("li") as HTMLElement;
-    await user.click(within(row).getByRole("button", { name: "Pick" }));
+    expect(within(row).getByText("FB-100")).toBeInTheDocument();
+    expect(within(row).getByText("Tested").className).toContain("rounded-full");
+    await user.click(within(row).getByRole("button", { name: "Pick Markdown descriptions into 1.6.0" }));
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith("pick_release_story", { version: "1.6.0", storyKey: "FB-100" }),
     );
 
-    const picked = (await screen.findByText("Already picked")).closest("li") as HTMLElement;
-    await user.click(within(picked).getByRole("button", { name: "Remove" }));
+    await screen.findByText("Already picked");
+    const remove = screen.getByRole("button", { name: "Remove Already picked from release" });
+    expect(remove.className).toContain("border-gray-600");
+    expect(remove.className).not.toContain("text-blue");
+    await user.click(remove);
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith("remove_release_story", { storyKey: "FB-90" }),
     );
   });
 
-  it("shows a picked Story's status as a pill between its key and title", async () => {
+  it("keeps a released Release collapsed until its chevron is clicked", async () => {
     const user = userEvent.setup();
     mockFactory();
     renderPage();
-    const picked = (await screen.findByText("Already picked")).closest("li") as HTMLElement;
-    const key = within(picked).getByText("FB-90");
-    const pill = within(picked).getByText("tested");
-    const title = within(picked).getByText("Already picked");
-    expect(pill.className).toContain("rounded-full");
-    expect(key.compareDocumentPosition(pill) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(pill.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const toggle = await screen.findByRole("button", { name: /expand 1\.5\.1/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    const row = toggle.parentElement as HTMLElement;
+    expect(within(row).getByText("1.5.1")).toBeInTheDocument();
+    expect(within(row).getByText("3 stories")).toBeInTheDocument();
+    expect(within(row).getByText("Released")).toBeInTheDocument();
+    expect(within(row).getByText("Aug 5, 2026")).toBeInTheDocument();
+    expect(screen.queryByText("Shipped story")).not.toBeInTheDocument();
+    expect(mockInvoke).not.toHaveBeenCalledWith("get_release", expect.objectContaining({ version: "1.5.1" }));
 
-    await user.click(within(picked).getByRole("button", { name: "Remove" }));
-    await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith("remove_release_story", { storyKey: "FB-90" }),
-    );
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const shipped = (await screen.findByText("Shipped story")).closest("li") as HTMLElement;
+    expect(within(shipped).getByText("Done").className).toContain("emerald");
+    const card = shipped.closest("ul")!.parentElement as HTMLElement;
+    expect(within(card).getByText("Story")).toBeInTheDocument();
+    expect(within(card).queryByText("Action")).not.toBeInTheDocument();
+    expect(within(shipped).queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("shows a canceled Release as a compact row with a gray Canceled pill and no date", async () => {
+    mockFactory({
+      list_releases: {
+        project: "FB",
+        releases: [{ version: "1.4.0", state: "canceled", created_at: "2026-07-01T00:00:00.000Z", released_at: null, stories: 1 }],
+      },
+    });
+    renderPage();
+    const toggle = await screen.findByRole("button", { name: /expand 1\.4\.0/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    const heading = screen.getByRole("heading", { name: /^Canceled/ });
+    expect(within(heading).getByText("1")).toBeInTheDocument();
+    const row = toggle.parentElement as HTMLElement;
+    expect(within(row).getByText("1 story")).toBeInTheDocument();
+    const pill = within(row).getByText("Canceled");
+    expect(pill.className).toContain("rounded-full");
+    expect(pill.className).toContain("gray");
+    expect(pill.className).not.toContain("emerald");
+    expect(within(row).queryByText(/\d{4}/)).not.toBeInTheDocument();
+    expect(mockInvoke).not.toHaveBeenCalledWith("get_release", expect.anything());
+  });
+
+  it("keeps the empty-picks row when an open Release has no stories", async () => {
+    mockFactory({ get_release: { project: "FB", version: "1.6.0", state: "planned", stories: [] } });
+    renderPage();
+    expect(await screen.findByText("No stories picked yet.")).toBeInTheDocument();
+    expect(screen.getByText("0 stories")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Remove/ })).not.toBeInTheDocument();
   });
 
   it("shows the depends-on warnings a pick returns", async () => {
@@ -141,7 +234,7 @@ describe("ReleasesPage", () => {
     });
     renderPage();
     const row = (await screen.findByText("Markdown descriptions")).closest("li") as HTMLElement;
-    await user.click(within(row).getByRole("button", { name: "Pick" }));
+    await user.click(within(row).getByRole("button", { name: "Pick Markdown descriptions into 1.6.0" }));
     await waitFor(() =>
       expect(toast.warning).toHaveBeenCalledWith("Depends-on warning", {
         description: "FB-99 (building) is a dependency outside this Release",
