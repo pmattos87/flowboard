@@ -105,9 +105,11 @@ interface Edge { a: Box; b: Box; pts?: [number, number][]; label?: string; lx?: 
 function edgeStyle(e: Edge) {
   if (e.loop === "bug") return e.active ? { stroke: "#f59e0b", dash: "6 5", op: 0.85 } : { stroke: "#4b5563", dash: "6 5", op: 0.6 };
   if (e.loop === "findings") return e.active ? { stroke: "#818cf8", dash: "6 5", op: 0.85 } : { stroke: "#4b5563", dash: "6 5", op: 0.6 };
+  // An edge touching a node the Run has not reached stays dimmed, even next
+  // to a stopped node; red marks only the path the Run took into the stop.
+  if (e.a.state === "todo" || e.b.state === "todo") return { stroke: "#4b5563", dash: "5 5", op: 0.8 };
   if (e.a.state === "stopped" || e.b.state === "stopped") return { stroke: "#ef4444", dash: "", op: 0.9 };
-  if (e.a.state !== "todo" && e.b.state !== "todo") return { stroke: "#34d399", dash: "", op: 0.7 };
-  return { stroke: "#4b5563", dash: "5 5", op: 0.8 };
+  return { stroke: "#34d399", dash: "", op: 0.7 };
 }
 
 export function RunGraphView({ graph }: { graph: RunGraph }) {
