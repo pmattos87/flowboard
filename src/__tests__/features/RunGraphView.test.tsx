@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { RunGraphView } from "@/features/story/RunGraphView";
+import { RunGraphView, edgeStyle } from "@/features/story/RunGraphView";
 import { runGraph } from "@/features/story/runGraph";
 import type { Task, TrailEvent } from "@/types";
 
@@ -45,5 +45,22 @@ describe("RunGraphView", () => {
     expect(state("production")).toBe("todo");
     expect(screen.getByText("PLAN")).toBeInTheDocument();
     expect(screen.queryByText("User testing")).not.toBeInTheDocument();
+  });
+});
+
+describe("edgeStyle", () => {
+  const box = (state: "done" | "current" | "stopped" | "todo") => ({ x: 0, y: 0, w: 1, h: 1, state });
+  const RED = "#ef4444", GREEN = "#34d399", DIM = "#4b5563";
+
+  it("reds only edges out of a stopped node", () => {
+    expect(edgeStyle({ a: box("stopped"), b: box("stopped") }).stroke).toBe(RED); // failing Subtask → Verify
+    expect(edgeStyle({ a: box("current"), b: box("stopped") }).stroke).toBe(GREEN); // handoff → failing Subtask
+    expect(edgeStyle({ a: box("done"), b: box("stopped") }).stroke).toBe(GREEN); // passed Subtask → Verify
+    expect(edgeStyle({ a: box("done"), b: box("done") }).stroke).toBe(GREEN);
+  });
+
+  it("dims any edge touching a node not reached", () => {
+    expect(edgeStyle({ a: box("todo"), b: box("stopped") }).stroke).toBe(DIM);
+    expect(edgeStyle({ a: box("stopped"), b: box("todo") }).stroke).toBe(DIM);
   });
 });

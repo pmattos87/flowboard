@@ -20,7 +20,7 @@ const KIND: Record<NodeKind, { Icon: LucideIcon; cls: string; label: string }> =
   skill:     { Icon: Send,       cls: "text-green-400",  label: "SKILL" },
 };
 
-interface Box { x: number; y: number; w: number; h: number; state: NodeState }
+export interface Box { x: number; y: number; w: number; h: number; state: NodeState }
 
 const right = (b: Box): [number, number] => [b.x + b.w, b.y + b.h / 2];
 const left = (b: Box): [number, number] => [b.x, b.y + b.h / 2];
@@ -100,15 +100,16 @@ function SubtaskBox({ node, x, y }: { node: SubtaskNode; x: number; y: number })
   );
 }
 
-interface Edge { a: Box; b: Box; pts?: [number, number][]; label?: string; lx?: number; ly?: number; loop?: "bug" | "findings"; active?: boolean }
+export interface Edge { a: Box; b: Box; pts?: [number, number][]; label?: string; lx?: number; ly?: number; loop?: "bug" | "findings"; active?: boolean }
 
-function edgeStyle(e: Edge) {
+export function edgeStyle(e: Edge) {
   if (e.loop === "bug") return e.active ? { stroke: "#f59e0b", dash: "6 5", op: 0.85 } : { stroke: "#4b5563", dash: "6 5", op: 0.6 };
   if (e.loop === "findings") return e.active ? { stroke: "#818cf8", dash: "6 5", op: 0.85 } : { stroke: "#4b5563", dash: "6 5", op: 0.6 };
-  // An edge touching a node the Run has not reached stays dimmed, even next
-  // to a stopped node; red marks only the path the Run took into the stop.
+  // An edge touching a node the Run has not reached stays dimmed. Red marks
+  // only where a failure flows on: out of a stopped node. Edges into it (a
+  // handoff, a Subtask that passed) worked, so they stay green.
   if (e.a.state === "todo" || e.b.state === "todo") return { stroke: "#4b5563", dash: "5 5", op: 0.8 };
-  if (e.a.state === "stopped" || e.b.state === "stopped") return { stroke: "#ef4444", dash: "", op: 0.9 };
+  if (e.a.state === "stopped") return { stroke: "#ef4444", dash: "", op: 0.9 };
   return { stroke: "#34d399", dash: "", op: 0.7 };
 }
 
