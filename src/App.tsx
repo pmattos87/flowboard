@@ -13,6 +13,7 @@ import {
 import RoadmapPage from "@/features/roadmap/RoadmapPage";
 import ReportsPage from "@/features/reports/ReportsPage";
 import ReleasesPage from "@/features/releases/ReleasesPage";
+import { StoryPage } from "@/features/story/StoryPage";
 import About from "@/pages/About";
 import Inbox from "@/pages/Inbox";
 import People from "@/pages/People";
@@ -31,6 +32,7 @@ function App() {
           <Route path="/roadmap" element={<RoadmapPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/releases" element={<ReleasesPage />} />
+          <Route path="/story/:key" element={<StoryPage />} />
           <Route path="/people" element={<People />} />
           <Route path="/inbox" element={<Inbox />} />
           <Route path="/settings" element={<Settings />} />
