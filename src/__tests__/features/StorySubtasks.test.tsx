@@ -81,10 +81,10 @@ describe("StorySubtasks", () => {
     expect(screen.getAllByText("stopped")).toHaveLength(1);
   });
 
-  it("is read-only while building and opens no panel on click", async () => {
+  it("is read-only while building and opens the detail panel on click", async () => {
     renderSubtasks();
     fireEvent.click(await screen.findByText("Template layout"));
-    expect(useUiStore.getState().selectedTaskId).toBeNull();
+    expect(useUiStore.getState().selectedTaskId).toBe(11);
     expect(screen.getByText("Read-only while the Story is building.")).toBeInTheDocument();
     expect(screen.getByText("Template layout").closest("[aria-disabled]")).toHaveAttribute("aria-disabled", "true");
   });

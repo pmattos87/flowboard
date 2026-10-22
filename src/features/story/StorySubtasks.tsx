@@ -10,7 +10,7 @@ import { isSubtaskStopped, subtaskRunInfo, type SubtaskRunInfo } from "./subtask
 
 // The Story's Subtasks as a mini kanban (SF-61). On Factory projects this is
 // where the Task board went. Cards are read-only while the Story is building,
-// since the Orchestrator moves them then; Subtasks have no panel of their own.
+// since the Orchestrator moves them then; a click opens the detail panel.
 
 function RoundPills({ rounds }: { rounds: SubtaskRunInfo["rounds"] }) {
   return (
@@ -52,7 +52,6 @@ export function StorySubtasks({ story, storyKey, projectKey }: StorySubtasksProp
     const who = [run?.agent, run?.model].filter(Boolean).join(" · ");
     return {
       dragDisabled: building,
-      onOpen: () => {},
       badges: isSubtaskStopped(story.run_stopped, run) ? (
         <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/40 text-red-400 border border-red-800">
           stopped

@@ -116,7 +116,7 @@ export function StoryPage() {
     statusOptionsForType(task.type, "factory").find((o) => o.value === task.status)?.label ?? task.status;
 
   return (
-    <div className="max-w-7xl mx-auto">
+    <div>
       <button
         type="button"
         onClick={() => navigate(-1)}
