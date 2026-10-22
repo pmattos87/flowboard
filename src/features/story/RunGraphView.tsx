@@ -28,7 +28,7 @@ const left = (b: Box): [number, number] => [b.x, b.y + b.h / 2];
 function frame(state: NodeState) {
   return {
     done: "border-gray-700",
-    current: "border-blue-500/70 shadow-[0_0_14px_rgba(59,130,246,0.3)]",
+    current: "run-current border-blue-500/70 shadow-[0_0_14px_rgba(59,130,246,0.3)]",
     stopped: "border-red-500/70 shadow-[0_0_18px_rgba(239,68,68,0.35)]",
     todo: "border-dashed border-gray-700 opacity-50",
   }[state];
@@ -166,11 +166,16 @@ export function RunGraphView({ graph }: { graph: RunGraph }) {
   });
   // The findings go back to the builders as a bug Subtask; once it passes
   // Verify, the normal path takes the Story to Review round 2.
-  const fixLoopY = fix.y + H + 24;
+  // Out of the node's right side and under its caption, so the line never
+  // crosses the caption; the label sits left of the node.
+  const fixLoopY = fix.y + H + 28;
   edges.push({
     a: fix, b: orch, loop: "findings", active: findingsLive,
-    label: "bug Subtask → rebuild, then re-review", lx: (14 + fix.x + W / 2) / 2, ly: fixLoopY,
-    pts: [[fix.x + W / 2, fix.y + H], [fix.x + W / 2, fixLoopY], [14, fixLoopY], [14, orch.y + H / 2 + 12], [orch.x, orch.y + H / 2 + 12]],
+    label: "bug Subtask → rebuild, then re-review", lx: 140, ly: fixLoopY,
+    pts: [
+      [fix.x + W, fix.y + H / 2], [fix.x + W + 18, fix.y + H / 2], [fix.x + W + 18, fixLoopY],
+      [14, fixLoopY], [14, orch.y + H / 2 + 12], [orch.x, orch.y + H / 2 + 12],
+    ],
   });
   const integrated = ship.find((_, i) => graph.ship[i].id === "integrated") ?? ship[0];
   const bugY = fixLoopY + 22;
