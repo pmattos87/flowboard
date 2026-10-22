@@ -144,6 +144,14 @@ enum StoryCmd {
     /// Put into a sprint, carry to another, or take out with `none`
     Sprint { key: String, sprint: String },
     Branch { key: String, branch: String },
+    /// Post a comment, its body inline or read from a file
+    Comment {
+        key: String,
+        #[arg(long, required_unless_present = "body_file", conflicts_with = "body_file")]
+        body: Option<String>,
+        #[arg(long)]
+        body_file: Option<PathBuf>,
+    },
     /// Add (or with --remove, drop) a depends-on link
     Link {
         key: String,
@@ -290,6 +298,13 @@ async fn run(cli: Cli, pool: SqlitePool) -> Result<Value, String> {
                 ops::story_set_sprint(p, &key, sprint_id).await
             }
             StoryCmd::Branch { key, branch } => ops::story_set_branch(p, &key, &branch).await,
+            StoryCmd::Comment { key, body, body_file } => {
+                let body = match body_file {
+                    Some(f) => std::fs::read_to_string(&f).map_err(|e| format!("{}: {e}", f.display()))?,
+                    None => body.unwrap_or_default(),
+                };
+                ops::story_comment(p, &key, &body, actor).await
+            }
             StoryCmd::Link { key, depends_on, remove } => {
                 if remove {
                     ops::link_remove(p, &key, &depends_on).await

@@ -84,6 +84,13 @@ pub struct Link {
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
+pub struct Comment {
+    pub key: String,
+    /// Markdown
+    pub body: String,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
 pub struct Review {
     pub key: String,
     /// passed | failed
@@ -245,6 +252,11 @@ impl FlowboardMcp {
         } else {
             out(ops::link_add(&self.pool, &p.key, &p.depends_on).await)
         }
+    }
+
+    #[tool(description = "Post a comment on a Story as the Agent; returns its id and a flowboard://comment/<id> link")]
+    async fn story_comment(&self, Parameters(p): Parameters<Comment>) -> Result<String, String> {
+        out(ops::story_comment(&self.pool, &p.key, &p.body, AGENT).await)
     }
 
     #[tool(description = "Record a Review round's verdict on a building Story")]

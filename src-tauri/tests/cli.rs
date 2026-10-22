@@ -81,6 +81,21 @@ async fn cli_lists_releases_and_changes_a_planned_version() {
 }
 
 #[tokio::test]
+async fn cli_posts_a_comment_from_a_file() {
+    let db = seeded_db("comment").await;
+    setup(&db);
+    ok(&db, &["story", "create", "TF", "Reviewed"]);
+    let file = db.with_file_name("findings.md");
+    std::fs::write(&file, "## Round 1\n- blocking: x").unwrap();
+    let c = ok(&db, &["story", "comment", "TF-1", "--body-file", file.to_str().unwrap()]);
+    assert_eq!(c["key"], "TF-1");
+    assert_eq!(c["url"], format!("flowboard://comment/{}", c["id"]));
+
+    let (code, _, _) = cli(&db, &["story", "comment", "TF-1"]);
+    assert_ne!(code, 0, "a body or a body file is required");
+}
+
+#[tokio::test]
 async fn cli_refuses_legacy_projects() {
     let db = seeded_db("legacy").await;
     ok(&db, &["people", "set-role", "1", "owner"]);
