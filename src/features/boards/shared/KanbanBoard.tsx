@@ -12,7 +12,7 @@ import type { Person, Task, TaskStatus } from "@/types";
 import { useUpdateTask } from "@/hooks/useTasks";
 import { COLUMNS, sortByPriority, type BoardColumn } from "./boardConstants";
 import { KanbanColumn } from "./KanbanColumn";
-import { TaskCard } from "./TaskCard";
+import { TaskCard, type CardDecor } from "./TaskCard";
 
 interface KanbanBoardProps {
   tasks: Task[];
@@ -20,9 +20,11 @@ interface KanbanBoardProps {
   projectKey: string;
   /** Column set to render. Defaults to the shared 5-status workflow columns. */
   columns?: BoardColumn[];
+  /** Per-card additions; see CardDecor. */
+  decorate?: (task: Task) => CardDecor;
 }
 
-export function KanbanBoard({ tasks, people, projectKey, columns = COLUMNS }: KanbanBoardProps) {
+export function KanbanBoard({ tasks, people, projectKey, columns = COLUMNS, decorate }: KanbanBoardProps) {
   const updateTask = useUpdateTask();
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   // Local status overrides: applied immediately on drop, cleared when server data confirms.
@@ -111,6 +113,7 @@ export function KanbanBoard({ tasks, people, projectKey, columns = COLUMNS }: Ka
               tasks={colTasks}
               people={people}
               projectKey={projectKey}
+              decorate={decorate}
             />
           );
         })}
@@ -123,6 +126,7 @@ export function KanbanBoard({ tasks, people, projectKey, columns = COLUMNS }: Ka
             people={people}
             projectKey={projectKey}
             isOverlay
+            decor={decorate?.(activeTask)}
           />
         ) : null}
       </DragOverlay>

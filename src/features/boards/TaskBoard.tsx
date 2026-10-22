@@ -1,10 +1,11 @@
+import { Navigate } from "react-router-dom";
 import { useUiStore } from "@/stores/uiStore";
 import { useTasks } from "@/hooks/useTasks";
 import { usePeople } from "@/hooks/usePeople";
 import { useProject } from "@/hooks/useProjects";
 import { RefreshButton } from "@/components/RefreshButton";
 import { TaskBoardGroupedKanban } from "./shared/TaskBoardGroupedKanban";
-import { COLUMNS, FACTORY_SUBTASK_COLUMNS } from "./shared/boardConstants";
+import { COLUMNS } from "./shared/boardConstants";
 import { SprintFilterSelect } from "./shared/SprintFilterSelect";
 
 export function TaskBoard() {
@@ -12,6 +13,9 @@ export function TaskBoard() {
   const { data: allTasks } = useTasks(activeProjectId != null ? { project_id: activeProjectId } : undefined);
   const { data: people = [] } = usePeople();
   const { data: project } = useProject(activeProjectId);
+
+  // On a Factory project the Task board lives on each Story page (SF-61).
+  if (project?.ladder === "factory") return <Navigate to="/board/user-story" replace />;
 
   if (activeProjectId == null) {
     return (
@@ -36,7 +40,7 @@ export function TaskBoard() {
         tasks={allTasks ?? []}
         people={people}
         projectKey={project?.key ?? "FB"}
-        columns={project?.ladder === "factory" ? FACTORY_SUBTASK_COLUMNS : COLUMNS}
+        columns={COLUMNS}
       />
     </div>
   );
