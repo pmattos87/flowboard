@@ -105,7 +105,7 @@ pub async fn create_task_inner(
     mut payload: TaskCreate,
 ) -> Result<Task, String> {
     // On a Factory project the ladder decides where a new task may start (SF-31).
-    let kind = payload.r#type.as_deref().unwrap_or("task");
+    let kind = payload.r#type.as_deref().unwrap_or("subtask");
     if let Some((status, sprint_id)) = factory::ops::app_create_status(
         pool,
         payload.project_id,
@@ -155,7 +155,7 @@ pub async fn create_task_inner(
     .bind(payload.parent_id)
     .bind(&payload.title)
     .bind(payload.description.unwrap_or_default())
-    .bind(payload.r#type.unwrap_or_else(|| "task".into()))
+    .bind(payload.r#type.unwrap_or_else(|| "subtask".into()))
     .bind(&resolved_status)
     .bind(payload.priority.unwrap_or_else(|| "medium".into()))
     .bind(payload.assignee_id)
@@ -778,6 +778,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_task_without_a_type_stores_subtask() {
+        let pool = new_test_pool().await;
+        let project_id = seed_project(&pool).await;
+        let person_id = seed_person(&pool, "Alice").await;
+        let task = create_task_inner(
+            &pool,
+            TaskCreate {
+                project_id,
+                sprint_id: None,
+                parent_id: None,
+                title: "no type".into(),
+                description: None,
+                r#type: None,
+                status: None,
+                priority: None,
+                assignee_id: Some(person_id),
+                story_points: None,
+                due_date: None,
+                labels: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(task.r#type, "subtask");
+    }
+
+    #[tokio::test]
     async fn propagates_sprint_id_to_children_when_story_moved() {
         let pool = new_test_pool().await;
         let project_id = seed_project(&pool).await;
@@ -785,7 +812,7 @@ mod tests {
         let sprint_id = seed_sprint(&pool, project_id, "S1").await;
 
         let story_id = create_typed(&pool, project_id, person_id, "story", None, None).await;
-        let child_task = create_typed(&pool, project_id, person_id, "task", Some(story_id), None).await;
+        let child_task = create_typed(&pool, project_id, person_id, "subtask", Some(story_id), None).await;
         let child_bug = create_typed(&pool, project_id, person_id, "bug", Some(story_id), None).await;
 
         // Move story into sprint.
@@ -823,9 +850,9 @@ mod tests {
         let sprint_id = seed_sprint(&pool, project_id, "S1").await;
 
         // A plain task with no children of its own.
-        let task_id = create_typed(&pool, project_id, person_id, "task", None, None).await;
+        let task_id = create_typed(&pool, project_id, person_id, "subtask", None, None).await;
         // Sibling task that should not be touched.
-        let sibling_id = create_typed(&pool, project_id, person_id, "task", None, None).await;
+        let sibling_id = create_typed(&pool, project_id, person_id, "subtask", None, None).await;
 
         update_task_inner(
             &pool,
@@ -850,8 +877,8 @@ mod tests {
         let sprint_id = seed_sprint(&pool, project_id, "S1").await;
 
         let story_id = create_typed(&pool, project_id, person_id, "story", None, None).await;
-        let child_id = create_typed(&pool, project_id, person_id, "task", Some(story_id), None).await;
-        let grandchild_id = create_typed(&pool, project_id, person_id, "task", Some(child_id), None).await;
+        let child_id = create_typed(&pool, project_id, person_id, "subtask", Some(story_id), None).await;
+        let grandchild_id = create_typed(&pool, project_id, person_id, "subtask", Some(child_id), None).await;
 
         update_task_inner(
             &pool,
@@ -874,7 +901,7 @@ mod tests {
 
         // Story already in the sprint; child has been manually pulled out into backlog.
         let story_id = create_typed(&pool, project_id, person_id, "story", None, Some(sprint_id)).await;
-        let child_id = create_typed(&pool, project_id, person_id, "task", Some(story_id), None).await;
+        let child_id = create_typed(&pool, project_id, person_id, "subtask", Some(story_id), None).await;
 
         // Re-apply the same sprint_id — sprint_id_changed is false, so no cascade fires.
         update_task_inner(
@@ -910,9 +937,9 @@ mod tests {
         let p2 = seed_named_project(&pool, "P2").await;
         let person_id = seed_person(&pool, "Alice").await;
 
-        let p1_first = create_typed(&pool, p1, person_id, "task", None, None).await;
-        let p1_second = create_typed(&pool, p1, person_id, "task", None, None).await;
-        let p2_first = create_typed(&pool, p2, person_id, "task", None, None).await;
+        let p1_first = create_typed(&pool, p1, person_id, "subtask", None, None).await;
+        let p1_second = create_typed(&pool, p1, person_id, "subtask", None, None).await;
+        let p2_first = create_typed(&pool, p2, person_id, "subtask", None, None).await;
 
         let n: (i64, i64, i64) = sqlx::query_as(
             "SELECT
@@ -936,8 +963,8 @@ mod tests {
         let project_id = seed_project(&pool).await;
         let person_id = seed_person(&pool, "Alice").await;
 
-        let first = create_typed(&pool, project_id, person_id, "task", None, None).await;
-        let _second = create_typed(&pool, project_id, person_id, "task", None, None).await;
+        let first = create_typed(&pool, project_id, person_id, "subtask", None, None).await;
+        let _second = create_typed(&pool, project_id, person_id, "subtask", None, None).await;
 
         sqlx::query("DELETE FROM tasks WHERE id = ?")
             .bind(first)
@@ -945,7 +972,7 @@ mod tests {
             .await
             .unwrap();
 
-        let third = create_typed(&pool, project_id, person_id, "task", None, None).await;
+        let third = create_typed(&pool, project_id, person_id, "subtask", None, None).await;
         let n: i64 = sqlx::query_scalar("SELECT task_number FROM tasks WHERE id = ?")
             .bind(third)
             .fetch_one(&pool)
@@ -1032,7 +1059,7 @@ mod tests {
     async fn factory_sprint_changes_happen_only_at_ready() {
         let f = factory_project().await;
         let story = create_in(&f, "story", None, Some("refining")).await.unwrap();
-        let sub = create_in(&f, "task", Some(story.id), None).await.unwrap();
+        let sub = create_in(&f, "subtask", Some(story.id), None).await.unwrap();
 
         // The legacy sprint drop sent status and sprint together.
         let err = update_task_inner(
@@ -1106,7 +1133,7 @@ mod tests {
     async fn a_canceled_factory_subtask_can_be_reopened_with_its_history() {
         let f = factory_project().await;
         let story = create_in(&f, "story", None, None).await.unwrap();
-        let sub = create_in(&f, "task", Some(story.id), None).await.unwrap();
+        let sub = create_in(&f, "subtask", Some(story.id), None).await.unwrap();
         sqlx::query("INSERT INTO comments (task_id, author_id, body, created_at) VALUES (?, ?, 'note', '2026-01-01T00:00:00.000Z')")
             .bind(sub.id)
             .bind(f.pedro)
@@ -1132,7 +1159,7 @@ mod tests {
     #[tokio::test]
     async fn factory_creation_starts_on_the_ladder() {
         let f = factory_project().await;
-        let err = create_in(&f, "task", None, None).await.unwrap_err();
+        let err = create_in(&f, "subtask", None, None).await.unwrap_err();
         assert!(err.contains("belongs to a Story"), "{err}");
         let err = create_in(&f, "story", None, Some("todo")).await.unwrap_err();
         assert!(err.contains("backlog or refining"), "{err}");
@@ -1145,7 +1172,7 @@ mod tests {
         let bug = create_in(&f, "bug", Some(story.id), None).await.unwrap();
         assert_eq!(bug.status, "todo");
         assert_eq!(bug.sprint_id, Some(f.sprint_id));
-        let err = create_in(&f, "task", Some(story.id), Some("in_review")).await.unwrap_err();
+        let err = create_in(&f, "subtask", Some(story.id), Some("in_review")).await.unwrap_err();
         assert!(err.contains("starts in todo"), "{err}");
     }
 }

@@ -72,8 +72,18 @@ describe("CreateTaskModal — form", () => {
       expect(screen.getByRole("button", { name: "Story" })).toBeInTheDocument();
     });
     expect(screen.getByRole("button", { name: "Bug" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Task" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Subtask" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Epic" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Task" })).not.toBeInTheDocument();
+  });
+
+  it("words the issue as a subtask in title, submit button and placeholder", async () => {
+    renderModal();
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Create subtask" })).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Create subtask" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Subtask title")).toBeInTheDocument();
   });
 });
 
@@ -93,7 +103,7 @@ describe("CreateTaskModal — locked type (story boards)", () => {
       expect(screen.getByRole("button", { name: "Story" })).toBeInTheDocument();
     });
     expect(screen.queryByRole("button", { name: "Bug" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Task" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Subtask" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Epic" })).not.toBeInTheDocument();
   });
 
@@ -138,7 +148,7 @@ describe("CreateTaskModal — submission", () => {
     parent_id: null,
     title: "My New Task",
     description: "",
-    type: "task",
+    type: "subtask",
     status: "todo",
     priority: "medium",
     assignee_id: null,

@@ -41,7 +41,7 @@ const fakeTask = {
   parent_id: null,
   title: "Fix bug",
   description: "",
-  type: "task",
+  type: "subtask",
   status: "todo",
   priority: "medium",
   assignee_id: null,
@@ -112,7 +112,7 @@ describe("useCreateTask", () => {
     const { wrapper } = makeWrapper();
     const { result } = renderHook(() => useCreateTask(), { wrapper });
     await result.current.mutateAsync({ project_id: 10, title: "Fix bug" });
-    expect(mockToast.success).toHaveBeenCalledWith("Task created", {
+    expect(mockToast.success).toHaveBeenCalledWith("Subtask created", {
       description: fakeTask.title,
     });
   });
@@ -124,7 +124,7 @@ describe("useUpdateTask", () => {
     const { wrapper } = makeWrapper();
     const { result } = renderHook(() => useUpdateTask(), { wrapper });
     await result.current.mutateAsync({ id: 1, payload: { status: "done" } });
-    expect(mockToast.success).toHaveBeenCalledWith("Task updated", {
+    expect(mockToast.success).toHaveBeenCalledWith("Subtask updated", {
       description: `"${fakeTask.title}" → done`,
     });
   });

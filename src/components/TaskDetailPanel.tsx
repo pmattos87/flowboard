@@ -83,7 +83,7 @@ function formatDateTime(dt: string): string {
 export const TYPE_BADGE: Record<TaskType, { label: string; icon: React.ReactNode; cls: string }> = {
   story: { label: "Story", icon: <BookOpen className="h-3 w-3" />, cls: "bg-emerald-900/40 text-emerald-400 border border-emerald-700" },
   bug:   { label: "Bug",   icon: <Bug className="h-3 w-3" />,       cls: "bg-red-900/40 text-red-400 border border-red-700" },
-  task:  { label: "Task",  icon: <CheckSquare className="h-3 w-3" />, cls: "bg-blue-900/40 text-blue-400 border border-blue-700" },
+  subtask:  { label: "Subtask",  icon: <CheckSquare className="h-3 w-3" />, cls: "bg-blue-900/40 text-blue-400 border border-blue-700" },
   epic:  { label: "Epic",  icon: <Layers className="h-3 w-3" />,     cls: "bg-purple-900/40 text-purple-400 border border-purple-700" },
 };
 
@@ -641,7 +641,7 @@ export function TaskDetailPanel() {
               type="button"
               onClick={handleCancel}
               className="p-1.5 rounded text-gray-500 hover:text-red-400 hover:bg-gray-800 transition-colors"
-              aria-label="Cancel task"
+              aria-label="Cancel subtask"
             >
               <Ban className="h-4 w-4" />
             </button>
@@ -673,7 +673,7 @@ export function TaskDetailPanel() {
                   if (t && t !== task.title) save({ title: t });
                 }}
                 className="w-full bg-transparent text-lg font-semibold text-white placeholder:text-gray-600 focus:outline-none border-b border-transparent focus:border-gray-700 pb-1 transition-colors"
-                placeholder="Task title"
+                placeholder="Subtask title"
               />
 
               <TaskFields task={task} state={draftState} />
@@ -697,7 +697,7 @@ export function TaskDetailPanel() {
               <CommentsSection taskId={task.id} people={peopleSafe} />
               <div className="border-t border-gray-800" />
               <AttachmentsSection taskId={task.id} />
-              {task.type === "task" && (
+              {task.type === "subtask" && (
                 <>
                   <div className="border-t border-gray-800" />
                   <TimeLogsSection taskId={task.id} people={peopleSafe} />

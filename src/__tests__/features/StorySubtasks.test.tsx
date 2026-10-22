@@ -15,7 +15,7 @@ const mockInvoke = vi.mocked(invoke);
 function task(over: Partial<Task>): Task {
   return {
     id: 1, project_id: 1, task_number: 1, sprint_id: 3, parent_id: null,
-    title: "", description: "", type: "task", status: "todo", priority: "medium",
+    title: "", description: "", type: "subtask", status: "todo", priority: "medium",
     assignee_id: null, story_points: 0, due_date: null, created_at: "", updated_at: "",
     labels: "", feature_branch: null, review_verdict: null, reviewed_commit: null,
     findings_url: null, run_stopped: false, risk: false, release_id: null,

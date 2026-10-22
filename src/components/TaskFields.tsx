@@ -36,7 +36,7 @@ export type TaskDraft = {
 
 const EMPTY_DRAFT: TaskDraft = {
   title: "",
-  type: "task",
+  type: "subtask",
   status: "todo",
   priority: "medium",
   assignee_id: null,
@@ -101,7 +101,7 @@ export function TaskFields({ task, state }: { task: Task; state: TaskDraftState 
   const peopleSafe = people ?? [];
   const sprintsSafe = sprints ?? [];
   const storyOptions = (projectTasks ?? []).filter((t) => t.type === "story");
-  const showParent = task.type === "task" || task.type === "bug";
+  const showParent = task.type === "subtask" || task.type === "bug";
 
   // Reparenting to a story inherits the story's sprint so the child stays in the
   // same sprint as its parent (matches the Task Board DnD reparent behavior).

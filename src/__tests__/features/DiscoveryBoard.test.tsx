@@ -29,7 +29,7 @@ const mixedTasks = [
   },
   {
     id: 4, project_id: 1, sprint_id: null, parent_id: null,
-    title: "Hidden task", description: "", type: "task", status: "todo",
+    title: "Hidden task", description: "", type: "subtask", status: "todo",
     priority: "low", assignee_id: null, story_points: 2, due_date: null,
     created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "",
   },

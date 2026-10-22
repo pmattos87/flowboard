@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 
 // Matches the shortcuts registered in AppShell.tsx useKeyboardShortcuts
 const SHORTCUTS = [
-  { key: "N", action: "Open 'Create task' modal" },
+  { key: "N", action: "Open 'Create subtask' modal" },
   { key: "/", action: "Focus global search bar" },
 ] as const;
 

@@ -123,6 +123,13 @@ describe("Inbox — with activity", () => {
     );
   });
 
+  it("words a create activity as 'created subtask'", async () => {
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText(/created subtask/i)).toBeInTheDocument(),
+    );
+  });
+
   it("shows human-readable action label for status_changed", async () => {
     renderPage();
     await waitFor(() =>

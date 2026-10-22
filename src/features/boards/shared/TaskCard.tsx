@@ -55,7 +55,7 @@ export function TaskCard({ task, people, projectKey, isOverlay = false, decor }:
   const labels = task.labels ? task.labels.split(",").filter(Boolean) : [];
   const typeMeta = TYPE_META[task.type];
   const priorityMeta = PRIORITY_META[task.priority];
-  const { Icon: TypeIcon, colorClass: typeColor } = typeMeta ?? TYPE_META.task;
+  const { Icon: TypeIcon, colorClass: typeColor } = typeMeta ?? TYPE_META.subtask;
   const { Icon: PriorityIcon, colorClass: priorityColor } = priorityMeta ?? PRIORITY_META.medium;
   const ticketId = `${projectKey}-${task.task_number}`;
 
