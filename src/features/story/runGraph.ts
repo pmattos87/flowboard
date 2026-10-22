@@ -128,7 +128,6 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
           : "todo";
     return { id: `sub-${s.id}`, key, title: s.title, state, info: run };
   });
-  const anyRounds = Object.values(info).some((i) => i.rounds.length > 0);
   const buildStopped = stopped && subNodes.some((n) => n.state === "stopped");
   const reviewRounds = trail.filter((e) => e.action === "review_round");
   const buildFinished = reached("integrated_tests") || reviewRounds.length > 0 || (building && open.length === 0 && subtasks.length > 0);
@@ -145,7 +144,8 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
     title: "Verify",
     kind: "agent",
     caption: "QA · tsc · tests",
-    state: buildStopped ? "stopped" : pick(buildFinished, building && anyRounds),
+    // The Subtasks show where the Build is; Verify only shows its outcome.
+    state: buildStopped ? "stopped" : pick(buildFinished, false),
   };
   const stopEvents = trail.filter((e) => e.action === "run_stopped");
   const lastStop = stopEvents.at(-1);

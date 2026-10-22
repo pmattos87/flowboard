@@ -46,9 +46,15 @@ function Badge({ state }: { state: NodeState }) {
 
 function NodeBox({ node, x, y }: { node: RunNode; x: number; y: number }) {
   const { Icon, cls, label } = KIND[node.kind];
+  // A stopped Run waits at the Stop gate for Pedro: it gets the running
+  // highlight, in red.
+  const waiting = node.id === "stop" && node.state === "stopped";
   return (
     <div className="absolute" style={{ left: x, top: y, width: W }} data-node={node.id} data-state={node.state}>
-      <div className={cn("relative rounded-lg border bg-[#11141b] px-3 flex items-center gap-2.5", frame(node.state))} style={{ height: H }}>
+      <div
+        className={cn("relative rounded-lg border bg-[#11141b] px-3 flex items-center gap-2.5", frame(node.state), waiting && "run-current run-waiting")}
+        style={{ height: H }}
+      >
         <Badge state={node.state} />
         <span className={cn("h-7 w-7 rounded-md bg-gray-800 flex items-center justify-center shrink-0", cls)}>
           <Icon className="h-3.5 w-3.5" />

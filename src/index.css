@@ -80,8 +80,8 @@ body,
   background: conic-gradient(
     from var(--run-angle),
     transparent 0deg 250deg,
-    #3b82f6 310deg,
-    #bfdbfe 350deg,
+    var(--run-highlight, #3b82f6) 310deg,
+    var(--run-highlight-tip, #bfdbfe) 350deg,
     transparent 360deg
   );
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
@@ -89,6 +89,12 @@ body,
   mask-composite: exclude;
   animation: run-current-spin 2.4s linear infinite;
   pointer-events: none;
+}
+
+/* A stopped Run waiting on Pedro. */
+.run-waiting {
+  --run-highlight: #ef4444;
+  --run-highlight-tip: #fecaca;
 }
 
 @keyframes run-current-spin {

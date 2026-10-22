@@ -134,6 +134,22 @@ describe("runGraph", () => {
     expect(g.bugLoop).toBe(false);
   });
 
+  it("after a restart the reworked Subtask, not Verify, is current", () => {
+    const g = graph(
+      { status: "building" },
+      [sub(2, "in_progress")],
+      [
+        stage("building"),
+        ev("verify_round", { subtask: "FB-2", round: 1, result: "fail" }),
+        ev("verify_round", { subtask: "FB-2", round: 2, result: "fail" }),
+        ev("run_stopped", { reason: "x" }),
+        ev("run_restarted"),
+      ],
+    );
+    expect(g.subtasks[0].state).toBe("current");
+    expect(g.verify.state).toBe("todo");
+  });
+
   it("a restarted Run shows Stop as passed", () => {
     const g = graph({ status: "building" }, [], [stage("building"), ev("run_stopped", { reason: "x" }), ev("run_restarted")]);
     expect(g.stop.state).toBe("done");
