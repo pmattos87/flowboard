@@ -126,7 +126,7 @@ async fn load_subtask(tx: &mut Tx<'_>, key: &str) -> Result<(Row, Row), String> 
     let row = load(tx, key).await?;
     require_factory(&row)?;
     let parent = match row.parent_id {
-        Some(p) if matches!(row.kind.as_str(), "task" | "bug") => load_by_id(tx, p).await?,
+        Some(p) if matches!(row.kind.as_str(), "subtask" | "bug") => load_by_id(tx, p).await?,
         _ => return Err(format!("{key} is not a Subtask")),
     };
     if parent.kind != "story" {
@@ -467,7 +467,7 @@ async fn unmapped_items(tx: &mut Tx<'_>, project_id: i64, key: &str) -> Result<V
         r#"SELECT t.task_number FROM tasks t LEFT JOIN tasks parent ON parent.id = t.parent_id
             WHERE t.project_id = ? AND t.status NOT IN ('done','canceled')
               AND NOT (t.parent_id IS NULL AND t.type = 'story' AND t.status IN ({}))
-              AND NOT (t.parent_id IS NOT NULL AND t.type IN ('task','bug') AND parent.type = 'story'
+              AND NOT (t.parent_id IS NOT NULL AND t.type IN ('subtask','bug') AND parent.type = 'story'
                        AND t.status IN ({}))
             ORDER BY t.task_number"#,
         open(ladder::STORY_STATUSES),
@@ -994,7 +994,7 @@ pub async fn subtask_create(pool: &SqlitePool, s: NewSubtask<'_>, actor: Actor) 
     if matches!(story.status.as_str(), "done" | "canceled") {
         return Err(format!("{} is {}; it takes no new Subtasks", story.key(), story.status));
     }
-    let kind = if s.bug { "bug" } else { "task" };
+    let kind = if s.bug { "bug" } else { "subtask" };
     let id = insert_task(
         &mut tx, story.project_id, story.sprint_id, Some(story.id), kind, "todo", s.title,
         s.description, "medium", None, s.story_points, s.risk, "",
@@ -1088,7 +1088,7 @@ pub async fn app_move(
     }
     let key = row.key();
     let is_story = row.kind == "story" && parent.is_none();
-    let is_subtask = matches!(row.kind.as_str(), "task" | "bug")
+    let is_subtask = matches!(row.kind.as_str(), "subtask" | "bug")
         && parent.as_ref().is_some_and(|p| p.kind == "story");
     if is_story {
         if status.is_some() && sprint_id.is_some() {
@@ -1149,7 +1149,7 @@ pub async fn app_create_status(
         }
         Some(p) => {
             let story = load_by_id(&mut tx, p).await?;
-            if story.kind != "story" || !matches!(kind, "task" | "bug") {
+            if story.kind != "story" || !matches!(kind, "subtask" | "bug") {
                 return Err("on a Factory project, only tasks and bugs go under a Story".into());
             }
             if matches!(story.status.as_str(), "done" | "canceled") {

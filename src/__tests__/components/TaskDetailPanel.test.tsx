@@ -270,7 +270,7 @@ describe("TaskDetailPanel — Time Logs visibility (FB-31)", () => {
   });
 
   it("shows the Time Logs section for task type", async () => {
-    setupInvokeWithType("task");
+    setupInvokeWithType("subtask");
     useUiStore.setState({ selectedTaskId: 7 });
     renderPanel();
     await waitFor(() =>

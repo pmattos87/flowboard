@@ -105,7 +105,7 @@ export function statusOptionsForType(
 export const TYPE_META: Record<TaskType, { Icon: LucideIcon; colorClass: string }> = {
   story: { Icon: BookOpen,    colorClass: "text-emerald-400" },
   bug:   { Icon: Bug,         colorClass: "text-red-400" },
-  task:  { Icon: CheckSquare, colorClass: "text-blue-400" },
+  subtask:  { Icon: CheckSquare, colorClass: "text-blue-400" },
   epic:  { Icon: Layers,      colorClass: "text-purple-400" },
 };
 

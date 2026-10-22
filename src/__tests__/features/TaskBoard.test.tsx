@@ -22,7 +22,7 @@ const allTypeTasks = [
   },
   {
     id: 3, project_id: 1, sprint_id: null, parent_id: null,
-    title: "A regular task", description: "", type: "task", status: "in_review",
+    title: "A regular task", description: "", type: "subtask", status: "in_review",
     priority: "low", assignee_id: null, story_points: 3, due_date: null,
     created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "",
   },

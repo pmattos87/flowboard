@@ -17,7 +17,7 @@ const fakeTask: Task = {
   parent_id: null,
   title: "Build kanban board",
   description: "",
-  type: "task",
+  type: "subtask",
   status: "todo",
   priority: "high",
   assignee_id: 1,

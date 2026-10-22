@@ -138,7 +138,7 @@ describe("CreateTaskModal — submission", () => {
     parent_id: null,
     title: "My New Task",
     description: "",
-    type: "task",
+    type: "subtask",
     status: "todo",
     priority: "medium",
     assignee_id: null,

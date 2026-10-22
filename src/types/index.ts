@@ -1,4 +1,4 @@
-export type TaskType = "story" | "bug" | "task" | "epic";
+export type TaskType = "story" | "bug" | "subtask" | "epic";
 export type TaskStatus =
   | "todo"
   | "in_progress"

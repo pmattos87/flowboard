@@ -15,7 +15,7 @@ function makeTask(overrides: Partial<Task> & { id: number }): Task {
     parent_id: null,
     title: `Task ${overrides.id}`,
     description: "",
-    type: "task",
+    type: "subtask",
     status: "todo",
     priority: "medium",
     assignee_id: null,
@@ -32,7 +32,7 @@ function makeTask(overrides: Partial<Task> & { id: number }): Task {
 describe("buildTaskBoardRows", () => {
   it("groups task/bug children under their parent story", () => {
     const story = makeTask({ id: 10, type: "story" });
-    const childTask = makeTask({ id: 20, type: "task", parent_id: 10 });
+    const childTask = makeTask({ id: 20, type: "subtask", parent_id: 10 });
     const childBug = makeTask({ id: 21, type: "bug", parent_id: 10 });
 
     const rows = buildTaskBoardRows([story, childTask, childBug], "all");
@@ -54,7 +54,7 @@ describe("buildTaskBoardRows", () => {
 
   it("appends an Unparented row when there are orphan task/bug rows", () => {
     const story = makeTask({ id: 10, type: "story" });
-    const orphan = makeTask({ id: 30, type: "task", parent_id: null });
+    const orphan = makeTask({ id: 30, type: "subtask", parent_id: null });
     const orphanBug = makeTask({ id: 31, type: "bug", parent_id: null });
 
     const rows = buildTaskBoardRows([story, orphan, orphanBug], "all");
@@ -67,7 +67,7 @@ describe("buildTaskBoardRows", () => {
 
   it("omits Unparented entirely when there are no orphans", () => {
     const story = makeTask({ id: 10, type: "story" });
-    const child = makeTask({ id: 20, type: "task", parent_id: 10 });
+    const child = makeTask({ id: 20, type: "subtask", parent_id: 10 });
 
     const rows = buildTaskBoardRows([story, child], "all");
 
@@ -94,10 +94,10 @@ describe("buildTaskBoardRows", () => {
 
   it("applies the sprint filter to Unparented orphans too", () => {
     const orphanInBacklog = makeTask({
-      id: 30, type: "task", parent_id: null, sprint_id: null,
+      id: 30, type: "subtask", parent_id: null, sprint_id: null,
     });
     const orphanInSprint = makeTask({
-      id: 31, type: "task", parent_id: null, sprint_id: 5,
+      id: 31, type: "subtask", parent_id: null, sprint_id: 5,
     });
 
     const rows = buildTaskBoardRows(
@@ -151,7 +151,7 @@ describe("progressOf", () => {
 describe("computeDropPayload", () => {
   it("returns null when status, parent, and sprint all match", () => {
     const story = makeTask({ id: 10, type: "story" });
-    const child = makeTask({ id: 20, type: "task", parent_id: 10, status: "todo" });
+    const child = makeTask({ id: 20, type: "subtask", parent_id: 10, status: "todo" });
     expect(
       computeDropPayload(child, { status: "todo", group: 10 }, [story, child]),
     ).toBeNull();
@@ -159,7 +159,7 @@ describe("computeDropPayload", () => {
 
   it("emits status only on a same-row column change", () => {
     const story = makeTask({ id: 10, type: "story" });
-    const child = makeTask({ id: 20, type: "task", parent_id: 10, status: "todo" });
+    const child = makeTask({ id: 20, type: "subtask", parent_id: 10, status: "todo" });
     const out = computeDropPayload(
       child,
       { status: "in_progress", group: 10 },
@@ -174,7 +174,7 @@ describe("computeDropPayload", () => {
     const sourceStory = makeTask({ id: 10, type: "story", sprint_id: null });
     const targetStory = makeTask({ id: 11, type: "story", sprint_id: 5 });
     const child = makeTask({
-      id: 20, type: "task", parent_id: 10, status: "todo", sprint_id: null,
+      id: 20, type: "subtask", parent_id: 10, status: "todo", sprint_id: null,
     });
 
     const out = computeDropPayload(
@@ -195,7 +195,7 @@ describe("computeDropPayload", () => {
     const sourceStory = makeTask({ id: 10, type: "story", sprint_id: 5 });
     const targetStory = makeTask({ id: 11, type: "story", sprint_id: 5 });
     const child = makeTask({
-      id: 20, type: "task", parent_id: 10, status: "todo", sprint_id: 5,
+      id: 20, type: "subtask", parent_id: 10, status: "todo", sprint_id: 5,
     });
 
     const out = computeDropPayload(
@@ -211,7 +211,7 @@ describe("computeDropPayload", () => {
   it("unparenting clears parent_id and keeps the task's existing sprint", () => {
     const story = makeTask({ id: 10, type: "story", sprint_id: 5 });
     const child = makeTask({
-      id: 20, type: "task", parent_id: 10, status: "in_progress", sprint_id: 5,
+      id: 20, type: "subtask", parent_id: 10, status: "in_progress", sprint_id: 5,
     });
 
     const out = computeDropPayload(
@@ -227,7 +227,7 @@ describe("computeDropPayload", () => {
   it("dropping an orphan onto a story sets both parent_id and sprint_id", () => {
     const story = makeTask({ id: 10, type: "story", sprint_id: 7 });
     const orphan = makeTask({
-      id: 20, type: "task", parent_id: null, status: "todo", sprint_id: null,
+      id: 20, type: "subtask", parent_id: null, status: "todo", sprint_id: null,
     });
 
     const out = computeDropPayload(

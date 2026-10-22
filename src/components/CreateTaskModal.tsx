@@ -40,7 +40,7 @@ type TaskForm = {
 
 const emptyForm = (): TaskForm => ({
   title: "",
-  type: "task",
+  type: "subtask",
   status: "todo",
   priority: "medium",
   sprint_id: null,
@@ -55,7 +55,7 @@ const emptyForm = (): TaskForm => ({
 const TYPE_OPTIONS: { value: TaskType; label: string; icon: React.ReactNode; color: string }[] = [
   { value: "story", label: "Story", icon: <BookOpen className="h-3.5 w-3.5" />, color: "text-emerald-400 border-emerald-600 bg-emerald-900/40" },
   { value: "bug", label: "Bug", icon: <Bug className="h-3.5 w-3.5" />, color: "text-red-400 border-red-600 bg-red-900/40" },
-  { value: "task", label: "Task", icon: <CheckSquare className="h-3.5 w-3.5" />, color: "text-blue-400 border-blue-600 bg-blue-900/40" },
+  { value: "subtask", label: "Task", icon: <CheckSquare className="h-3.5 w-3.5" />, color: "text-blue-400 border-blue-600 bg-blue-900/40" },
   { value: "epic", label: "Epic", icon: <Layers className="h-3.5 w-3.5" />, color: "text-purple-400 border-purple-600 bg-purple-900/40" },
 ];
 

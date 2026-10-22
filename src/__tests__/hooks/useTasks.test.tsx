@@ -41,7 +41,7 @@ const fakeTask = {
   parent_id: null,
   title: "Fix bug",
   description: "",
-  type: "task",
+  type: "subtask",
   status: "todo",
   priority: "medium",
   assignee_id: null,
