@@ -564,3 +564,43 @@ async fn setting_a_role_hands_it_over() {
         .unwrap();
     assert_eq!(owners, 1);
 }
+
+#[tokio::test]
+async fn active_runs_lists_scheduled_stories_under_way_stopped_first() {
+    let fx = setup("internal").await;
+    let ready = story(&fx, "ready in a sprint").await;
+    ready_in_sprint(&fx, &ready).await;
+    let unscheduled = story(&fx, "ready, no sprint").await;
+    mv(&fx, &unscheduled, "refining").await.unwrap();
+    mv(&fx, &unscheduled, "ready").await.unwrap();
+    story(&fx, "still in backlog").await;
+    let stopped = story(&fx, "stopped").await;
+    subtask(&fx, &stopped, true).await;
+    ready_in_sprint(&fx, &stopped).await;
+    mv(&fx, &stopped, "building").await.unwrap();
+    ops::run_stop(&fx.pool, &stopped, "Verify failed twice", Actor::Agent).await.unwrap();
+    // A legacy project's Story never shows, whatever its status.
+    sqlx::query(
+        r#"INSERT INTO tasks (project_id, sprint_id, title, type, status, created_at, updated_at, task_number)
+           VALUES ((SELECT id FROM projects WHERE key = 'LG'), ?, 'legacy', 'story', 'ready', '', '', 1)"#,
+    )
+    .bind(fx.sprint)
+    .execute(&fx.pool)
+    .await
+    .unwrap();
+
+    let runs = ops::active_runs(&fx.pool).await.unwrap();
+    let runs = runs.as_array().unwrap();
+    let keys: Vec<&str> = runs.iter().map(|r| r["key"].as_str().unwrap()).collect();
+    assert_eq!(keys, vec![stopped.as_str(), ready.as_str()]);
+
+    let first = &runs[0];
+    assert_eq!(first["status"], "building");
+    assert_eq!(first["flags"]["stopped"], true);
+    assert_eq!(first["flags"]["waiting_on_bugs"], 1);
+    assert_eq!(first["needs_pedro"], true, "a stopped Run is Pedro's move");
+    assert_eq!(first["assignee"], "Pedro");
+    assert_eq!(first["project"], "SF");
+    assert!(!first["stage_entered_at"].as_str().unwrap().is_empty());
+    assert_eq!(runs[1]["flags"]["stopped"], false);
+}

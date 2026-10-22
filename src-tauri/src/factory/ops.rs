@@ -332,6 +332,59 @@ pub async fn trail(pool: &SqlitePool, key: &str) -> Result<Value, String> {
     ))
 }
 
+/// Every Factory Story with a Run under way, across projects: `ready` in a
+/// sprint through `user_testing`. Stopped Runs first, then the longest in
+/// their Stage.
+pub async fn active_runs(pool: &SqlitePool) -> Result<Value, String> {
+    #[derive(FromRow)]
+    struct Active {
+        key: String,
+        project: String,
+        title: String,
+        status: String,
+        assignee: Option<String>,
+        assignee_role: Option<String>,
+        run_stopped: i64,
+        waiting_on_bugs: i64,
+        stage_entered_at: String,
+    }
+    let rows = sqlx::query_as::<_, Active>(
+        r#"SELECT p.key || '-' || t.task_number AS key, p.name AS project, t.title, t.status,
+                  a.name AS assignee, a.factory_role AS assignee_role, t.run_stopped,
+                  (SELECT COUNT(*) FROM tasks b WHERE b.parent_id = t.id AND b.type = 'bug'
+                      AND b.status NOT IN ('done','canceled')) AS waiting_on_bugs,
+                  COALESCE((SELECT MAX(l.created_at) FROM activity_log l
+                             WHERE l.task_id = t.id AND l.action = 'stage_entered'),
+                           t.created_at) AS stage_entered_at
+             FROM tasks t
+             JOIN projects p ON p.id = t.project_id
+             LEFT JOIN people a ON a.id = t.assignee_id
+            WHERE p.ladder = 'factory' AND t.type = 'story' AND t.parent_id IS NULL
+              AND t.sprint_id IS NOT NULL
+              AND t.status IN ('ready','building','integrated_tests','tested','user_testing')
+            ORDER BY t.run_stopped DESC, stage_entered_at, p.key, t.task_number"#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(err)?;
+    Ok(Value::Array(
+        rows.into_iter()
+            .map(|r| {
+                json!({
+                    "key": r.key,
+                    "project": r.project,
+                    "title": r.title,
+                    "status": r.status,
+                    "assignee": r.assignee,
+                    "needs_pedro": r.assignee_role.as_deref() == Some("owner"),
+                    "flags": { "stopped": r.run_stopped != 0, "waiting_on_bugs": r.waiting_on_bugs },
+                    "stage_entered_at": r.stage_entered_at,
+                })
+            })
+            .collect(),
+    ))
+}
+
 // ─── People, projects, contacts ─────────────────────────────────────────────
 
 pub async fn people_set_role(pool: &SqlitePool, person_id: i64, role: Option<&str>) -> Result<Value, String> {
