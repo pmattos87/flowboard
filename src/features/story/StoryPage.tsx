@@ -12,6 +12,7 @@ import { statusOptionsForType } from "@/features/boards/shared/boardConstants";
 import { cn } from "@/lib/utils";
 import type { StoryView, TrailEvent } from "@/types";
 import { StoryFlags } from "./StoryFlags";
+import { StorySubtasks } from "./StorySubtasks";
 
 // The dedicated Story page of a Factory project (SF-61). It replaces the
 // detail slide-over for Stories there; legacy projects keep the slide-over.
@@ -164,18 +165,7 @@ export function StoryPage() {
           </section>
           <section className={CARD}>
             <h3 className={H3}>Subtasks</h3>
-            {story.subtasks.length === 0 ? (
-              <p className="text-xs text-gray-500">No Subtasks yet.</p>
-            ) : (
-              <ul className="space-y-1 text-sm">
-                {story.subtasks.map((s) => (
-                  <li key={s.key} className="text-gray-300">
-                    <span className="font-mono text-xs text-gray-500 mr-2">{s.key}</span>
-                    {s.title} <span className="text-gray-500">· {s.status}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <StorySubtasks story={task} storyKey={story.key} projectKey={projectKey} />
           </section>
           <section className={CARD}>
             <CommentsSection taskId={task.id} people={people} />
