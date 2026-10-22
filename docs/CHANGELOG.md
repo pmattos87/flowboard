@@ -2,6 +2,12 @@
 
 **All notable changes to this project will be documented in this file.**
 
+## [Unreleased]
+
+### Changed
+- The issue type `task` is now `subtask`: migration `011_subtask_type.sql` converts existing rows (parent links, comments, time logs and activity are kept) and the CHECK vocabulary becomes `story | bug | subtask | epic`. The UI says "Subtask" for the type, "Create subtask", "Cancel subtask", the "Subtask title" placeholder, "Add subtask to ...", the Inbox "created subtask" text, the toasts, the search badge and the Reports series; "Task Board" keeps its name. The `tasks` table keeps its name (D-013, FB-101).
+- Upgrade the app and `flowboard-cli`/MCP together: after migration 011 the previous build's CLI refuses the database.
+
 ## [1.7.0] - 2026-10-22
 
 ### Added

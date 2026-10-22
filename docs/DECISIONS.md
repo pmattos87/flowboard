@@ -102,6 +102,15 @@
 **Rationale:** `react-markdown` builds React elements rather than HTML strings, so raw HTML in a description is never injected. CommonMark covers headings, lists and code, which is what briefs use.
 **Consequences:** GFM tables, task lists and strikethrough render as plain text. Links are not opened externally (that would need `tauri-plugin-shell`); file paths render as text or inline code.
 
+### D-013: Rename the Issue Type `task` to `subtask`, Keep the `tasks` Table (2026-10-22)
+**Status:** Accepted
+**Context:** FB-101. The Software Factory domain model renamed Task (a sub-unit of a Story) to Subtask, and the Factory CLI/MCP and Story page already say "Subtask". FlowBoard still stored the type value `'task'` and showed "Task" in the legacy UI.
+**Decision:** Rename only the `tasks.type` value: the CHECK vocabulary becomes `story | bug | subtask | epic`, migration `011_subtask_type.sql` converts existing rows, and the UI labels and issue wording say "Subtask" ("Task Board" keeps its name). The `tasks` table keeps its name. The rename applies to every project, legacy and Factory alike.
+**Rationale:** The table holds every issue type, so its name is not wrong; renaming it would touch every foreign key, query, the CLI and several skills' raw SQL for no visible change.
+**Consequences:**
+- Migration 011 means the installed app and `flowboard-cli`/MCP must be upgraded in the same Release: the previous build's CLI refuses a database migrated by the new app.
+- The `flowboard-issue` skill (outside this repo) lists the old vocabulary and is updated by hand when the Release carrying migration 011 is installed; its INSERT writes `'story'`, so it keeps working.
+
 ## Rejected Decisions
 
 - **Electron** — heavier runtime and larger distribution size.

@@ -48,7 +48,7 @@
 |--------|--------|
 | Story  | Green  |
 | Bug    | Red    |
-| Task   | Blue   |
+| Subtask | Blue  |
 | Epic   | Purple |
 
 ## Priority Icons
