@@ -108,6 +108,9 @@ export function Sidebar() {
   );
 
   const projectList = projects ?? [];
+  // On a Factory project the Task board lives on each Story page (SF-61).
+  const isFactory = projectList.find((p) => p.id === activeProjectId)?.ladder === "factory";
+  const navItems = isFactory ? NAV_ITEMS.filter((i) => i.to !== "/board/task") : NAV_ITEMS;
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -171,7 +174,7 @@ export function Sidebar() {
       </DndContext>
 
       <nav className="mt-6 px-2 space-y-0.5">
-        {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
+        {navItems.map(({ to, label, icon: Icon }) => (
           <NavLink key={to} to={to} className={navClasses}>
             <Icon className="h-4 w-4" />
             <span>{label}</span>
