@@ -32,6 +32,8 @@
     "wayfinder": "off",
     "research": "off",
     "prototype": "off",
-    "planning": "off"
+    "planning": "off",
+    "release": "off",
+    "release-notes": "off"
   }
 }

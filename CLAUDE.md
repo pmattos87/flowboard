@@ -127,6 +127,7 @@ FlowBoard follows the Software Factory Workflow (the `factory` plugin). Flowboar
 
 - Stories and Subtasks are created and moved only with the `factory:story-status` skill (the `flowboard` MCP), never with raw SQL.
 - A built Story is integrated with the `factory:integrate` skill: PR into `develop`, merged once the PR checks are green, Story → `integrated_tests`.
+- `tested` Stories reach production in a Release: picked on the Releases screen, then taken to production with the `factory:promote` skill (`release/vX.Y.Z` branch, PR into `main` that Pedro merges, tag, GitHub Release with the installers). Never merge `develop` into `main`.
 - A defect found while testing a Story becomes a bug Subtask on it; a defect in production becomes a new Story.
 
 ## Git Workflow & Repository Rules
