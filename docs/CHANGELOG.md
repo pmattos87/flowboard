@@ -7,6 +7,9 @@
 ### Added
 - `flowboard-cli story comment <KEY> --body <text> | --body-file <file>` (and the `story_comment` MCP tool): post a comment on a Factory Story as the acting person (the agent by default). It returns the comment's id and a `flowboard://comment/<id>` link, which the Factory's Review uses as a round's findings link. Refused on legacy projects, on Subtasks and for an empty body (SF-58).
 
+### Changed
+- FlowBoard now bundles only the NSIS setup `.exe` (`bundle.targets = ["nsis"]`), and a GitHub Release attaches only `src-tauri/target/release/bundle/nsis/*-setup.exe`. The `.msi` installer is dropped (FB-113).
+
 ## [1.6.0] - 2026-10-22
 
 ### Added

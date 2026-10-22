@@ -93,7 +93,7 @@ npm run dev:staging
 ### Building
 
 ```bash
-# Production build → outputs an .msi / .exe installer
+# Production build → outputs the NSIS setup .exe installer
 npm run build
 
 # Staging build (separate app data directory)
