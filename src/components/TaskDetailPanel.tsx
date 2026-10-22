@@ -12,12 +12,11 @@ import {
   X,
 } from "lucide-react";
 import { open as openFilePicker } from "@tauri-apps/plugin-dialog";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useTask, useTasks, useUpdateTask } from "@/hooks/useTasks";
+import { useTask } from "@/hooks/useTasks";
 import {
   useComments,
   useCreateComment,
@@ -28,28 +27,19 @@ import { useTimeLogs, useCreateTimeLog, useDeleteTimeLog } from "@/hooks/useTime
 import { useAttachments, useCreateAttachment, useDeleteAttachment } from "@/hooks/useAttachments";
 import { openAttachment } from "@/lib/commands";
 import { usePeople } from "@/hooks/usePeople";
-import { useSprints } from "@/hooks/useSprints";
 import { useProject } from "@/hooks/useProjects";
 import { useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
-import { statusOptionsForType } from "@/features/boards/shared/boardConstants";
-import {
-  computeSprintDropPayload,
-  isSprintScheduleBlocked,
-  sprintGateToast,
-} from "@/features/boards/shared/sprintBoardGrouping";
+import { SELECT_CLS, TaskFields, useTaskDraft } from "@/components/TaskFields";
 import { Avatar } from "@/components/Avatar";
 import { MarkdownDescription } from "@/components/MarkdownDescription";
 import type {
   Attachment,
   Comment,
   Person,
-  TaskPriority,
-  TaskStatus,
   TaskType,
   TimeLog,
 } from "@/types";
-import type { TaskUpdatePayload } from "@/lib/commands";
 
 // ─── Helpers ──────────────────────────────────────────────
 
@@ -90,18 +80,17 @@ function formatDateTime(dt: string): string {
   return `${date} ${time}`;
 }
 
-const TYPE_BADGE: Record<TaskType, { label: string; icon: React.ReactNode; cls: string }> = {
+export const TYPE_BADGE: Record<TaskType, { label: string; icon: React.ReactNode; cls: string }> = {
   story: { label: "Story", icon: <BookOpen className="h-3 w-3" />, cls: "bg-emerald-900/40 text-emerald-400 border border-emerald-700" },
   bug:   { label: "Bug",   icon: <Bug className="h-3 w-3" />,       cls: "bg-red-900/40 text-red-400 border border-red-700" },
   task:  { label: "Task",  icon: <CheckSquare className="h-3 w-3" />, cls: "bg-blue-900/40 text-blue-400 border border-blue-700" },
   epic:  { label: "Epic",  icon: <Layers className="h-3 w-3" />,     cls: "bg-purple-900/40 text-purple-400 border border-purple-700" },
 };
 
-const SELECT_CLS = "w-full rounded-md bg-gray-800 border border-gray-700 text-gray-100 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500";
 
 // ─── CommentsSection ───────────────────────────────────────
 
-function CommentsSection({ taskId, people }: { taskId: number; people: Person[] }) {
+export function CommentsSection({ taskId, people }: { taskId: number; people: Person[] }) {
   const { data: comments } = useComments(taskId);
   const createComment = useCreateComment();
   const updateComment = useUpdateComment(taskId);
@@ -315,7 +304,7 @@ function inferMimeType(filename: string): string {
   return MIME_BY_EXT[ext] ?? "application/octet-stream";
 }
 
-function AttachmentsSection({ taskId }: { taskId: number }) {
+export function AttachmentsSection({ taskId }: { taskId: number }) {
   const { data: attachments } = useAttachments(taskId);
   const createAttachment = useCreateAttachment();
   const deleteAttachment = useDeleteAttachment(taskId);
@@ -598,20 +587,6 @@ function TimeLogsSection({ taskId, people }: { taskId: number; people: Person[] 
 
 // ─── TaskDetailPanel ───────────────────────────────────────
 
-type PanelDraft = {
-  title: string;
-  type: TaskType;
-  status: TaskStatus;
-  priority: TaskPriority;
-  assignee_id: number | null;
-  sprint_id: number | null;
-  parent_id: number | null;
-  story_points: number;
-  due_date: string;
-  labels: string;
-  description: string;
-};
-
 export function TaskDetailPanel() {
   const selectedTaskId = useUiStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useUiStore((s) => s.setSelectedTaskId);
@@ -619,88 +594,18 @@ export function TaskDetailPanel() {
   const isOpen = selectedTaskId != null;
 
   const { data: task, isLoading } = useTask(selectedTaskId);
-  const updateTask = useUpdateTask();
   const { data: people } = usePeople();
-  const { data: sprints } = useSprints(task?.project_id);
   const { data: project } = useProject(task?.project_id);
-  const { data: projectTasks } = useTasks(
-    task?.project_id != null ? { project_id: task.project_id } : undefined,
-  );
-
-  const [draft, setDraft] = useState<PanelDraft>({
-    title: "",
-    type: "task",
-    status: "todo",
-    priority: "medium",
-    assignee_id: null,
-    sprint_id: null,
-    parent_id: null,
-    story_points: 0,
-    due_date: "",
-    labels: "",
-    description: "",
-  });
-
-  useEffect(() => {
-    if (task) {
-      setDraft({
-        title: task.title,
-        type: task.type,
-        status: task.status,
-        priority: task.priority,
-        assignee_id: task.assignee_id,
-        sprint_id: task.sprint_id,
-        parent_id: task.parent_id,
-        story_points: task.story_points,
-        due_date: task.due_date ?? "",
-        labels: task.labels ?? "",
-        description: task.description ?? "",
-      });
-    }
-  }, [task?.id]);
-
-  const save = (patch: TaskUpdatePayload) => {
-    if (!task) return;
-    updateTask.mutate({ id: task.id, payload: patch });
-  };
-
-  const handleSelectChange = <K extends keyof PanelDraft>(
-    key: K,
-    value: PanelDraft[K],
-    patchValue: TaskUpdatePayload[keyof TaskUpdatePayload],
-  ) => {
-    setDraft((d) => ({ ...d, [key]: value }));
-    save({ [key]: patchValue } as TaskUpdatePayload);
-  };
+  const draftState = useTaskDraft(task);
+  const { draft, setDraft, save, handleSelectChange } = draftState;
 
   const taskKey = project && task ? `${project.key}-${task.task_number}` : task ? `#${task.id}` : "";
   const typeBadge = task ? TYPE_BADGE[task.type] : null;
   const peopleSafe = people ?? [];
-  const sprintsSafe = sprints ?? [];
-  const storyOptions = (projectTasks ?? []).filter((t) => t.type === "story");
-  const showParent = task?.type === "task" || task?.type === "bug";
 
   // Cancel is reversible (reopen via the Status picker), so no confirmation and
   // the panel stays open. Only this issue is canceled, never its children.
   const handleCancel = () => handleSelectChange("status", "canceled", "canceled");
-
-  // Reparenting to a story inherits the story's sprint so the child stays in the
-  // same sprint as its parent (matches the Task Board DnD reparent behavior).
-  const handleParentChange = (value: string) => {
-    if (!task) return;
-    const newParentId = value ? Number(value) : null;
-    const newParent =
-      newParentId != null
-        ? storyOptions.find((s) => s.id === newParentId) ?? null
-        : null;
-    const newSprintId = newParent ? newParent.sprint_id : draft.sprint_id;
-    setDraft((d) => ({ ...d, parent_id: newParentId, sprint_id: newSprintId }));
-    const patch: TaskUpdatePayload = { parent_id: newParentId };
-    if (newParent && newParent.sprint_id !== task.sprint_id) {
-      patch.sprint_id = newParent.sprint_id;
-    }
-    save(patch);
-  };
 
   return (
     <>
@@ -771,155 +676,7 @@ export function TaskDetailPanel() {
                 placeholder="Task title"
               />
 
-              {/* Meta grid */}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label className="text-gray-500 text-[11px]">Status</Label>
-                  <select
-                    value={draft.status}
-                    onChange={(e) => {
-                      const v = e.target.value as TaskStatus;
-                      handleSelectChange("status", v, v);
-                    }}
-                    className={SELECT_CLS}
-                  >
-                    {statusOptionsForType(draft.type, project?.ladder).map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <Label className="text-gray-500 text-[11px]">Priority</Label>
-                  <select
-                    value={draft.priority}
-                    onChange={(e) => {
-                      const v = e.target.value as TaskPriority;
-                      handleSelectChange("priority", v, v);
-                    }}
-                    className={SELECT_CLS}
-                  >
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                    <option value="critical">Critical</option>
-                  </select>
-                </div>
-                <div>
-                  <Label className="text-gray-500 text-[11px]">Assignee</Label>
-                  <select
-                    value={draft.assignee_id ?? ""}
-                    onChange={(e) => {
-                      const v = e.target.value ? Number(e.target.value) : null;
-                      handleSelectChange("assignee_id", v, v);
-                    }}
-                    className={SELECT_CLS}
-                  >
-                    <option value="">Unassigned</option>
-                    {peopleSafe.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <Label className="text-gray-500 text-[11px]">Sprint</Label>
-                  <select
-                    aria-label="Sprint"
-                    value={draft.sprint_id ?? ""}
-                    onChange={(e) => {
-                      const v = e.target.value ? Number(e.target.value) : null;
-                      // FB-90: same gate the Sprint Planning Board applies to drops.
-                      if (v !== null && isSprintScheduleBlocked(draft, v, project?.ladder)) {
-                        const gate = sprintGateToast(project?.ladder);
-                        toast.warning(gate.title, {
-                          description: gate.description,
-                        });
-                        // Bailing out leaves `draft` untouched, so React has no
-                        // reason to re-render and the <select> would keep showing
-                        // the rejected sprint. Put the DOM node back by hand.
-                        e.target.value = String(draft.sprint_id ?? "");
-                        return;
-                      }
-                      // Assigning a sprint here must make the same lifecycle
-                      // move the planning board makes on a drop, or the story
-                      // stays at a discovery status while sitting in a sprint —
-                      // and the User Story Board, which renders the dev-workflow
-                      // columns, has nowhere to put it.
-                      const decision = computeSprintDropPayload(draft, v ?? "backlog", project?.ladder);
-                      if (!decision) return;
-                      setDraft((d) => ({ ...d, ...decision.override }));
-                      save(decision.payload);
-                    }}
-                    className={SELECT_CLS}
-                  >
-                    <option value="">No sprint</option>
-                    {sprintsSafe.map((s) => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Parent story (only meaningful for task/bug) */}
-              {showParent && (
-                <div>
-                  <Label className="text-gray-500 text-[11px]">Parent story</Label>
-                  <select
-                    aria-label="Parent story"
-                    value={draft.parent_id ?? ""}
-                    onChange={(e) => handleParentChange(e.target.value)}
-                    className={SELECT_CLS}
-                  >
-                    <option value="">No parent</option>
-                    {storyOptions.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.title}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Secondary row */}
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <Label className="text-gray-500 text-[11px]">Points</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={draft.story_points}
-                    onChange={(e) => setDraft((d) => ({ ...d, story_points: Math.max(0, Number(e.target.value)) }))}
-                    onBlur={() => {
-                      if (draft.story_points !== task.story_points) save({ story_points: draft.story_points });
-                    }}
-                    className="bg-gray-800 border-gray-700 text-gray-100 h-8 text-sm"
-                  />
-                </div>
-                <div>
-                  <Label className="text-gray-500 text-[11px]">Due date</Label>
-                  <Input
-                    type="date"
-                    value={draft.due_date}
-                    onChange={(e) => setDraft((d) => ({ ...d, due_date: e.target.value }))}
-                    onBlur={() => {
-                      const val = draft.due_date || null;
-                      if (val !== task.due_date) save({ due_date: val });
-                    }}
-                    className="bg-gray-800 border-gray-700 text-gray-100 h-8 text-sm"
-                  />
-                </div>
-                <div>
-                  <Label className="text-gray-500 text-[11px]">Labels</Label>
-                  <Input
-                    value={draft.labels}
-                    onChange={(e) => setDraft((d) => ({ ...d, labels: e.target.value }))}
-                    onBlur={() => {
-                      if (draft.labels !== task.labels) save({ labels: draft.labels });
-                    }}
-                    placeholder="bug, ui"
-                    className="bg-gray-800 border-gray-700 text-gray-100 h-8 text-sm"
-                  />
-                </div>
-              </div>
+              <TaskFields task={task} state={draftState} />
 
               {/* Description */}
               <div>
