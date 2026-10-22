@@ -83,7 +83,8 @@ describe("StoryPage", () => {
     renderPage();
     expect(await screen.findByDisplayValue("Export contract")).toBeInTheDocument();
     expect(screen.getByText("FB-12")).toBeInTheDocument();
-    expect(screen.getByText("stopped")).toBeInTheDocument();
+    // The header flag, beside the graph legend's "stopped".
+    expect(screen.getAllByText("stopped")).toHaveLength(2);
     expect(screen.getByText("waiting on 2 bugs")).toBeInTheDocument();
     expect(screen.getByText("feat/FB-12-export")).toBeInTheDocument();
     expect(screen.getByText("FB-9")).toBeInTheDocument();
@@ -93,7 +94,8 @@ describe("StoryPage", () => {
   it("shows the stop reason and restarts the Run", async () => {
     setupInvoke();
     renderPage();
-    expect(await screen.findByText("Verify failed twice on FB-14")).toBeInTheDocument();
+    // In the stopped box, as the graph's Stop caption and in the trail.
+    expect(await screen.findAllByText("Verify failed twice on FB-14")).toHaveLength(3);
     await userEvent.click(screen.getByRole("button", { name: "Restart Run" }));
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith("restart_run", { key: "FB-12" }));
   });
@@ -103,7 +105,7 @@ describe("StoryPage", () => {
     renderPage();
     await screen.findByDisplayValue("Export contract");
     expect(screen.queryByRole("button", { name: "Restart Run" })).not.toBeInTheDocument();
-    expect(screen.queryByText("stopped")).not.toBeInTheDocument();
+    expect(screen.getAllByText("stopped")).toHaveLength(1);
   });
 
   it("links the branch and PR to GitHub once a PR exists", async () => {

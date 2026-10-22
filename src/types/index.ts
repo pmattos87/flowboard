@@ -185,6 +185,20 @@ export interface StoryView {
   description: string;
 }
 
+/** One `list_active_runs` row: a Factory Story with a Run under way. */
+export interface ActiveRun {
+  key: string;
+  /** The project's name. */
+  project: string;
+  title: string;
+  status: TaskStatus;
+  assignee: string | null;
+  /** Assigned to the owner: it is Pedro's move. */
+  needs_pedro: boolean;
+  flags: { stopped: boolean; waiting_on_bugs: number };
+  stage_entered_at: string;
+}
+
 /** One `get_story_trail` event. `new` is parsed when it holds a JSON object. */
 export interface TrailEvent {
   at: string;

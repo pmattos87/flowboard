@@ -152,7 +152,7 @@ export function CommentsSection({ taskId, people }: { taskId: number; people: Pe
           {comments.map((c) => {
             const author = people.find((p) => p.id === c.author_id);
             return (
-              <div key={c.id} className="bg-gray-800 rounded-lg p-3">
+              <div key={c.id} id={`comment-${c.id}`} className="bg-gray-800 rounded-lg p-3">
                 {deletingId === c.id ? (
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-xs text-gray-400">Delete this comment?</p>
