@@ -2,9 +2,11 @@
 
 **All notable changes to this project will be documented in this file.**
 
-## [Unreleased]
+## [1.7.0] - 2026-10-22
 
 ### Added
+- **Story page** on Factory projects: clicking a Story on a board (or in search) opens its own page with its details, Feature branch and PR links to GitHub, Run flags and the stopped-Run box, and its Subtasks as a mini kanban showing each one's agent, Verify rounds and stopped badge; a Subtask opens in the detail panel. Boards gain a canceled toggle, and the Task board is hidden on Factory projects (SF-61).
+- **Run graph** on the Story page: the Story's Run drawn as a node graph (each lane boxed, the current node highlighted, failure and findings loops coloured), with its Code review rounds and Run trail beneath. A cross-project **Active Runs** overview lists every running Story, with a Needs Pedro filter (SF-62).
 - `flowboard-cli story comment <KEY> --body <text> | --body-file <file>` (and the `story_comment` MCP tool): post a comment on a Factory Story as the acting person (the agent by default). It returns the comment's id and a `flowboard://comment/<id>` link, which the Factory's Review uses as a round's findings link. Refused on legacy projects, on Subtasks and for an empty body (SF-58).
 
 ### Changed
