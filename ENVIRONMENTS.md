@@ -28,10 +28,15 @@ Tauri uses the app's `identifier` (defined in `tauri.conf.json`) to determine wh
 
 ```json
 "scripts": {
-  "dev": "tauri dev",
-  "dev:staging": "tauri dev --config tauri.staging.conf.json",
-  "build": "tauri build",
-  "build:staging": "tauri build --config tauri.staging.conf.json"
+  "dev": "vite",
+  "build": "tsc && vite build",
+  "preview": "vite preview",
+  "tauri": "tauri",
+  "dev:staging": "tauri dev --config src-tauri/tauri.staging.conf.json",
+  "build:staging": "tauri build --config src-tauri/tauri.staging.conf.json",
+  "typecheck": "tsc --noEmit",
+  "test": "vitest",
+  "test:run": "vitest run"
 }
 ```
 
@@ -46,14 +51,14 @@ Add a `VITE_APP_ENV` variable to a `.env.staging` file and render a small banner
 ### First production release (after Phase 4)
 
 1. Merge Phase X into `main` and tag `v0.X-tasks`.
-2. Run `npm run build` — produces the NSIS setup `.exe` installer under `src-tauri/target/release/bundle/nsis/`.
+2. Run `npx tauri build` — produces the NSIS setup `.exe` installer under `src-tauri/target/release/bundle/nsis/`.
 3. Install it. This is your production copy. It uses the production identifier and its own isolated data directory.
 
 ### For every subsequent phase
 
 1. Work on the feature branch as normal.
 2. Test using `npm run dev:staging` (or install a staging build). All test data goes to the staging app data path — production data is untouched.
-3. When the phase is merged and tagged, rebuild production with `npm run build` and reinstall.
+3. When the phase is merged and tagged, rebuild production with `npx tauri build` (the NSIS setup `.exe` lands in `src-tauri/target/release/bundle/nsis/`) and reinstall.
 
 ---
 
@@ -71,5 +76,5 @@ The staging config above covers **manual regression testing**, letting you freel
 |---|---|
 | Isolate test data from real data | Separate Tauri `identifier` per profile |
 | Run staging builds locally | `npm run dev:staging` |
-| Ship a production release | `npm run build` → install the output setup `.exe` |
+| Ship a production release | `npx tauri build` → install the NSIS setup `.exe` from `src-tauri/target/release/bundle/nsis/` |
 | Prevent logic regressions | Vitest unit/integration tests (no Tauri needed) |
