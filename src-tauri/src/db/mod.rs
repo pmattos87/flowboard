@@ -353,6 +353,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn migration_012_backfills_only_unsized_factory_stories() {
+        let path = temp_db("points-backfill");
+        migrate_up_to(&path, 12).await;
+        let mut conn = SqliteConnectOptions::from_str(&sqlite_url(&path, "rw"))
+            .unwrap()
+            .foreign_keys(false)
+            .connect()
+            .await
+            .unwrap();
+        let task = |id: i64, project: i64, parent: Option<i64>, kind: &str, status: &str, points: i64| {
+            format!(
+                "INSERT INTO tasks (id, project_id, parent_id, title, type, status, story_points, created_at, updated_at, task_number)                  VALUES ({id}, {project}, {}, 't', '{kind}', '{status}', {points}, '2026-01-01', '2026-01-01', {id})",
+                parent.map_or("NULL".to_string(), |p| p.to_string())
+            )
+        };
+        let mut seed = vec![
+            "INSERT INTO projects (id, name, key, created_at, ladder) VALUES (1, 'F', 'F', '2026-01-01', 'factory')".to_string(),
+            "INSERT INTO projects (id, name, key, created_at) VALUES (2, 'L', 'L', '2026-01-01')".to_string(),
+        ];
+        // Factory Story 1: two counted Subtasks, a bug and a canceled one.
+        seed.push(task(1, 1, None, "story", "building", 0));
+        seed.push(task(2, 1, Some(1), "subtask", "done", 3));
+        seed.push(task(3, 1, Some(1), "subtask", "todo", 2));
+        seed.push(task(4, 1, Some(1), "bug", "todo", 5));
+        seed.push(task(5, 1, Some(1), "subtask", "canceled", 8));
+        // Factory Story 6: no Subtasks. Factory Story 7: already sized.
+        seed.push(task(6, 1, None, "story", "backlog", 0));
+        seed.push(task(7, 1, None, "story", "ready", 13));
+        seed.push(task(8, 1, Some(7), "subtask", "todo", 1));
+        // Legacy Story 9 with a Subtask.
+        seed.push(task(9, 2, None, "story", "todo", 0));
+        seed.push(task(10, 2, Some(9), "subtask", "todo", 2));
+        for sql in &seed {
+            sqlx::query(sql).execute(&mut conn).await.unwrap();
+        }
+        conn.close().await.unwrap();
+
+        let pool = open_and_migrate(&path).await.unwrap();
+        let points: Vec<(i64, i64)> = sqlx::query_as("SELECT id, story_points FROM tasks WHERE type = 'story' ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(points, vec![(1, 5), (6, 0), (7, 13), (9, 0)]);
+        pool.close().await;
+    }
+
+    #[tokio::test]
     async fn migration_011_renames_task_type_and_keeps_links() {
         let path = temp_db("subtask-type");
         migrate_up_to(&path, 11).await;

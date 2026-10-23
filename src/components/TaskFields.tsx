@@ -128,6 +128,8 @@ export function TaskFields({ task, state }: { task: Task; state: TaskDraftState 
   const sprintsSafe = sprints ?? [];
   const storyOptions = (projectTasks ?? []).filter((t) => t.type === "story");
   const showParent = task.type === "subtask" || task.type === "bug";
+  // A Factory Story's points are the sum of its Subtasks' (SF-68).
+  const derivedPoints = project?.ladder === "factory" && task.type === "story";
 
   // Reparenting to a story inherits the story's sprint so the child stays in the
   // same sprint as its parent (matches the Task Board DnD reparent behavior).
@@ -263,12 +265,15 @@ export function TaskFields({ task, state }: { task: Task; state: TaskDraftState 
           <Input
             type="number"
             min={0}
+            aria-label="Points"
             value={draft.story_points}
+            readOnly={derivedPoints}
+            title={derivedPoints ? "The sum of its Subtasks' points" : undefined}
             onChange={(e) => setDraft((d) => ({ ...d, story_points: Math.max(0, Number(e.target.value)) }))}
             onBlur={() => {
-              if (draft.story_points !== task.story_points) save({ story_points: draft.story_points });
+              if (!derivedPoints && draft.story_points !== task.story_points) save({ story_points: draft.story_points });
             }}
-            className="bg-gray-800 border-gray-700 text-gray-100 h-8 text-sm"
+            className={`bg-gray-800 border-gray-700 h-8 text-sm ${derivedPoints ? "text-gray-400 cursor-default focus-visible:ring-0" : "text-gray-100"}`}
           />
         </div>
         <div>

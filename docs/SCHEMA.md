@@ -83,6 +83,10 @@ task_prs         (id, task_id, url, target, state, created_at, updated_at)
   `backlog`/`refining`/`ready` (reopen; inside a sprint only `ready`). `done` is terminal.
   Subtask ladder: `todo ⇄ in_progress → done`, `todo`/`in_progress` → `canceled`,
   `canceled` → `todo` (reopen).
+- A Factory Story's `story_points` is the sum of its non-bug, non-canceled Subtasks' points,
+  kept by every write path (CLI, MCP and app); the app refuses a direct edit. `refining → ready`
+  is refused while it is 0. Migration `012_story_points_backfill.sql` filled it in once for
+  Stories split before this rule (SF-68).
 - A Story in a sprint is `ready` or later; `building` and beyond require a sprint.
   Forward moves from `building` on require every Subtask done/canceled and the Run not stopped.
 - Assignee is set by the move: `building` → agent, `user_testing` → primary contact,

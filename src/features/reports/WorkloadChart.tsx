@@ -11,6 +11,8 @@ import {
 } from "recharts";
 import { useTasks } from "@/hooks/useTasks";
 import { usePeople } from "@/hooks/usePeople";
+import { useProject } from "@/hooks/useProjects";
+import { reportedTasks } from "./reportedTasks";
 import type { TaskListFilters } from "@/lib/commands";
 
 interface Props {
@@ -26,12 +28,13 @@ export function WorkloadChart({ projectId, sprintId }: Props) {
 
   const { data: tasks = [], isLoading: tasksLoading } = useTasks(filters);
   const { data: people = [], isLoading: peopleLoading } = usePeople();
+  const { data: project } = useProject(projectId);
 
   const chartData = useMemo(() => {
     const personMap = new Map(people.map((p) => [p.id, p.name]));
     const groups = new Map<string, { tasks: number; points: number }>();
 
-    for (const t of tasks) {
+    for (const t of reportedTasks(tasks, project?.ladder)) {
       const name =
         t.assignee_id != null
           ? (personMap.get(t.assignee_id) ?? "Unknown")
@@ -46,7 +49,7 @@ export function WorkloadChart({ projectId, sprintId }: Props) {
     return Array.from(groups.entries())
       .map(([name, v]) => ({ name, ...v }))
       .sort((a, b) => b.tasks - a.tasks);
-  }, [tasks, people]);
+  }, [tasks, people, project?.ladder]);
 
   if (tasksLoading || peopleLoading) {
     return <p className="text-sm text-gray-500">Loading…</p>;

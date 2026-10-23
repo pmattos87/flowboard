@@ -85,8 +85,19 @@ async fn assignee(fx: &Fx, key: &str) -> Option<i64> {
         .unwrap()
 }
 
+/// Give a Story the points a split would, so it may move to `ready`.
+async fn sized(fx: &Fx, key: &str) {
+    let n: i64 = key.rsplit_once('-').unwrap().1.parse().unwrap();
+    sqlx::query("UPDATE tasks SET story_points = 3 WHERE task_number = ? AND project_id = (SELECT id FROM projects WHERE key = 'SF')")
+        .bind(n)
+        .execute(&fx.pool)
+        .await
+        .unwrap();
+}
+
 /// Take a Story to `ready` and into the sprint.
 async fn ready_in_sprint(fx: &Fx, key: &str) {
+    sized(fx, key).await;
     mv(fx, key, "refining").await.unwrap();
     mv(fx, key, "ready").await.unwrap();
     ops::story_set_sprint(&fx.pool, key, Some(fx.sprint)).await.unwrap();
@@ -185,6 +196,7 @@ async fn illegal_moves_are_refused_and_change_nothing() {
     assert!(mv(&fx, &s, "building").await.is_err(), "skip from backlog");
     assert!(mv(&fx, &s, "ready_for_development").await.is_err(), "legacy status");
     mv(&fx, &s, "refining").await.unwrap();
+    sized(&fx, &s).await;
     mv(&fx, &s, "ready").await.unwrap();
     let err = mv(&fx, &s, "building").await.unwrap_err();
     assert!(err.contains("sprint"), "{err}");
@@ -590,6 +602,7 @@ async fn active_runs_lists_scheduled_stories_under_way_stopped_first() {
     let ready = story(&fx, "ready in a sprint").await;
     ready_in_sprint(&fx, &ready).await;
     let unscheduled = story(&fx, "ready, no sprint").await;
+    sized(&fx, &unscheduled).await;
     mv(&fx, &unscheduled, "refining").await.unwrap();
     mv(&fx, &unscheduled, "ready").await.unwrap();
     story(&fx, "still in backlog").await;
@@ -622,4 +635,42 @@ async fn active_runs_lists_scheduled_stories_under_way_stopped_first() {
     assert_eq!(first["project"], "SF");
     assert!(!first["stage_entered_at"].as_str().unwrap().is_empty());
     assert_eq!(runs[1]["flags"]["stopped"], false);
+}
+
+async fn points(fx: &Fx, key: &str) -> i64 {
+    let n: i64 = key.rsplit_once('-').unwrap().1.parse().unwrap();
+    sqlx::query_scalar("SELECT story_points FROM tasks WHERE task_number = ? AND project_id = (SELECT id FROM projects WHERE key = 'SF')")
+        .bind(n)
+        .fetch_one(&fx.pool)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_storys_points_are_the_sum_of_its_subtasks_without_bugs_or_canceled_ones() {
+    let fx = setup("internal").await;
+    let s = story(&fx, "sized").await;
+    assert_eq!(points(&fx, &s).await, 0);
+    let a = subtask(&fx, &s, false).await;
+    subtask(&fx, &s, false).await;
+    assert_eq!(points(&fx, &s).await, 4);
+
+    subtask(&fx, &s, true).await;
+    assert_eq!(points(&fx, &s).await, 4, "a bug Subtask doesn't count");
+
+    ops::subtask_move(&fx.pool, &a, "canceled", Actor::Owner).await.unwrap();
+    assert_eq!(points(&fx, &s).await, 2, "a canceled Subtask doesn't count");
+    ops::subtask_move(&fx.pool, &a, "todo", Actor::Owner).await.unwrap();
+    assert_eq!(points(&fx, &s).await, 4, "a reopened Subtask counts again");
+}
+
+#[tokio::test]
+async fn an_unsplit_story_cannot_move_to_ready() {
+    let fx = setup("internal").await;
+    let s = story(&fx, "unsplit").await;
+    mv(&fx, &s, "refining").await.unwrap();
+    let err = mv(&fx, &s, "ready").await.unwrap_err();
+    assert!(err.contains("0 points"), "{err}");
+    subtask(&fx, &s, false).await;
+    mv(&fx, &s, "ready").await.unwrap();
 }

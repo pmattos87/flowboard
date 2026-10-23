@@ -196,6 +196,23 @@ async fn count_events(tx: &mut Tx<'_>, story_id: i64, action: &str, subtask: Opt
     .map_err(err)
 }
 
+/// A Story's points are the sum of its Subtasks' (SF-68). Bug Subtasks and
+/// canceled ones don't count, so the total stays the refined estimate.
+async fn sync_points(tx: &mut Tx<'_>, story_id: i64) -> Result<(), String> {
+    sqlx::query(
+        r#"UPDATE tasks SET story_points = (
+              SELECT COALESCE(SUM(story_points), 0) FROM tasks
+               WHERE parent_id = ? AND type <> 'bug' AND status <> 'canceled')
+            WHERE id = ?"#,
+    )
+    .bind(story_id)
+    .bind(story_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(err)?;
+    Ok(())
+}
+
 async fn touch(tx: &mut Tx<'_>, id: i64) -> Result<(), String> {
     sqlx::query("UPDATE tasks SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?")
         .bind(id)
@@ -679,6 +696,7 @@ async fn move_story(tx: &mut Tx<'_>, story: &Row, to: &str, actor: Actor) -> Res
         client_project: story.project_kind == "client",
         open_subtasks: open_subtasks(tx, story.id, false).await?,
         run_stopped: story.run_stopped != 0,
+        story_points: story.story_points,
     };
     ladder::check_story_move(&facts, to)?;
     let assignee = match ladder::story_owner(to) {
@@ -1006,6 +1024,7 @@ pub async fn subtask_create(pool: &SqlitePool, s: NewSubtask<'_>, actor: Actor) 
         let event = json!({ "subtask": sub.key(), "title": s.title });
         log(&mut tx, story.id, actor, "bug_subtask_filed", "", &event.to_string()).await?;
     }
+    sync_points(&mut tx, story.id).await?;
     touch(&mut tx, story.id).await?;
     let out = json!({ "key": sub.key(), "type": kind, "status": "todo", "story": story.key() });
     tx.commit().await.map_err(err)?;
@@ -1027,6 +1046,7 @@ pub async fn subtask_move(pool: &SqlitePool, key: &str, to: &str, actor: Actor) 
     log(&mut tx, sub.id, actor, "status_changed", &sub.status, to).await?;
     let event = json!({ "subtask": sub.key(), "from": sub.status, "to": to });
     log(&mut tx, story.id, actor, "subtask_status_changed", "", &event.to_string()).await?;
+    sync_points(&mut tx, story.id).await?;
     let out = json!({ "key": sub.key(), "status": to, "story": story.key() });
     tx.commit().await.map_err(err)?;
     Ok(out)
@@ -1111,6 +1131,38 @@ pub async fn app_move(
         return Err(format!("{key} is neither a Story nor a Subtask, so it has no place on the Factory ladder"));
     }
     Ok(true)
+}
+
+/// Refuse the app's points edit on a Factory Story: its points are the sum of
+/// its Subtasks'. Any other task's points may be edited.
+pub async fn app_check_points(pool: &SqlitePool, id: i64, points: Option<i64>) -> Result<(), String> {
+    let Some(points) = points else { return Ok(()) };
+    let mut tx = pool.begin().await.map_err(err)?;
+    let row = load_by_id(&mut tx, id).await?;
+    tx.rollback().await.map_err(err)?;
+    if row.ladder == "factory" && row.kind == "story" && points != row.story_points {
+        return Err(format!(
+            "{}'s points are the sum of its Subtasks' points; change a Subtask's points instead",
+            row.key()
+        ));
+    }
+    Ok(())
+}
+
+/// After the app writes task `id` inside `tx`, bring each Factory Story the
+/// write touched back to the sum of its Subtasks: the task itself when it is a
+/// Story, its parent, and `old_parent`, the parent it had before the edit.
+pub async fn app_sync_points(tx: &mut Transaction<'_, Sqlite>, id: i64, old_parent: Option<i64>) -> Result<(), String> {
+    let row = load_by_id(tx, id).await?;
+    if row.ladder != "factory" {
+        return Ok(());
+    }
+    for story_id in [Some(row.id), row.parent_id, old_parent].into_iter().flatten() {
+        if load_by_id(tx, story_id).await?.kind == "story" {
+            sync_points(tx, story_id).await?;
+        }
+    }
+    Ok(())
 }
 
 /// The status and sprint the app may create a task with. On a Factory project
