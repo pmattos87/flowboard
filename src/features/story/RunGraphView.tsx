@@ -127,12 +127,20 @@ export function edgeStyle(e: Edge) {
   return { stroke: "#34d399", dash: "", op: 0.7 };
 }
 
-export function RunGraphView({ graph }: { graph: RunGraph }) {
-  const nodes: { box: Box; el: React.ReactNode }[] = [];
+export interface Lane { label: string; top: number; bottom: number }
+export interface PlacedNode { id: string; box: Box; node?: RunNode; sub?: SubtaskNode }
+export interface RunGraphLayout {
+  nodes: PlacedNode[]; edges: Edge[]; lanes: Lane[]; width: number; height: number; laneX: number; laneW: number;
+  buildLabelY: number; startTurnY: number;
+}
+
+/** The graph's geometry, apart from drawing it, so tests can check where things land. */
+export function layoutRunGraph(graph: RunGraph): RunGraphLayout {
+  const nodes: PlacedNode[] = [];
   const edges: Edge[] = [];
   const place = (node: RunNode, x: number, y: number): Box => {
     const box = { x, y, w: W, h: H, state: node.state };
-    nodes.push({ box, el: <NodeBox key={node.id} node={node} x={x} y={y} /> });
+    nodes.push({ id: node.id, box, node });
     return box;
   };
 
@@ -153,19 +161,22 @@ export function RunGraphView({ graph }: { graph: RunGraph }) {
   // centered on the stack.
   const startTurnY = planY + H + 40;
   const buildLabelY = startTurnY + 30;
-  const subTop = buildLabelY + 40;
   const count = Math.max(graph.subtasks.length, 1);
   const subsHeight = count * SUB_STEP - (SUB_STEP - SH);
+  const branch = Math.max(86, subsHeight / 2 - H / 2);
+  // A short stack is pushed down so the Stop node (the highest) stays inside the
+  // lane box, clear of its title row. The lane top stays put: the "Pedro starts
+  // the Run" wire runs just above it.
+  const subTop = buildLabelY + 40 + Math.max(0, 14 + H / 2 + branch - 40 - subsHeight / 2);
   const mid = subTop + subsHeight / 2;
   const buildX = centered(buildWidth);
   const subX = buildX + W + BUILD_GAP;
   const verifyX = subX + SW + BUILD_GAP;
   const branchX = verifyX + W + BUILD_GAP;
-  const branch = Math.max(86, subsHeight / 2 - H / 2);
   const orch = place(graph.orchestrator, buildX, mid - H / 2);
   const subBoxes: Box[] = graph.subtasks.map((s, i) => {
     const box = { x: subX, y: subTop + i * SUB_STEP, w: SW, h: SH, state: s.state };
-    nodes.push({ box, el: <SubtaskBox key={s.id} node={s} x={box.x} y={box.y} /> });
+    nodes.push({ id: s.id, box, sub: s });
     return box;
   });
   const verify = place(graph.verify, verifyX, mid - H / 2);
@@ -249,6 +260,11 @@ export function RunGraphView({ graph }: { graph: RunGraph }) {
     { label: "BUILD · PER-SUBTASK LOOP", top: buildLabelY - 10, bottom: buildBottom + 12 },
     { label: "REVIEW → INTEGRATE → RELEASE", top: shipLabelY - 10, bottom: bugY + 14 },
   ];
+  return { nodes, edges, lanes, width, height, laneX, laneW, buildLabelY, startTurnY };
+}
+
+export function RunGraphView({ graph }: { graph: RunGraph }) {
+  const { nodes, edges, lanes, width, height, laneX, laneW } = layoutRunGraph(graph);
 
   return (
     <FitFrame width={width} height={height}>
@@ -291,7 +307,9 @@ export function RunGraphView({ graph }: { graph: RunGraph }) {
             {l.label}
           </div>
         ))}
-        {nodes.map((n) => n.el)}
+        {nodes.map((n) =>
+          n.sub ? <SubtaskBox key={n.id} node={n.sub} x={n.box.x} y={n.box.y} /> : <NodeBox key={n.id} node={n.node!} x={n.box.x} y={n.box.y} />,
+        )}
     </FitFrame>
   );
 }
