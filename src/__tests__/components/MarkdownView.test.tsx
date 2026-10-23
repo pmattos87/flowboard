@@ -35,4 +35,31 @@ describe("MarkdownView", () => {
     fireEvent.click(screen.getByText("first item"));
     expect(screen.queryByRole("textbox")).toBeNull();
   });
+
+  it("renders a GFM table with header and body cells", () => {
+    render(<MarkdownView value={"| Name | Qty |\n| --- | --- |\n| apple | 3 |"} />);
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getAllByRole("columnheader").map((c) => c.textContent)).toEqual(["Name", "Qty"]);
+    expect(screen.getAllByRole("cell").map((c) => c.textContent)).toEqual(["apple", "3"]);
+  });
+
+  it("renders ~~x~~ as <del>", () => {
+    const { container } = render(<MarkdownView value="~~gone~~" />);
+    expect(container.querySelector("del")).toHaveTextContent("gone");
+  });
+
+  it("renders a bare URL as plain text, not a link", () => {
+    render(<MarkdownView value="Visit https://example.com today" />);
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.getByText(/https:\/\/example\.com/)).toBeInTheDocument();
+  });
+
+  it("renders a GFM task list as disabled checkboxes", () => {
+    render(<MarkdownView value={"- [x] done\n- [ ] todo"} />);
+    const boxes = screen.getAllByRole("checkbox");
+    expect(boxes).toHaveLength(2);
+    expect(boxes[0]).toBeChecked();
+    expect(boxes[1]).not.toBeChecked();
+    boxes.forEach((b) => expect(b).toBeDisabled());
+  });
 });
