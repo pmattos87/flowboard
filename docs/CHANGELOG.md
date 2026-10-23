@@ -2,6 +2,12 @@
 
 **All notable changes to this project will be documented in this file.**
 
+## [Unreleased]
+
+### Changed
+- Story comments now render as Markdown (headings, lists, code, tables) the same way descriptions do, on the Story page and in the task detail panel. Editing a comment still shows the raw Markdown, and `comment-<id>` links still scroll to the comment (FB-149).
+- Descriptions and comments also render GFM tables (with dark-mode borders, scrolling when wide), task lists and strikethrough, through `remark-gfm`. Links still show as plain text, bare URLs are not linked and images are not loaded. D-012 is updated (FB-149).
+
 ## [1.8.0] - 2026-10-23
 
 ### Changed
