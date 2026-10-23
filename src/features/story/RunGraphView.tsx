@@ -108,7 +108,7 @@ function SubtaskBox({ node, x, y }: { node: SubtaskNode; x: number; y: number })
   );
 }
 
-export interface Edge { a: Box; b: Box; pts?: [number, number][]; label?: string; lx?: number; ly?: number; loop?: "bug" | "findings"; active?: boolean; subtaskToVerify?: boolean }
+export interface Edge { a: Box; b: Box; pts?: [number, number][]; label?: string; lx?: number; ly?: number; loop?: "bug" | "findings"; active?: boolean; subtaskToVerify?: boolean; intoStop?: boolean }
 
 export function edgeStyle(e: Edge) {
   if (e.loop === "bug") return e.active ? { stroke: "#f59e0b", dash: "6 5", op: 0.85 } : { stroke: "#4b5563", dash: "6 5", op: 0.6 };
@@ -116,6 +116,9 @@ export function edgeStyle(e: Edge) {
   // A Subtask's line to Verify lights as soon as that Subtask is done, even
   // while Verify itself waits for the other Subtasks.
   if (e.subtaskToVerify && e.a.state === "done") return { stroke: "#34d399", dash: "", op: 0.7 };
+  // The two edges into the Stop gate show where the Run stopped: red out of
+  // the node that stopped it, dimmed otherwise.
+  if (e.intoStop) return e.a.state === "stopped" ? { stroke: "#ef4444", dash: "", op: 0.9 } : { stroke: "#4b5563", dash: "5 5", op: 0.8 };
   // An edge touching a node the Run has not reached stays dimmed. Red marks
   // only where a failure flows on: out of a stopped node. Edges into it (a
   // handoff, a Subtask that passed) worked, so they stay green.
@@ -177,7 +180,7 @@ export function RunGraphView({ graph }: { graph: RunGraph }) {
   });
   if (subBoxes.length === 0) edges.push({ a: orch, b: verify });
   subBoxes.forEach((b) => edges.push({ a: orch, b }, { a: b, b: verify, subtaskToVerify: true }));
-  edges.push({ a: verify, b: stop, label: "fails twice" }, { a: verify, b: docs, label: "all pass" });
+  edges.push({ a: verify, b: stop, label: "fails twice", intoStop: true }, { a: verify, b: docs, label: "all pass" });
 
   // Review → Integrate → Release → Production
   const buildBottom = Math.max(subTop + subsHeight, docs.y + H + 22);
@@ -214,6 +217,16 @@ export function RunGraphView({ graph }: { graph: RunGraph }) {
       [fix.x + W, fix.y + H / 2], [fix.x + W + 18, fix.y + H / 2], [fix.x + W + 18, fixLoopY],
       [FIX_X, fixLoopY], [FIX_X, orch.y + H / 2 + 12], [orch.x, orch.y + H / 2 + 12],
     ],
+  });
+  // Review failing twice stops the Run at the same gate. The line leaves Fix
+  // findings' upper right (above the findings loop, which leaves at mid-height),
+  // runs under the ship row to the right padding past its last card and past the
+  // Docs turn, then up and into the Stop gate from the right.
+  const stopRightX = Math.max(shipX + rowWidth(graph.ship.length), turnRightX) + 12;
+  const fixStopY = fix.y + 12;
+  edges.push({
+    a: fix, b: stop, label: "fails twice", intoStop: true, lx: stopRightX - 40, ly: fixStopY,
+    pts: [[fix.x + W, fixStopY], [stopRightX, fixStopY], [stopRightX, stop.y + H / 2], [stop.x + W, stop.y + H / 2]],
   });
   const integrated = ship.find((_, i) => graph.ship[i].id === "integrated") ?? ship[0];
   const integratedX = integrated.x + W / 2;
