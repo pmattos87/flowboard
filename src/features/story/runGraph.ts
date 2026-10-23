@@ -213,7 +213,7 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
     { id: "merge", title: "Auto-merge → develop", kind: "git", caption: "Integrate", state: pick(prMerged, prOpened && !prMerged) },
     {
       id: "integrated",
-      title: "In integrated tests",
+      title: "Integrated tests",
       kind: "gate",
       caption: "Pedro tests on develop",
       state: pick(reached("tested"), status === "integrated_tests"),
