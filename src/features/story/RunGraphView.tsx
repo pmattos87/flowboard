@@ -68,7 +68,7 @@ function NodeBox({ node, x, y }: { node: RunNode; x: number; y: number }) {
           <Icon className="h-3.5 w-3.5" />
         </span>
         <div className="min-w-0">
-          <div className="text-[13px] text-white font-medium truncate">{node.title}</div>
+          <div className="text-[13px] leading-tight text-white font-medium line-clamp-2" title={node.title}>{node.title}</div>
           <div className={cn("text-[10px] font-semibold tracking-wide", cls)}>{label}</div>
         </div>
       </div>

@@ -34,6 +34,11 @@ describe("runGraph", () => {
     expect(g.ship.every((n) => n.state === "todo")).toBe(true);
   });
 
+  it("names the integrated-tests gate \"Integrated tests\"", () => {
+    const g = graph({ status: "integrated_tests" }, [], [stage("integrated_tests")]);
+    expect(g.ship.find((n) => n.id === "integrated")?.title).toBe("Integrated tests");
+  });
+
   it("a ready Story in a sprint waits on the Run start", () => {
     const g = graph({ status: "ready" }, [sub(2, "todo")], [stage("refining"), stage("ready")]);
     expect(states(g.plan)).toEqual({ created: "done", brief: "done", split: "done", approve: "done", start: "current" });

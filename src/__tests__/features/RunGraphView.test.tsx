@@ -47,6 +47,15 @@ describe("RunGraphView", () => {
     expect(screen.queryByText("User testing")).not.toBeInTheDocument();
   });
 
+  it("gives stage and ship node titles a tooltip with the full text and wraps instead of truncating", () => {
+    const graph = runGraph({ story: task({}), subtasks: [], trail: [], projectKey: "FB", clientProject: false });
+    render(<RunGraphView graph={graph} />);
+    const title = screen.getByTitle("Auto-merge → develop");
+    expect(title).toHaveTextContent("Auto-merge → develop");
+    expect(title.className).toContain("line-clamp-2");
+    expect(title.className).not.toContain("truncate");
+  });
+
   it("opens fitted and toggles to actual size and back", () => {
     const graph = runGraph({ story: task({}), subtasks: [], trail: [], projectKey: "FB", clientProject: false });
     render(<RunGraphView graph={graph} />);
