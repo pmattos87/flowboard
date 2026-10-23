@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import About from "@/pages/About";
+import { version } from "../../../package.json";
 
 function renderPage() {
   return render(<About />);
@@ -19,7 +20,7 @@ describe("About page", () => {
 
   it("shows the version number", () => {
     renderPage();
-    expect(screen.getByText(/1\.5\.1/)).toBeInTheDocument();
+    expect(screen.getByText(`Version ${version}`)).toBeInTheDocument();
   });
 
   it("shows the description text", () => {
