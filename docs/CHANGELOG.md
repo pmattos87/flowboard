@@ -2,6 +2,11 @@
 
 **All notable changes to this project will be documented in this file.**
 
+## [Unreleased]
+
+### Fixed
+- The Run graph's "Stop, tell Pedro" node no longer sticks out above the BUILD lane box when a Story has one or two Subtasks: the lane's contents move down when the Subtask stack is short. The lane's top and the layout with three or more Subtasks are unchanged (FB-151).
+
 ## [1.8.0] - 2026-10-23
 
 ### Changed
