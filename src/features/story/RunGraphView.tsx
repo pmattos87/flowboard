@@ -108,11 +108,14 @@ function SubtaskBox({ node, x, y }: { node: SubtaskNode; x: number; y: number })
   );
 }
 
-export interface Edge { a: Box; b: Box; pts?: [number, number][]; label?: string; lx?: number; ly?: number; loop?: "bug" | "findings"; active?: boolean }
+export interface Edge { a: Box; b: Box; pts?: [number, number][]; label?: string; lx?: number; ly?: number; loop?: "bug" | "findings"; active?: boolean; subtaskToVerify?: boolean }
 
 export function edgeStyle(e: Edge) {
   if (e.loop === "bug") return e.active ? { stroke: "#f59e0b", dash: "6 5", op: 0.85 } : { stroke: "#4b5563", dash: "6 5", op: 0.6 };
   if (e.loop === "findings") return e.active ? { stroke: "#818cf8", dash: "6 5", op: 0.85 } : { stroke: "#4b5563", dash: "6 5", op: 0.6 };
+  // A Subtask's line to Verify lights as soon as that Subtask is done, even
+  // while Verify itself waits for the other Subtasks.
+  if (e.subtaskToVerify && e.a.state === "done") return { stroke: "#34d399", dash: "", op: 0.7 };
   // An edge touching a node the Run has not reached stays dimmed. Red marks
   // only where a failure flows on: out of a stopped node. Edges into it (a
   // handoff, a Subtask that passed) worked, so they stay green.
@@ -173,7 +176,7 @@ export function RunGraphView({ graph }: { graph: RunGraph }) {
     pts: [[startX, planY + H], [startX, startTurnY], [orchX, startTurnY], [orchX, orch.y]],
   });
   if (subBoxes.length === 0) edges.push({ a: orch, b: verify });
-  subBoxes.forEach((b) => edges.push({ a: orch, b }, { a: b, b: verify }));
+  subBoxes.forEach((b) => edges.push({ a: orch, b }, { a: b, b: verify, subtaskToVerify: true }));
   edges.push({ a: verify, b: stop, label: "fails twice" }, { a: verify, b: docs, label: "all pass" });
 
   // Review → Integrate → Release → Production

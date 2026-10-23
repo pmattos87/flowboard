@@ -71,4 +71,51 @@ describe("edgeStyle", () => {
     expect(edgeStyle({ a: box("todo"), b: box("stopped") }).stroke).toBe(DIM);
     expect(edgeStyle({ a: box("stopped"), b: box("todo") }).stroke).toBe(DIM);
   });
+
+  it("lights a Subtask → Verify edge once its Subtask is done, though Verify is todo", () => {
+    const s = edgeStyle({ a: box("done"), b: box("todo"), subtaskToVerify: true });
+    expect(s.stroke).toBe(GREEN);
+    expect(s.dash).toBe("");
+  });
+
+  it("keeps a Subtask → Verify edge dimmed while its Subtask is not done", () => {
+    for (const st of ["todo", "current"] as const) {
+      const s = edgeStyle({ a: box(st), b: box("todo"), subtaskToVerify: true });
+      expect(s.stroke).toBe(DIM);
+      expect(s.dash).toBe("5 5");
+    }
+  });
+
+  it("keeps an unflagged done → todo edge dimmed (Verify → Docs, Orchestrator → Verify)", () => {
+    const s = edgeStyle({ a: box("done"), b: box("todo") });
+    expect(s.stroke).toBe(DIM);
+    expect(s.dash).toBe("5 5");
+  });
+});
+
+describe("RunGraphView Subtask → Verify lines", () => {
+  it("lights the done Subtask's line to Verify and keeps the other's dimmed while Verify is todo", () => {
+    const graph = runGraph({
+      story: task({ run_stopped: false }),
+      subtasks: [
+        task({ id: 2, task_number: 2, parent_id: 1, type: "subtask", status: "done", title: "A" }),
+        task({ id: 3, task_number: 3, parent_id: 1, type: "subtask", status: "in_progress", title: "B" }),
+      ],
+      trail: [ev("stage_entered", "building")],
+      projectKey: "FB",
+      clientProject: false,
+    });
+    const { container } = render(<RunGraphView graph={graph} />);
+    expect(container.querySelector('[data-node="verify"]')?.getAttribute("data-state")).toBe("todo");
+    // Both Subtask → Verify curves end at Verify's left port; group paths by end point.
+    const byEnd = new Map<string, Element[]>();
+    container.querySelectorAll("svg path").forEach((p) => {
+      const end = (p.getAttribute("d") ?? "").trim().split(/\s+/).slice(-2).join(" ");
+      byEnd.set(end, [...(byEnd.get(end) ?? []), p]);
+    });
+    const intoVerify = [...byEnd.values()].find((ps) => ps.length === 2);
+    expect(intoVerify).toBeDefined();
+    const styles = intoVerify!.map((p) => `${p.getAttribute("stroke")}|${p.getAttribute("stroke-dasharray") ?? ""}`).sort();
+    expect(styles).toEqual(["#34d399|", "#4b5563|5 5"]);
+  });
 });
