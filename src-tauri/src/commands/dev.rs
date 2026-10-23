@@ -242,7 +242,7 @@ pub async fn seed_demo_data_inner(pool: &SqlitePool, force: bool) -> Result<Stri
     .bind(fbp_id).bind(fbp_id).bind(fbp_s1)
     .bind("Design SQLite schema and migrations")
     .bind("Define all tables, indices, FK rules, and write the initial sqlx migration.")
-    .bind("task").bind("done").bind("high")
+    .bind("subtask").bind("done").bind("high")
     .bind(david_id).bind(5).bind(ts).bind(ts).bind("database")
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
@@ -262,7 +262,7 @@ pub async fn seed_demo_data_inner(pool: &SqlitePool, force: bool) -> Result<Stri
     .bind(fbp_id).bind(fbp_id).bind(fbp_s1)
     .bind("Add CI pipeline with tsc + vitest")
     .bind("GitHub Actions workflow that runs tsc --noEmit and npx vitest run on every PR.")
-    .bind("task").bind("done").bind("medium")
+    .bind("subtask").bind("done").bind("medium")
     .bind(eve_id).bind(2).bind(ts).bind(ts).bind("ci,devops")
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
@@ -305,7 +305,7 @@ pub async fn seed_demo_data_inner(pool: &SqlitePool, force: bool) -> Result<Stri
     .bind(fbp_id).bind(fbp_id).bind(fbp_s2)
     .bind("Sprint burndown chart")
     .bind("Line chart showing remaining story points per day across the sprint duration.")
-    .bind("task").bind("todo").bind("medium")
+    .bind("subtask").bind("todo").bind("medium")
     .bind(david_id).bind(3).bind(ts2).bind(ts2).bind("reports,charts")
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
@@ -326,7 +326,7 @@ pub async fn seed_demo_data_inner(pool: &SqlitePool, force: bool) -> Result<Stri
     .bind(fbp_id).bind(fbp_id).bind(fbp_s3)
     .bind("Keyboard shortcuts reference in Settings")
     .bind("Add a Keyboard Shortcuts tab to the Settings page.")
-    .bind("task").bind("todo").bind("low")
+    .bind("subtask").bind("todo").bind("low")
     .bind(clara_id).bind(2).bind(ts2).bind(ts2).bind("ui,a11y")
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
@@ -357,7 +357,7 @@ pub async fn seed_demo_data_inner(pool: &SqlitePool, force: bool) -> Result<Stri
     .bind(fbp_id).bind(fbp_id).bind(Option::<i64>::None)
     .bind("File attachments on tasks")
     .bind("Allow users to attach local files to tasks, stored with absolute paths in SQLite.")
-    .bind("task").bind("todo").bind("low")
+    .bind("subtask").bind("todo").bind("low")
     .bind(bob_id).bind(3).bind(ts2).bind(ts2).bind("files")
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
@@ -393,7 +393,7 @@ pub async fn seed_demo_data_inner(pool: &SqlitePool, force: bool) -> Result<Stri
     .bind(mob_id).bind(mob_id).bind(mob_s1)
     .bind("App navigation structure")
     .bind("Set up React Navigation with bottom tabs and stack navigator.")
-    .bind("task").bind("done").bind("medium")
+    .bind("subtask").bind("done").bind("medium")
     .bind(clara_id).bind(3).bind(ts3).bind(ts3).bind("navigation")
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
@@ -403,7 +403,7 @@ pub async fn seed_demo_data_inner(pool: &SqlitePool, force: bool) -> Result<Stri
     .bind(mob_id).bind(mob_id).bind(mob_s1)
     .bind("REST API client setup")
     .bind("Configure axios with interceptors, base URL, and typed response models.")
-    .bind("task").bind("done").bind("high")
+    .bind("subtask").bind("done").bind("high")
     .bind(eve_id).bind(5).bind(ts3).bind(ts3).bind("api,networking")
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
@@ -478,7 +478,7 @@ pub async fn seed_demo_data_inner(pool: &SqlitePool, force: bool) -> Result<Stri
     .bind(mob_id).bind(mob_id).bind(Option::<i64>::None)
     .bind("Dark mode support")
     .bind("Respect system dark-mode preference and allow manual override.")
-    .bind("task").bind("todo").bind("medium")
+    .bind("subtask").bind("todo").bind("medium")
     .bind(clara_id).bind(3).bind(ts4).bind(ts4).bind("ui,a11y")
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 
@@ -488,7 +488,7 @@ pub async fn seed_demo_data_inner(pool: &SqlitePool, force: bool) -> Result<Stri
     .bind(mob_id).bind(mob_id).bind(Option::<i64>::None)
     .bind("App Store submission checklist")
     .bind("Prepare screenshots, privacy policy, and metadata for App Store Connect.")
-    .bind("task").bind("todo").bind("high")
+    .bind("subtask").bind("todo").bind("high")
     .bind(david_id).bind(5).bind(ts4).bind(ts4).bind("release")
     .fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
 

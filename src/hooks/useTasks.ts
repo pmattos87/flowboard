@@ -37,9 +37,9 @@ export function useCreateTask() {
     mutationFn: (payload: TaskCreatePayload) => createTask(payload),
     onSuccess: (task) => {
       qc.invalidateQueries({ queryKey: taskKeys.all });
-      toast.success("Task created", { description: task.title });
+      toast.success("Subtask created", { description: task.title });
     },
-    onError: (err) => toast.error(`Failed to create task: ${String(err)}`),
+    onError: (err) => toast.error(`Failed to create subtask: ${String(err)}`),
   });
 }
 
@@ -51,11 +51,11 @@ export function useUpdateTask() {
     onSuccess: (task, { payload }) => {
       qc.invalidateQueries({ queryKey: taskKeys.all });
       if (payload.status != null) {
-        toast.success("Task updated", {
+        toast.success("Subtask updated", {
           description: `"${task.title}" → ${payload.status.replace("_", " ")}`,
         });
       }
     },
-    onError: (err) => toast.error(`Failed to update task: ${String(err)}`),
+    onError: (err) => toast.error(`Failed to update subtask: ${String(err)}`),
   });
 }

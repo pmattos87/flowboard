@@ -109,6 +109,25 @@ async fn actions(fx: &Fx, key: &str) -> Vec<String> {
 }
 
 #[tokio::test]
+async fn subtask_create_stores_and_returns_the_subtask_type() {
+    let fx = setup("internal").await;
+    let s = story(&fx, "types").await;
+    let created = ops::subtask_create(
+        &fx.pool,
+        NewSubtask { story: &s, title: "slice", description: "", bug: false, story_points: 1, risk: false },
+        Actor::Agent,
+    )
+    .await
+    .unwrap();
+    assert_eq!(created["type"], "subtask");
+    let stored: String = sqlx::query_scalar("SELECT type FROM tasks WHERE title = 'slice'")
+        .fetch_one(&fx.pool)
+        .await
+        .unwrap();
+    assert_eq!(stored, "subtask");
+}
+
+#[tokio::test]
 async fn internal_story_walks_the_whole_ladder_with_assignees() {
     let fx = setup("internal").await;
     let s = story(&fx, "walk").await;
@@ -346,10 +365,10 @@ async fn a_legacy_project_switches_once_its_open_items_are_mapped() {
         }
     };
     insert(1, None, "story", "todo").await;
-    insert(2, Some(1), "task", "in_review").await;
+    insert(2, Some(1), "subtask", "in_review").await;
     insert(3, None, "bug", "refining").await;
     insert(4, None, "story", "done").await;
-    insert(5, Some(4), "task", "canceled").await;
+    insert(5, Some(4), "subtask", "canceled").await;
 
     let err = ops::project_set(&fx.pool, "LG", Some("factory"), None).await.unwrap_err();
     assert!(err.contains("3 open item(s)") && err.contains("LG-1, LG-2, LG-3"), "{err}");

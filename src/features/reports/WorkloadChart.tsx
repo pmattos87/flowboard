@@ -83,7 +83,7 @@ export function WorkloadChart({ projectId, sprintId }: Props) {
         <Bar
           dataKey="tasks"
           fill="#60a5fa"
-          name="Tasks"
+          name="Subtasks"
           radius={[0, 4, 4, 0]}
         />
         <Bar

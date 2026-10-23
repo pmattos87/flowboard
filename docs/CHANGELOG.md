@@ -7,6 +7,8 @@
 ### Changed
 - The open app now shows writes made by other processes (the Flowboard CLI and the `flowboard` MCP, for example during a Factory Run) within about a second, without reopening a screen or pressing Refresh: the Story page status and run graph, the boards, the Releases screen and the task detail panel. The Rust backend checks `PRAGMA data_version` on a dedicated connection once a second and emits a `db-changed` event, and the frontend invalidates all queries on it. The app's own edits also fire the signal once, which causes one extra refetch and no loop. No schema change; if the watcher can't connect, it is logged and the app works without live refresh (FB-124).
 - The task title, description and other fields in the Story page and the task detail panel take an outside update when you haven't edited that field; a field you changed keeps your text (FB-124).
+- The issue type `task` is now `subtask`: migration `011_subtask_type.sql` converts existing rows (parent links, comments, time logs and activity are kept) and the CHECK vocabulary becomes `story | bug | subtask | epic`. The UI says "Subtask" for the type, "Create subtask", "Cancel subtask", the "Subtask title" placeholder, "Add subtask to ...", the Inbox "created subtask" text, the toasts, the search badge and the Reports series; "Task Board" keeps its name. The `tasks` table keeps its name (D-013, FB-101).
+- Upgrade the app and `flowboard-cli`/MCP together: after migration 011 the previous build's CLI refuses the database.
 
 ## [1.7.0] - 2026-10-22
 
