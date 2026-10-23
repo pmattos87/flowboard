@@ -623,3 +623,30 @@ async fn active_runs_lists_scheduled_stories_under_way_stopped_first() {
     assert!(!first["stage_entered_at"].as_str().unwrap().is_empty());
     assert_eq!(runs[1]["flags"]["stopped"], false);
 }
+
+async fn points(fx: &Fx, key: &str) -> i64 {
+    let n: i64 = key.rsplit_once('-').unwrap().1.parse().unwrap();
+    sqlx::query_scalar("SELECT story_points FROM tasks WHERE task_number = ? AND project_id = (SELECT id FROM projects WHERE key = 'SF')")
+        .bind(n)
+        .fetch_one(&fx.pool)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_storys_points_are_the_sum_of_its_subtasks_without_bugs_or_canceled_ones() {
+    let fx = setup("internal").await;
+    let s = story(&fx, "sized").await;
+    assert_eq!(points(&fx, &s).await, 0);
+    let a = subtask(&fx, &s, false).await;
+    subtask(&fx, &s, false).await;
+    assert_eq!(points(&fx, &s).await, 4);
+
+    subtask(&fx, &s, true).await;
+    assert_eq!(points(&fx, &s).await, 4, "a bug Subtask doesn't count");
+
+    ops::subtask_move(&fx.pool, &a, "canceled", Actor::Owner).await.unwrap();
+    assert_eq!(points(&fx, &s).await, 2, "a canceled Subtask doesn't count");
+    ops::subtask_move(&fx.pool, &a, "todo", Actor::Owner).await.unwrap();
+    assert_eq!(points(&fx, &s).await, 4, "a reopened Subtask counts again");
+}
