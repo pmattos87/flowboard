@@ -6,7 +6,7 @@
 
 ### Fixed
 - The Run graph's "Stop, tell Pedro" node no longer sticks out above the BUILD lane box when a Story has one or two Subtasks: the lane's contents move down when the Subtask stack is short. The lane's top and the layout with three or more Subtasks are unchanged (FB-151).
-- The Run graph shows full node titles: stage, ship and plan node titles wrap to two lines and show the whole title in a tooltip on hover (so "Auto-merge → develop" is no longer cut off); Subtask cards grow taller for titles over 18 characters and the BUILD lane is laid out from the real card heights. The gate node "In integrated tests" is now called "Integrated tests" (FB-164).
+- The Run graph shows full node titles: stage, ship and plan node titles wrap to two lines and show the whole title in a tooltip on hover (so "Auto-merge → develop" is no longer cut off); Subtask cards get the taller two-line layout whenever the title's worst-case width doesn't fit beside its key (wide or long titles, symbols, non-Latin text, long keys) and the BUILD lane is laid out from the real card heights. The gate node "In integrated tests" is now called "Integrated tests" (FB-164).
 
 ## [1.8.0] - 2026-10-23
 
