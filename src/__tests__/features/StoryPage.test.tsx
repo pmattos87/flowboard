@@ -45,11 +45,11 @@ function storyView(over: Partial<StoryView> = {}): StoryView {
   };
 }
 
-function setupInvoke(project = factoryProject, view = storyView()) {
+function setupInvoke(project = factoryProject, view = storyView(), task: object = storyTask) {
   mockInvoke.mockImplementation((cmd) => {
     if (cmd === "list_projects") return Promise.resolve([project]);
     if (cmd === "get_project") return Promise.resolve(project);
-    if (cmd === "list_tasks") return Promise.resolve([storyTask]);
+    if (cmd === "list_tasks") return Promise.resolve([task]);
     if (cmd === "get_story") return Promise.resolve(view);
     if (cmd === "get_story_trail")
       return Promise.resolve([
@@ -62,7 +62,7 @@ function setupInvoke(project = factoryProject, view = storyView()) {
 
 function renderPage(key = "FB-12") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const utils = render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[`/story/${key}`]}>
         <Routes>
@@ -71,6 +71,7 @@ function renderPage(key = "FB-12") {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return { ...utils, qc };
 }
 
 beforeEach(() => {
@@ -118,6 +119,16 @@ describe("StoryPage", () => {
     expect(openUrl).toHaveBeenCalledWith("https://github.com/o/r/tree/feat/FB-12-export");
     await userEvent.click(screen.getByRole("button", { name: /#77 · open → develop/ }));
     expect(openUrl).toHaveBeenCalledWith("https://github.com/o/r/pull/77");
+  });
+
+  it("shows a new description from an outside write without remounting", async () => {
+    setupInvoke();
+    const { qc } = renderPage();
+    expect(await screen.findByText("Brief text")).toBeInTheDocument();
+    setupInvoke(factoryProject, storyView(), { ...storyTask, description: "Brief from the Factory" });
+    await qc.invalidateQueries();
+    expect(await screen.findByText("Brief from the Factory")).toBeInTheDocument();
+    expect(screen.queryByText("Brief text")).not.toBeInTheDocument();
   });
 
   it("refuses a legacy project without asking for the Story", async () => {
