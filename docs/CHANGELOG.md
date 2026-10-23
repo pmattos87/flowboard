@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Added
+- Each sprint's header on the Sprint Planning board (not the Ready for Development row) shows its completion after the date range: `<done> / <total> pts · <percent>%`, with a 2px bar along the header's bottom filled to the percent. The bar is emerald at 100% (with at least one done point) whatever the sprint's status, otherwise blue for an active sprint and gray for the rest. Hovering the figure lists the points per status label (canceled is marked "(not counted)"). Only stories count, not bugs or subtasks; only status `done` counts as done on both ladders (on Factory projects `integrated_tests`, `tested` and `user_testing` are in the total but not done, as in the velocity chart); canceled stories leave the total. The calculation is the `sprintCompletion` helper in `src/lib/sprintProgress.ts` (FB-119).
+
 ### Changed
 - On Factory projects a Story's points are the sum of its Subtasks' points: creating, canceling or reopening a Subtask, or changing its points, updates the Story's total. Bug Subtasks and canceled ones don't count. The Story's points field is read-only, and the velocity and workload reports count each Story once instead of again through its Subtasks. A Story with 0 points can't move from `refining` to `ready`; split it first. Migration `012_story_points_backfill.sql` sets the total once for Factory Stories that were already split (SF-68).
 - Upgrade the app and `flowboard-cli`/MCP together: after migration 012 the previous build's CLI refuses the database.

@@ -213,3 +213,132 @@ describe("SprintPlanningBoard — default filter", () => {
     });
   });
 });
+
+describe("SprintPlanningBoard — sprint completion (FB-119)", () => {
+  const sprint = (id: number, status: string) => ({
+    id, project_id: 1, name: `Sprint ${id}`, goal: "", status,
+    start_date: "2024-03-01", end_date: "2024-03-14",
+  });
+  const story = (id: number, sprintId: number | null, status: string, points: number, type = "story") => ({
+    id, project_id: 1, sprint_id: sprintId, parent_id: null,
+    title: `Story ${id}`, description: "", type, status,
+    priority: "medium", assignee_id: null, story_points: points, due_date: null,
+    created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "",
+  });
+
+  function setup(sprints: unknown[], tasks: unknown[], ladder: "legacy" | "factory" = "legacy") {
+    useUiStore.setState({ activeProjectId: 1, boardSprintFilter: "all", boardSprintFilterFor: 1 });
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "list_sprints") return Promise.resolve(sprints);
+      if (cmd === "list_tasks") return Promise.resolve(tasks);
+      if (cmd === "list_people") return Promise.resolve([]);
+      if (cmd === "get_project") return Promise.resolve({ ...fakeProject, ladder });
+      return Promise.resolve(null);
+    });
+    renderBoard();
+  }
+
+  it("shows 0 / 0 pts · 0% and an empty bar for an empty sprint", async () => {
+    setup([sprint(20, "active")], []);
+    const text = await screen.findByText("0 / 0 pts · 0%");
+    expect(text).toBeInTheDocument();
+    expect(screen.getByTestId("sprint-progress-bar")).toHaveStyle({ width: "0%" });
+  });
+
+  it("shows 75% for 3 of 4 points done", async () => {
+    setup([sprint(20, "active")], [story(1, 20, "done", 3), story(2, 20, "todo", 1)]);
+    expect(await screen.findByText("3 / 4 pts · 75%")).toBeInTheDocument();
+    expect(screen.getByTestId("sprint-progress-bar")).toHaveStyle({ width: "75%" });
+  });
+
+  it("does not count bugs", async () => {
+    setup([sprint(20, "active")], [story(1, 20, "done", 2), story(2, 20, "todo", 5, "bug")]);
+    expect(await screen.findByText("2 / 2 pts · 100%")).toBeInTheDocument();
+  });
+
+  it("leaves canceled points out of the total and lists them in the tooltip", async () => {
+    setup([sprint(20, "active")], [story(1, 20, "done", 2), story(2, 20, "canceled", 2)]);
+    const text = await screen.findByText("2 / 2 pts · 100%");
+    expect(text).toHaveAttribute("title", expect.stringContaining("2 canceled (not counted)"));
+    expect(text.getAttribute("title")).toContain("2 done");
+  });
+
+  it("labels tooltip entries by the factory ladder statuses", async () => {
+    setup(
+      [sprint(20, "active")],
+      [story(1, 20, "building", 3), story(2, 20, "integrated_tests", 2), story(3, 20, "done", 1)],
+      "factory",
+    );
+    const text = await screen.findByText("1 / 6 pts · 17%");
+    const title = text.getAttribute("title") ?? "";
+    expect(title).toContain("3 building");
+    expect(title).toContain("2 integrated tests");
+    expect(title).toContain("1 done");
+  });
+
+  it("colours the bar blue for an active sprint under 100%", async () => {
+    setup([sprint(20, "active")], [story(1, 20, "done", 1), story(2, 20, "todo", 1)]);
+    await screen.findByText("1 / 2 pts · 50%");
+    expect(screen.getByTestId("sprint-progress-bar").className).toMatch(/bg-blue-/);
+  });
+
+  it("colours the bar gray for backlog and completed sprints under 100%", async () => {
+    setup(
+      [sprint(20, "backlog"), sprint(21, "completed")],
+      [story(1, 20, "todo", 2), story(2, 21, "done", 1), story(3, 21, "todo", 1)],
+    );
+    await screen.findByText("0 / 2 pts · 0%");
+    const bars = screen.getAllByTestId("sprint-progress-bar");
+    expect(bars).toHaveLength(2);
+    for (const bar of bars) expect(bar.className).toMatch(/bg-gray-/);
+  });
+
+  it("colours the bar emerald at 100%, even for a completed sprint", async () => {
+    setup([sprint(21, "completed")], [story(1, 21, "done", 2), story(2, 21, "canceled", 1)]);
+    await screen.findByText("2 / 2 pts · 100%");
+    expect(screen.getByTestId("sprint-progress-bar").className).toMatch(/bg-emerald-/);
+  });
+
+  it("shows no progress on the Ready for Development row", async () => {
+    setup([], [story(1, null, "ready_for_development", 3)]);
+    await screen.findByText("Story 1");
+    expect(screen.queryByText(/pts · \d+%/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("sprint-progress-bar")).not.toBeInTheDocument();
+  });
+
+  it("shows progress on the sprint row but none on the Ready for Development row beside it", async () => {
+    setup([sprint(20, "active")], [story(1, null, "ready_for_development", 3), story(2, 20, "done", 2)]);
+    await screen.findByText("2 / 2 pts · 100%");
+    const readyRow = screen.getByText("Ready for Development").closest("div.rounded-lg") as HTMLElement;
+    const sprintRow = screen.getByText("Sprint 20").closest("div.rounded-lg") as HTMLElement;
+    expect(within(readyRow).queryByText(/pts · \d+%/)).not.toBeInTheDocument();
+    expect(within(readyRow).queryByTestId("sprint-progress-bar")).not.toBeInTheDocument();
+    expect(within(sprintRow).getByTestId("sprint-progress-bar")).toBeInTheDocument();
+    expect(screen.getAllByTestId("sprint-progress-bar")).toHaveLength(1);
+  });
+
+  it("colours the bar emerald at 100% for active and backlog sprints too", async () => {
+    setup(
+      [sprint(20, "active"), sprint(21, "backlog")],
+      [story(1, 20, "done", 3), story(2, 21, "done", 1), story(3, 21, "canceled", 4)],
+    );
+    await screen.findByText("3 / 3 pts · 100%");
+    const bars = screen.getAllByTestId("sprint-progress-bar");
+    expect(bars).toHaveLength(2);
+    for (const bar of bars) {
+      expect(bar.className).toMatch(/bg-emerald-/);
+      expect(bar).toHaveStyle({ width: "100%" });
+    }
+  });
+
+  it("counts tested and user_testing toward the total but not done on the factory ladder", async () => {
+    setup(
+      [sprint(20, "active")],
+      [story(1, 20, "tested", 2), story(2, 20, "user_testing", 1), story(3, 20, "done", 1)],
+      "factory",
+    );
+    const text = await screen.findByText("1 / 4 pts · 25%");
+    expect(screen.getByTestId("sprint-progress-bar").className).toMatch(/bg-blue-/);
+    expect(text.getAttribute("title")).not.toMatch(/user_testing|integrated_tests/);
+  });
+});
