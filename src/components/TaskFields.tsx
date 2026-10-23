@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,7 +36,7 @@ export type TaskDraft = {
 
 const EMPTY_DRAFT: TaskDraft = {
   title: "",
-  type: "task",
+  type: "subtask",
   status: "todo",
   priority: "medium",
   assignee_id: null,
@@ -48,28 +48,54 @@ const EMPTY_DRAFT: TaskDraft = {
   description: "",
 };
 
-/** Local edit state for a task, reset whenever a different task is shown. */
+function draftFromTask(task: Task): TaskDraft {
+  return {
+    title: task.title,
+    type: task.type,
+    status: task.status,
+    priority: task.priority,
+    assignee_id: task.assignee_id,
+    sprint_id: task.sprint_id,
+    parent_id: task.parent_id,
+    story_points: task.story_points,
+    due_date: task.due_date ?? "",
+    labels: task.labels ?? "",
+    description: task.description ?? "",
+  };
+}
+
+function setField<K extends keyof TaskDraft>(draft: TaskDraft, key: K, value: TaskDraft[K]) {
+  draft[key] = value;
+}
+
+/**
+ * Local edit state for a task. A different task resets the whole draft; for the
+ * same task, a field whose server value changed (an outside write, FB-124) takes
+ * the new value only while the draft still equals the last server value.
+ */
 export function useTaskDraft(task: Task | undefined) {
   const updateTask = useUpdateTask();
   const [draft, setDraft] = useState<TaskDraft>(EMPTY_DRAFT);
+  const snapshot = useRef<{ id: number; fields: TaskDraft } | null>(null);
 
   useEffect(() => {
-    if (task) {
-      setDraft({
-        title: task.title,
-        type: task.type,
-        status: task.status,
-        priority: task.priority,
-        assignee_id: task.assignee_id,
-        sprint_id: task.sprint_id,
-        parent_id: task.parent_id,
-        story_points: task.story_points,
-        due_date: task.due_date ?? "",
-        labels: task.labels ?? "",
-        description: task.description ?? "",
-      });
+    if (!task) return;
+    const next = draftFromTask(task);
+    const prev = snapshot.current;
+    snapshot.current = { id: task.id, fields: next };
+    if (!prev || prev.id !== task.id) {
+      setDraft(next);
+      return;
     }
-  }, [task?.id]);
+    const last = prev.fields;
+    setDraft((d) => {
+      const merged = { ...d };
+      for (const key of Object.keys(next) as (keyof TaskDraft)[]) {
+        if (next[key] !== last[key] && d[key] === last[key]) setField(merged, key, next[key]);
+      }
+      return merged;
+    });
+  }, [task]);
 
   const save = (patch: TaskUpdatePayload) => {
     if (!task) return;
@@ -101,7 +127,7 @@ export function TaskFields({ task, state }: { task: Task; state: TaskDraftState 
   const peopleSafe = people ?? [];
   const sprintsSafe = sprints ?? [];
   const storyOptions = (projectTasks ?? []).filter((t) => t.type === "story");
-  const showParent = task.type === "task" || task.type === "bug";
+  const showParent = task.type === "subtask" || task.type === "bug";
 
   // Reparenting to a story inherits the story's sprint so the child stays in the
   // same sprint as its parent (matches the Task Board DnD reparent behavior).

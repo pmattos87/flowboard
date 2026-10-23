@@ -5,6 +5,10 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
 
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn().mockResolvedValue(vi.fn()),
+}));
+
 // Radix UI and @dnd-kit both need ResizeObserver as a proper constructor class
 class ResizeObserverMock {
   observe = vi.fn();

@@ -2,7 +2,7 @@ mod commands;
 pub mod db;
 pub mod factory;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -20,6 +20,22 @@ pub fn run() {
                     .expect("failed to initialize sqlite pool");
                 handle.manage(pool);
             });
+
+            // Live refresh: runs only after init_pool has migrated, off the setup thread.
+            match db::db_path(app.handle()) {
+                Ok(path) => {
+                    let handle = app.handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        db::watch::run(&path, move || {
+                            if let Err(e) = handle.emit("db-changed", ()) {
+                                eprintln!("failed to emit db-changed: {e}");
+                            }
+                        })
+                        .await;
+                    });
+                }
+                Err(e) => eprintln!("db watcher disabled: {e}"),
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

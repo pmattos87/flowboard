@@ -13,7 +13,7 @@ beforeEach(() => {
 const makeTasks = (): Task[] => [
   {
     id: 1, project_id: 1, task_number: 1, sprint_id: null, parent_id: null,
-    title: "Todo task", description: "", type: "task", status: "todo",
+    title: "Todo task", description: "", type: "subtask", status: "todo",
     priority: "low", assignee_id: null, story_points: 1, due_date: null,
     created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "", feature_branch: null, review_verdict: null, reviewed_commit: null, findings_url: null, run_stopped: false, risk: false, release_id: null,
   },
@@ -108,7 +108,7 @@ describe("KanbanBoard — priority ordering (FB-10)", () => {
   const mixedPriorityTodos: Task[] = (["low", "critical", "medium", "high"] as const).map(
     (priority, i) => ({
       id: i + 1, project_id: 1, task_number: i + 1, sprint_id: null, parent_id: null,
-      title: `${priority} card`, description: "", type: "task", status: "todo",
+      title: `${priority} card`, description: "", type: "subtask", status: "todo",
       priority, assignee_id: null, story_points: 1, due_date: null,
       created_at: "2024-01-01T00:00:00.000Z", updated_at: "2024-01-01T00:00:00.000Z", labels: "", feature_branch: null, review_verdict: null, reviewed_commit: null, findings_url: null, run_stopped: false, risk: false, release_id: null,
     })

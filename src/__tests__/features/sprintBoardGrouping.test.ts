@@ -99,7 +99,7 @@ describe("buildSprintBoardRows", () => {
   });
 
   it("excludes non-story tasks and orders by priority, highest first", () => {
-    const subtask: Task = { ...story(9, null), type: "task" };
+    const subtask: Task = { ...story(9, null), type: "subtask" };
     const tasks = [story(1, null, "low"), story(2, null, "critical"), subtask];
     const rows = buildSprintBoardRows(tasks, sprints, "backlog");
     expect(rows[0].tasks.map((t) => t.id)).toEqual([2, 1]);
@@ -181,7 +181,7 @@ describe("computeSprintDropPayload", () => {
   // The detail panel's sprint picker shares this function, so it also sees
   // tasks, bugs and epics — which live only in the dev workflow.
   it("leaves status alone for non-story types in both directions", () => {
-    for (const type of ["task", "bug", "epic"] as const) {
+    for (const type of ["subtask", "bug", "epic"] as const) {
       const scheduled = { ...story(1, null, "medium", "in_progress"), type };
       expect(computeSprintDropPayload(scheduled, 11)).toEqual({
         payload: { sprint_id: 11 },
@@ -222,7 +222,7 @@ describe("isSprintScheduleBlocked (FB-85)", () => {
   // never reach "ready_for_development", so gating them would lock them out of
   // sprints entirely.
   it("only gates stories — tasks, bugs and epics pass through", () => {
-    for (const type of ["task", "bug", "epic"] as const) {
+    for (const type of ["subtask", "bug", "epic"] as const) {
       const item: Task = { ...story(1, null, "medium", "todo"), type };
       expect(isSprintScheduleBlocked(item, 11)).toBe(false);
     }
@@ -254,7 +254,7 @@ describe("Factory ladder (SF-31)", () => {
     expect(storyStatuses).toEqual([
       "backlog", "refining", "ready", "building", "integrated_tests", "tested", "user_testing", "canceled", "done",
     ]);
-    const subtaskStatuses = statusOptionsForType("task", "factory").map((o) => o.value);
+    const subtaskStatuses = statusOptionsForType("subtask", "factory").map((o) => o.value);
     expect(subtaskStatuses).toEqual(["todo", "in_progress", "canceled", "done"]);
     // Legacy projects keep their lists.
     expect(statusOptionsForType("story").map((o) => o.value)).toContain("ready_for_development");

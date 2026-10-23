@@ -33,7 +33,7 @@ export function buildTaskBoardRows(
       .sort((a, b) => a.id - b.id),
   );
 
-  const children = tasks.filter((t) => t.type === "task" || t.type === "bug");
+  const children = tasks.filter((t) => t.type === "subtask" || t.type === "bug");
 
   const rows: TaskBoardRow[] = stories.map((story) => ({
     key: story.id,

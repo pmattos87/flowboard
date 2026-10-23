@@ -128,6 +128,22 @@ describe("TaskDetailPanel — open state", () => {
   });
 });
 
+describe("TaskDetailPanel — Subtask wording (FB-123)", () => {
+  it("labels a subtask row's badge, cancel control and title placeholder as Subtask", async () => {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "get_task") return Promise.resolve({ ...fakeTask, type: "subtask" });
+      if (cmd === "get_project") return Promise.resolve(fakeProject);
+      return Promise.resolve([]);
+    });
+    useUiStore.setState({ selectedTaskId: 7 });
+    renderPanel();
+    await waitFor(() => expect(screen.getByDisplayValue("Fix login bug")).toBeInTheDocument());
+    expect(screen.getByText("Subtask")).toBeInTheDocument();
+    expect(screen.getByLabelText("Cancel subtask")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Subtask title")).toBeInTheDocument();
+  });
+});
+
 describe("TaskDetailPanel — Markdown description (FB-100)", () => {
   it("saves the edited raw Markdown unchanged via update_task", async () => {
     setupInvoke();
@@ -270,7 +286,7 @@ describe("TaskDetailPanel — Time Logs visibility (FB-31)", () => {
   });
 
   it("shows the Time Logs section for task type", async () => {
-    setupInvokeWithType("task");
+    setupInvokeWithType("subtask");
     useUiStore.setState({ selectedTaskId: 7 });
     renderPanel();
     await waitFor(() =>
@@ -319,7 +335,7 @@ describe("TaskDetailPanel — cancel task (FB-3, FB-98)", () => {
     await waitFor(() => expect(screen.getByDisplayValue("Fix login bug")).toBeInTheDocument());
 
     const before = mockInvoke.mock.calls.length;
-    await user.click(screen.getByRole("button", { name: /cancel task/i }));
+    await user.click(screen.getByRole("button", { name: /cancel subtask/i }));
 
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith("update_task", {
@@ -339,7 +355,7 @@ describe("TaskDetailPanel — cancel task (FB-3, FB-98)", () => {
     renderPanel();
     await waitFor(() => expect(screen.getByDisplayValue("Fix login bug")).toBeInTheDocument());
 
-    expect(screen.queryByRole("button", { name: /cancel task/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /cancel subtask/i })).not.toBeInTheDocument();
   });
 
   it("hides Cancel task when the issue is done", async () => {
@@ -348,7 +364,7 @@ describe("TaskDetailPanel — cancel task (FB-3, FB-98)", () => {
     renderPanel();
     await waitFor(() => expect(screen.getByDisplayValue("Fix login bug")).toBeInTheDocument());
 
-    expect(screen.queryByRole("button", { name: /cancel task/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /cancel subtask/i })).not.toBeInTheDocument();
   });
 
   it("reopens a canceled issue through the Status picker", async () => {
@@ -395,7 +411,7 @@ describe("TaskDetailPanel — cancel task (FB-3, FB-98)", () => {
     renderPanel();
     await waitFor(() => expect(screen.getByDisplayValue("Fix login bug")).toBeInTheDocument());
 
-    await user.click(screen.getByRole("button", { name: /cancel task/i }));
+    await user.click(screen.getByRole("button", { name: /cancel subtask/i }));
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith("update_task", {
         id: 7,
@@ -404,7 +420,7 @@ describe("TaskDetailPanel — cancel task (FB-3, FB-98)", () => {
     );
     // After the refetch the Cancel button is gone and the picker shows canceled.
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: /cancel task/i })).not.toBeInTheDocument(),
+      expect(screen.queryByRole("button", { name: /cancel subtask/i })).not.toBeInTheDocument(),
     );
     const select = statusSelect();
     expect(select.value).toBe("canceled");
@@ -419,7 +435,7 @@ describe("TaskDetailPanel — cancel task (FB-3, FB-98)", () => {
       }),
     );
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /cancel task/i })).toBeInTheDocument(),
+      expect(screen.getByRole("button", { name: /cancel subtask/i })).toBeInTheDocument(),
     );
     // Cancel and reopen are the only writes: two update_task calls, no delete.
     expect(writesSince(0)).toEqual(["update_task", "update_task"]);

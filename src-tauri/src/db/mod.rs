@@ -6,19 +6,29 @@ use std::str::FromStr;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
+pub mod watch;
+
 pub static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 /// Open (and create on first run) the SQLite pool at `<appDataDir>/flowboard.db`,
 /// applying all pending migrations first.
 pub async fn init_pool(app: &AppHandle) -> Result<SqlitePool, String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("failed to resolve app data dir: {e}"))?;
+    let app_data_dir = app_data_dir(app)?;
     std::fs::create_dir_all(&app_data_dir)
         .map_err(|e| format!("failed to create app data dir: {e}"))?;
 
     open_and_migrate(&app_data_dir.join("flowboard.db")).await
+}
+
+fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map_err(|e| format!("failed to resolve app data dir: {e}"))
+}
+
+/// Path of the app database; the file exists once `init_pool` has run.
+pub fn db_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app_data_dir(app)?.join("flowboard.db"))
 }
 
 fn sqlite_url(path: &Path, mode: &str) -> String {
@@ -340,6 +350,174 @@ mod tests {
         }
         assert!(fk_violations.is_empty(), "foreign key violations: {fk_violations:?}");
         assert_eq!(backups_in(&path), 1, "the migration must have written a backup");
+    }
+
+    #[tokio::test]
+    async fn migration_011_renames_task_type_and_keeps_links() {
+        let path = temp_db("subtask-type");
+        migrate_up_to(&path, 11).await;
+        let mut conn = SqliteConnectOptions::from_str(&sqlite_url(&path, "rw"))
+            .unwrap()
+            .foreign_keys(false)
+            .connect()
+            .await
+            .unwrap();
+        for sql in [
+            "INSERT INTO projects (id, name, key, created_at) VALUES (1, 'P', 'P', '2026-01-01')",
+            "INSERT INTO people (id, name, email) VALUES (1, 'A', 'a@x')",
+            "INSERT INTO tasks (id, project_id, title, type, status, created_at, updated_at, task_number)              VALUES (1, 1, 'Story', 'story', 'todo', '2026-01-01', '2026-01-01', 1)",
+            "INSERT INTO tasks (id, project_id, parent_id, title, type, status, created_at, updated_at, task_number)              VALUES (2, 1, 1, 'Child', 'task', 'todo', '2026-01-01', '2026-01-01', 2)",
+            "INSERT INTO comments (task_id, author_id, body, created_at) VALUES (2, 1, 'hi', '2026-01-01')",
+            "INSERT INTO time_logs (task_id, person_id, minutes, logged_at) VALUES (2, 1, 30, '2026-01-01')",
+            "INSERT INTO activity_log (task_id, person_id, action, created_at) VALUES (2, 1, 'created', '2026-01-01')",
+        ] {
+            sqlx::query(sql).execute(&mut conn).await.unwrap();
+        }
+        conn.close().await.unwrap();
+
+        let pool = open_and_migrate(&path).await.unwrap();
+        let (kind, parent): (String, Option<i64>) =
+            sqlx::query_as("SELECT type, parent_id FROM tasks WHERE id = 2")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(kind, "subtask");
+        assert_eq!(parent, Some(1));
+        for table in ["comments", "time_logs", "activity_log"] {
+            let n: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table} WHERE task_id = 2"))
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(n, 1, "{table} row must survive the rebuild");
+        }
+        let story_kind: String = sqlx::query_scalar("SELECT type FROM tasks WHERE id = 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(story_kind, "story");
+
+        let rejected = sqlx::query(
+            "INSERT INTO tasks (project_id, title, type, created_at, updated_at) VALUES (1, 'x', 'task', 'now', 'now')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(rejected.is_err(), "type = 'task' must be rejected by the CHECK");
+
+        let default_kind: String = sqlx::query_scalar(
+            "INSERT INTO tasks (project_id, title, created_at, updated_at) VALUES (1, 'y', 'now', 'now') RETURNING type",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(default_kind, "subtask");
+        pool.close().await;
+    }
+
+    /// QA (FB-122): the 011 rebuild keeps every 010 column value, every index,
+    /// the remaining child tables (attachments, task_links, task_prs), and live FKs.
+    #[tokio::test]
+    async fn migration_011_keeps_columns_indexes_and_all_fk_children() {
+        let path = temp_db("subtask-type-full");
+        migrate_up_to(&path, 11).await;
+        let mut conn = SqliteConnectOptions::from_str(&sqlite_url(&path, "rw"))
+            .unwrap()
+            .foreign_keys(false)
+            .connect()
+            .await
+            .unwrap();
+        for sql in [
+            "INSERT INTO projects (id, name, key, created_at) VALUES (1, 'P', 'P', '2026-01-01')",
+            "INSERT INTO people (id, name, email) VALUES (1, 'A', 'a@x')",
+            "INSERT INTO sprints (id, project_id, name, status, start_date, end_date) VALUES (1, 1, 'S1', 'active', '2026-01-01', '2026-01-14')",
+            "INSERT INTO releases (id, project_id, version, created_at) VALUES (1, 1, '1.0.0', '2026-01-01')",
+            "INSERT INTO tasks (id, project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, due_date, created_at, updated_at, labels, task_number, feature_branch, review_verdict, reviewed_commit, findings_url, run_stopped, risk, release_id) \
+             VALUES (1, 1, 1, 'Story', 'd', 'story', 'building', 'high', 1, 5, '2026-02-01', '2026-01-01', '2026-01-02', 'a,b', 1, 'feat/P-1-x', 'passed', 'abc', 'http://f', 1, 0, 1)",
+            "INSERT INTO tasks (id, project_id, parent_id, title, type, status, created_at, updated_at, task_number, risk) VALUES (2, 1, 1, 'Child', 'task', 'todo', '2026-01-01', '2026-01-01', 2, 1)",
+            "INSERT INTO tasks (id, project_id, parent_id, title, type, status, created_at, updated_at, task_number) VALUES (3, 1, 1, 'Bug', 'bug', 'todo', '2026-01-01', '2026-01-01', 3)",
+            "INSERT INTO tasks (id, project_id, title, type, status, created_at, updated_at, task_number) VALUES (4, 1, 'Epic', 'epic', 'todo', '2026-01-01', '2026-01-01', 4)",
+            "INSERT INTO attachments (task_id, filename, filepath, size, uploaded_at) VALUES (2, 'f', '/f', 1, '2026-01-01')",
+            "INSERT INTO task_links (task_id, depends_on_id, created_at) VALUES (1, 4, '2026-01-01')",
+            "INSERT INTO task_prs (task_id, url, created_at, updated_at) VALUES (1, 'http://pr', '2026-01-01', '2026-01-01')",
+            "INSERT INTO comments (task_id, author_id, body, created_at) VALUES (2, 1, 'hi', '2026-01-01')",
+        ] {
+            sqlx::query(sql).execute(&mut conn).await.unwrap();
+        }
+        const SNAPSHOT: &str = "SELECT quote(id)||'|'||quote(project_id)||'|'||quote(sprint_id)||'|'||quote(parent_id)||'|'||quote(title)||'|'||quote(description)||'|'||quote(status)||'|'||quote(priority)||'|'||quote(assignee_id)||'|'||quote(story_points)||'|'||quote(due_date)||'|'||quote(created_at)||'|'||quote(updated_at)||'|'||quote(labels)||'|'||quote(task_number)||'|'||quote(feature_branch)||'|'||quote(review_verdict)||'|'||quote(reviewed_commit)||'|'||quote(findings_url)||'|'||quote(run_stopped)||'|'||quote(risk)||'|'||quote(release_id) FROM tasks ORDER BY id";
+        let before_rows: Vec<(String,)> = sqlx::query_as(SNAPSHOT).fetch_all(&mut conn).await.unwrap();
+        assert!(before_rows[0].0.contains("'feat/P-1-x'"));
+        let before: Vec<(String, String)> = sqlx::query_as(
+            "SELECT name, IFNULL(sql, '') FROM sqlite_master WHERE type = 'index' AND tbl_name = 'tasks' ORDER BY name",
+        )
+        .fetch_all(&mut conn)
+        .await
+        .unwrap();
+        conn.close().await.unwrap();
+
+        let pool = open_and_migrate(&path).await.unwrap();
+
+        let after_rows: Vec<(String,)> = sqlx::query_as(SNAPSHOT).fetch_all(&pool).await.unwrap();
+        assert_eq!(after_rows, before_rows, "every 010 column value must be copied unchanged (type aside)");
+        let kinds: Vec<(i64, String, i64)> = sqlx::query_as("SELECT id, type, risk FROM tasks ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            kinds,
+            vec![(1, "story".into(), 0), (2, "subtask".into(), 1), (3, "bug".into(), 0), (4, "epic".into(), 0)]
+        );
+        let leftover: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE type = 'task'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(leftover, 0);
+
+        let after: Vec<(String, String)> = sqlx::query_as(
+            "SELECT name, IFNULL(sql, '') FROM sqlite_master WHERE type = 'index' AND tbl_name = 'tasks' ORDER BY name",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(after, before, "011 must recreate exactly the 010 indexes");
+
+        for (table, id) in [("attachments", 2), ("task_links", 1), ("task_prs", 1), ("comments", 2)] {
+            let n: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table} WHERE task_id = ?"))
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(n, 1, "{table} row must survive the rebuild");
+        }
+        let violations: Vec<(String,)> = sqlx::query_as("SELECT \"table\" FROM pragma_foreign_key_check")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert!(violations.is_empty(), "FK violations after 011: {violations:?}");
+        let stray: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE name = 'tasks_new'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(stray, 0);
+
+        // FKs still point at the rebuilt table: deleting the Story nulls the
+        // children's parent_id and cascades its links and PRs.
+        sqlx::query("DELETE FROM tasks WHERE id = 1").execute(&pool).await.unwrap();
+        let parents: Vec<(Option<i64>,)> = sqlx::query_as("SELECT parent_id FROM tasks WHERE id IN (2, 3) ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(parents, vec![(None,), (None,)]);
+        let links: i64 = sqlx::query_scalar("SELECT (SELECT COUNT(*) FROM task_links) + (SELECT COUNT(*) FROM task_prs)")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(links, 0);
+        sqlx::query("DELETE FROM tasks WHERE id = 2").execute(&pool).await.unwrap();
+        let children: i64 = sqlx::query_scalar("SELECT (SELECT COUNT(*) FROM attachments) + (SELECT COUNT(*) FROM comments)")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(children, 0);
+        pool.close().await;
     }
 
     #[tokio::test]

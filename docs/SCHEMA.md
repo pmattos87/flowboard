@@ -12,7 +12,7 @@ sprints       (id, project_id, name, goal, start_date, end_date, status)
 tasks         (id, project_id, task_number, sprint_id, parent_id, title, description,
                type, status, priority, assignee_id, story_points,
                due_date, created_at, updated_at, labels)
-              -- type:        'story' | 'bug' | 'task' | 'epic'
+              -- type:        'story' | 'bug' | 'subtask' | 'epic'
               -- status:      'todo' | 'in_progress' | 'in_review' | 'canceled' | 'done'
               -- priority:    'low' | 'medium' | 'high' | 'critical'
               -- task_number: per-project sequence (see Important Rules)
@@ -47,6 +47,10 @@ Important Rules
 - `comments.updated_at` is nullable and set only by `update_comment`; a NULL
   means the comment has never been edited (migration `009_comment_edited_at.sql`).
   Editing changes `body` only — `author_id` is fixed at creation.
+- `tasks.type` holds `'subtask'`, not `'task'` (migration `011_subtask_type.sql`, FB-101): the
+  CHECK vocabulary is `story | bug | subtask | epic`, existing `'task'` rows were migrated with
+  their links intact, and an insert without a type defaults to `'subtask'`. The table itself
+  keeps the name `tasks` (see D-013).
 - Story → child sprint cascade: when `update_task` mutates `sprint_id` on a row
   where `type = 'story'`, the same SQL transaction also updates `sprint_id` for
   all rows where `parent_id` equals the story's id. Atomic — both updates apply

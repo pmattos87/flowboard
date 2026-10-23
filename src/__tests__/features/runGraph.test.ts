@@ -17,7 +17,7 @@ const ev = (action: string, data: Record<string, unknown> | string = ""): TrailE
   at: "2026-10-02T10:00:00.000Z", action, old: "", new: data, by: "Claude",
 });
 const stage = (s: TaskStatus) => ev("stage_entered", s);
-const sub = (n: number, status: TaskStatus, type: Task["type"] = "task") =>
+const sub = (n: number, status: TaskStatus, type: Task["type"] = "subtask") =>
   task({ id: 100 + n, task_number: n, parent_id: 1, type, status });
 
 function graph(story: Partial<Task>, subtasks: Task[], trail: TrailEvent[], clientProject = false): RunGraph {

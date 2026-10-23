@@ -34,7 +34,7 @@ const tasks = [
   task({ id: 1, task_number: 1, title: "Stopped story", status: "building", run_stopped: true }),
   task({ id: 2, task_number: 2, parent_id: 1, type: "bug", status: "todo", title: "Bug a" }),
   task({ id: 3, task_number: 3, parent_id: 1, type: "bug", status: "done", title: "Bug b" }),
-  task({ id: 4, task_number: 4, parent_id: 1, type: "task", status: "todo", title: "Task c" }),
+  task({ id: 4, task_number: 4, parent_id: 1, type: "subtask", status: "todo", title: "Task c" }),
   task({ id: 5, task_number: 5, title: "Dropped story", status: "canceled" }),
   task({ id: 6, task_number: 6, sprint_id: null, title: "Canceled idea", status: "canceled" }),
 ];
