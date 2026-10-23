@@ -3,6 +3,11 @@ import { Outlet } from "react-router-dom";
 import { useUiStore } from "@/stores/uiStore";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
+import { WarningSlot } from "./WarningSlot";
+import { StagingBadge } from "./StagingBadge";
+
+// Fixed at build time (same pattern as Settings), so read once at import.
+const isStaging = import.meta.env.VITE_APP_ENV === "staging";
 
 function useKeyboardShortcuts() {
   const setCreateTaskModalOpen = useUiStore((s) => s.setCreateTaskModalOpen);
@@ -37,13 +42,16 @@ export function AppShell() {
   useKeyboardShortcuts();
 
   return (
-    <div className="flex h-screen bg-gray-950 text-gray-100">
-      <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0">
-        <TopBar />
-        <main className="flex-1 overflow-auto bg-gray-900 p-6">
-          <Outlet />
-        </main>
+    <div className="flex h-screen flex-col bg-gray-950 text-gray-100">
+      <WarningSlot>{isStaging ? <StagingBadge /> : undefined}</WarningSlot>
+      <div className="flex flex-1 min-h-0">
+        <Sidebar />
+        <div className="flex-1 flex flex-col min-w-0">
+          <TopBar />
+          <main className="flex-1 overflow-auto bg-gray-900 p-6">
+            <Outlet />
+          </main>
+        </div>
       </div>
     </div>
   );
