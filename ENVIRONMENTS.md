@@ -35,9 +35,9 @@ Tauri uses the app's `identifier` (defined in `tauri.conf.json`) to determine wh
 }
 ```
 
-### 3. Optional: staging indicator
+### 3. Staging indicator
 
-Add a `VITE_APP_ENV` variable to a `.env.staging` file and render a small banner in the UI so you can always tell which build is running.
+When `VITE_APP_ENV` is `staging`, the app shows a full-width amber strip at the very top of the window, above the sidebar: "STAGING ENVIRONMENT - Test data only. Nothing here is real." It is rendered by `src/components/StagingBadge.tsx`, so you can always tell which build is running.
 
 ---
 
