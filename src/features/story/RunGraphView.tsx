@@ -222,7 +222,10 @@ export function RunGraphView({ graph }: { graph: RunGraph }) {
   // findings' upper right (above the findings loop, which leaves at mid-height),
   // runs under the ship row to the right padding past its last card and past the
   // Docs turn, then up and into the Stop gate from the right.
-  const stopRightX = Math.max(shipX + rowWidth(graph.ship.length), turnRightX) + 12;
+  // It clears the lane border by 20px and stays inside the SVG (PAD = 48 past the content).
+  const laneX = PAD - 10;
+  const laneW = contentWidth + 20;
+  const stopRightX = Math.max(shipX + rowWidth(graph.ship.length), turnRightX, laneX + laneW) + 20;
   const fixStopY = fix.y + 12;
   edges.push({
     a: fix, b: stop, label: "fails twice", intoStop: true, lx: stopRightX - 40, ly: fixStopY,
@@ -241,8 +244,6 @@ export function RunGraphView({ graph }: { graph: RunGraph }) {
   const height = bugY + 32;
   // Each lane sits in a dim box. The boxes leave the gaps between them to the
   // long connections, and the left padding to the return loops.
-  const laneX = PAD - 10;
-  const laneW = contentWidth + 20;
   const lanes = [
     { label: "PLAN", top: planLabelY - 10, bottom: planY + H + 22 },
     { label: "BUILD · PER-SUBTASK LOOP", top: buildLabelY - 10, bottom: buildBottom + 12 },

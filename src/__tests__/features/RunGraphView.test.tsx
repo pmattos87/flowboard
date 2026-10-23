@@ -179,6 +179,25 @@ describe("RunGraphView Stop gate edges", () => {
     expect(pts[2][0]).toBe(pts[1][0]);
   });
 
+  it("runs the Stop vertical clearly outside the lane border and inside the SVG", () => {
+    const layouts = [
+      { subtasks: [], clientProject: false },
+      { subtasks: [sub("done"), sub("done"), sub("done"), sub("done")], clientProject: false },
+      { subtasks: [sub("done")], clientProject: true },
+    ];
+    for (const { subtasks, clientProject } of layouts) {
+      const graph = runGraph({ story: task({}), subtasks, trail: [], projectKey: "FB", clientProject });
+      const { container, fixEdge } = stopEdges(graph);
+      const lane = container.querySelector("div.rounded-xl.border")!.getAttribute("style")!;
+      const laneRight = Number(lane.match(/left: (\d+)/)![1]) + Number(lane.match(/width: (\d+)/)![1]);
+      const svgWidth = Number(container.querySelector("svg")!.getAttribute("width"));
+      const stopX = Number(fixEdge.getAttribute("d")!.replace("M", "").split(" L")[1].split(" ")[0]);
+      expect(stopX).toBeGreaterThanOrEqual(laneRight + 12);
+      expect(stopX).toBeLessThan(svgWidth);
+      cleanup();
+    }
+  });
+
   it("enters Stop from the right and clears the findings loops, PR card and Docs turn", () => {
     const graph = runGraph({ story: task({}), subtasks: [], trail: [], projectKey: "FB", clientProject: false });
     const { container, fixEdge } = stopEdges(graph);
