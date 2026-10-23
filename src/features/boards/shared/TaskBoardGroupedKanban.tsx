@@ -76,6 +76,7 @@ function GroupedColumn({
   dotClass,
   Icon,
   groupKey,
+  groupName,
   storyId,
   storySprintId,
   tasks,
@@ -87,6 +88,7 @@ function GroupedColumn({
   dotClass: string;
   Icon?: LucideIcon;
   groupKey: StoryGroupKey;
+  groupName: string;
   storyId: number | null;
   storySprintId: number | null;
   tasks: Task[];
@@ -120,7 +122,7 @@ function GroupedColumn({
             })
           }
           className="ml-auto text-gray-500 hover:text-gray-200 rounded p-0.5 hover:bg-gray-800"
-          aria-label={`Add task to ${label}`}
+          aria-label={`Add subtask to ${groupName} (${label})`}
         >
           <Plus className="h-3 w-3" />
         </button>
@@ -291,6 +293,7 @@ function StoryRow({
                 dotClass={col.dotClass}
                 Icon={col.Icon}
                 groupKey={row.key}
+                groupName={row.story?.title ?? "Unparented"}
                 storyId={storyId}
                 storySprintId={storySprintId}
                 tasks={colTasks}

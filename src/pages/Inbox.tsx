@@ -20,7 +20,7 @@ function setLastVisit() {
 function actionLabel(action: string, newValue: string): string {
   switch (action) {
     case "created":
-      return "created task";
+      return "created subtask";
     case "status_changed":
       return `changed status to ${newValue.replace("_", " ")}`;
     case "assigned":

@@ -22,8 +22,8 @@ describe("RunGraphView", () => {
     const graph = runGraph({
       story: task({}),
       subtasks: [
-        task({ id: 2, task_number: 2, parent_id: 1, type: "task", status: "done", title: "Template layout" }),
-        task({ id: 3, task_number: 3, parent_id: 1, type: "task", status: "in_progress", title: "Signature block" }),
+        task({ id: 2, task_number: 2, parent_id: 1, type: "subtask", status: "done", title: "Template layout" }),
+        task({ id: 3, task_number: 3, parent_id: 1, type: "subtask", status: "in_progress", title: "Signature block" }),
       ],
       trail: [
         ev("stage_entered", "building"),

@@ -14,7 +14,7 @@ describe("statusOptionsForType", () => {
   });
 
   it("keeps the plain dev workflow for tasks and bugs", () => {
-    for (const type of ["task", "bug"] as const) {
+    for (const type of ["subtask", "bug"] as const) {
       const values = statusOptionsForType(type).map((o) => o.value);
       expect(values).not.toContain("refining");
       expect(values).not.toContain("ready_for_development");
