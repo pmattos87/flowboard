@@ -13,6 +13,9 @@
 - Story comments now render as Markdown (headings, lists, code, tables) the same way descriptions do, on the Story page and in the task detail panel. Editing a comment still shows the raw Markdown, and `comment-<id>` links still scroll to the comment (FB-149).
 - Descriptions and comments also render GFM tables (with dark-mode borders, scrolling when wide), task lists and strikethrough, through `remark-gfm`. Links still show as plain text, bare URLs are not linked and images are not loaded. D-012 is updated (FB-149).
 
+### Fixed
+- The Run graph's "Stop, tell Pedro" node no longer sticks out above the BUILD lane box when a Story has one or two Subtasks: the lane's contents move down when the Subtask stack is short. The lane's top and the layout with three or more Subtasks are unchanged (FB-151).
+
 ## [1.8.0] - 2026-10-23
 
 ### Changed
