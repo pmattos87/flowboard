@@ -18,12 +18,32 @@ const BUG_X = 14, FIX_X = 30;
 const SUB_GAP = 22;
 /** Extra card height for the title's second line (12px text, leading-tight). */
 const SUB_LINE = 16;
-/** Title characters per line beside the key in a Subtask card; low on purpose so the estimate errs toward two lines. */
-const SUB_CHARS = 18;
+/** Width left for the key and title row: card width minus px-3 padding (24) and the 1px borders (2). */
+const SUB_INNER = SW - 24 - 2;
+/** Gap between the key and the title (gap-1.5), and the key's per-character width (10px mono is 6px; rounded up). */
+const SUB_KEY_GAP = 6, SUB_KEY_CHAR = 6.2;
+/** Title font size, and worst-case glyph widths in em for its sans-serif font, by character class. */
+const SUB_FONT = 12;
+const EM_WIDE = 0.96, EM_UPPER = 0.78, EM_NARROW = 0.4, EM_PLAIN = 0.62, EM_UNKNOWN = 1;
 
-/** A Subtask card's height: jsdom can't measure text, so this is a line-count estimate that errs toward two lines. */
-function subtaskHeight(title: string): number {
-  return title.length > SUB_CHARS ? SH + SUB_LINE : SH;
+/** Only the ASCII classes below were measured; any other character (accents, dashes, CJK, emoji) counts as a full em. */
+function glyphEm(c: string): number {
+  if ("mwMW@%&+<=>^~".includes(c)) return EM_WIDE;
+  if (c >= "A" && c <= "Z") return EM_UPPER;
+  if (" ijlrtf.,:;'!|()[]-/\\".includes(c)) return EM_NARROW;
+  if ((c >= "a" && c <= "z") || (c >= "0" && c <= "9")) return EM_PLAIN;
+  return EM_UNKNOWN;
+}
+
+/**
+ * A Subtask card's height: jsdom can't measure text, so this is an estimate
+ * that errs toward two lines. A title gets one line only when its worst-case
+ * width fits the room left beside the key.
+ */
+function subtaskHeight(title: string, key: string): number {
+  const room = SUB_INNER - key.length * SUB_KEY_CHAR - SUB_KEY_GAP;
+  const width = [...title].reduce((sum, c) => sum + glyphEm(c) * SUB_FONT, 0);
+  return width > room ? SH + SUB_LINE : SH;
 }
 
 const KIND: Record<NodeKind, { Icon: LucideIcon; cls: string; label: string }> = {
@@ -171,7 +191,7 @@ export function layoutRunGraph(graph: RunGraph): RunGraphLayout {
   const startTurnY = planY + H + 40;
   const buildLabelY = startTurnY + 30;
   const count = Math.max(graph.subtasks.length, 1);
-  const subHeights = graph.subtasks.map((s) => subtaskHeight(s.title));
+  const subHeights = graph.subtasks.map((s) => subtaskHeight(s.title, s.key));
   const subsHeight = graph.subtasks.length === 0 ? SH : subHeights.reduce((sum, h) => sum + h, 0) + (count - 1) * SUB_GAP;
   const branch = Math.max(86, subsHeight / 2 - H / 2);
   // A short stack is pushed down so the Stop node (the highest) stays inside the

@@ -405,6 +405,46 @@ describe("RunGraphView Subtask card heights (QA)", () => {
       clientProject: false,
     });
 
+  it("sizes short but wide titles, and short titles beside a long key, above 50px (FB-170)", () => {
+    const heights = (projectKey: string, num: number, titles: string[]) =>
+      layoutRunGraph(
+        runGraph({
+          story: task({}),
+          subtasks: titles.map((title, i) =>
+            task({ id: i + 2, task_number: num, parent_id: 1, type: "subtask", status: "todo", title })),
+          trail: [ev("stage_entered", "building")],
+          projectKey,
+          clientProject: false,
+        }),
+      ).nodes.filter((p) => p.sub).map((p) => p.box.h);
+    // 15 characters, but worst-case wide glyphs wrap beside "FB-166".
+    expect(heights("FB", 166, ["WWW WWW WWW WWW", "MMMM MMMM MMMM"])).toEqual([66, 66]);
+    // An ordinary title that fits beside "FB-2" wraps beside a 13-character key.
+    expect(heights("FB", 2, ["Template layout"])).toEqual([50]);
+    expect(heights("LONGKEY", 12345, ["Template layout"])).toEqual([66]);
+  });
+
+  it("sizes titles of wide symbols, em dashes and CJK above 50px beside FB-166 (FB-170, QA)", () => {
+    const heights = (titles: string[]) =>
+      layoutRunGraph(
+        runGraph({
+          story: task({}),
+          subtasks: titles.map((title, i) =>
+            task({ id: i + 2, task_number: 166, parent_id: 1, type: "subtask", status: "todo", title })),
+          trail: [ev("stage_entered", "building")],
+          projectKey: "FB",
+          clientProject: false,
+        }),
+      ).nodes.filter((p) => p.sub).map((p) => p.box.h);
+    // Measured in Segoe UI 12px (the app's system-ui on Windows), each of these
+    // is wider than the ~131px beside "FB-166" and wraps to two lines.
+    expect(heights([
+      "%%%%% &&&&& %%%%",          // % is 0.82em, & is 0.80em: ~143px
+      "— — — — — — — — — —", // em dash is 1em: ~150px
+      "数据库迁移和模式初始化",   // CJK is 1em: ~132px
+    ])).toEqual([66, 66, 66]);
+  });
+
   it("anchors the exact Orchestrator->Subtask and Subtask->Verify paths at the long card's own centre (asymmetric stack)", () => {
     // The long card is first, so its centre differs from the Orchestrator/Verify centre.
     const layout = layoutRunGraph(graphOf([LONG, "Short", "Another"]));
