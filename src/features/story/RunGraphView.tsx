@@ -15,7 +15,16 @@ const COL = W + GAP;
 /** Outer padding; the return loops run in the left padding, clear of every card. */
 const PAD = 48;
 const BUG_X = 14, FIX_X = 30;
-const SUB_STEP = SH + 22;
+const SUB_GAP = 22;
+/** Extra card height for the title's second line (12px text, leading-tight). */
+const SUB_LINE = 16;
+/** Title characters per line beside the key in a Subtask card; low on purpose so the estimate errs toward two lines. */
+const SUB_CHARS = 18;
+
+/** A Subtask card's height: jsdom can't measure text, so this is a line-count estimate that errs toward two lines. */
+function subtaskHeight(title: string): number {
+  return title.length > SUB_CHARS ? SH + SUB_LINE : SH;
+}
 
 const KIND: Record<NodeKind, { Icon: LucideIcon; cls: string; label: string }> = {
   trigger:   { Icon: Zap,        cls: "text-amber-400",  label: "TRIGGER" },
@@ -77,19 +86,19 @@ function NodeBox({ node, x, y }: { node: RunNode; x: number; y: number }) {
   );
 }
 
-function SubtaskBox({ node, x, y }: { node: SubtaskNode; x: number; y: number }) {
+function SubtaskBox({ node, x, y, h }: { node: SubtaskNode; x: number; y: number; h: number }) {
   const who = [node.info?.agent, node.info?.model].filter(Boolean).join(" · ");
   return (
     <div
       className={cn("absolute rounded-lg border bg-[#11141b] px-3 py-1.5", frame(node.state))}
-      style={{ left: x, top: y, width: SW, height: SH }}
+      style={{ left: x, top: y, width: SW, height: h }}
       data-node={node.id}
       data-state={node.state}
     >
       <Badge state={node.state} />
-      <div className="flex items-center gap-1.5">
-        <span className="text-[10px] font-mono text-gray-500 shrink-0">{node.key}</span>
-        <span className="text-[12px] text-white truncate">{node.title}</span>
+      <div className="flex items-start gap-1.5">
+        <span className="text-[10px] font-mono text-gray-500 shrink-0 leading-[15px]">{node.key}</span>
+        <span className="text-[12px] leading-tight text-white line-clamp-2 min-w-0" title={node.title}>{node.title}</span>
       </div>
       <div className="flex items-center gap-1.5 mt-1 min-w-0">
         <span className="text-[10px] font-semibold text-teal-400 uppercase truncate">{who || "not handed out"}</span>
@@ -162,7 +171,8 @@ export function layoutRunGraph(graph: RunGraph): RunGraphLayout {
   const startTurnY = planY + H + 40;
   const buildLabelY = startTurnY + 30;
   const count = Math.max(graph.subtasks.length, 1);
-  const subsHeight = count * SUB_STEP - (SUB_STEP - SH);
+  const subHeights = graph.subtasks.map((s) => subtaskHeight(s.title));
+  const subsHeight = graph.subtasks.length === 0 ? SH : subHeights.reduce((sum, h) => sum + h, 0) + (count - 1) * SUB_GAP;
   const branch = Math.max(86, subsHeight / 2 - H / 2);
   // A short stack is pushed down so the Stop node (the highest) stays inside the
   // lane box, clear of its title row. The lane top stays put: the "Pedro starts
@@ -174,8 +184,10 @@ export function layoutRunGraph(graph: RunGraph): RunGraphLayout {
   const verifyX = subX + SW + BUILD_GAP;
   const branchX = verifyX + W + BUILD_GAP;
   const orch = place(graph.orchestrator, buildX, mid - H / 2);
+  let subY = subTop;
   const subBoxes: Box[] = graph.subtasks.map((s, i) => {
-    const box = { x: subX, y: subTop + i * SUB_STEP, w: SW, h: SH, state: s.state };
+    const box = { x: subX, y: subY, w: SW, h: subHeights[i], state: s.state };
+    subY += subHeights[i] + SUB_GAP;
     nodes.push({ id: s.id, box, sub: s });
     return box;
   });
@@ -308,7 +320,7 @@ export function RunGraphView({ graph }: { graph: RunGraph }) {
           </div>
         ))}
         {nodes.map((n) =>
-          n.sub ? <SubtaskBox key={n.id} node={n.sub} x={n.box.x} y={n.box.y} /> : <NodeBox key={n.id} node={n.node!} x={n.box.x} y={n.box.y} />,
+          n.sub ? <SubtaskBox key={n.id} node={n.sub} x={n.box.x} y={n.box.y} h={n.box.h} /> : <NodeBox key={n.id} node={n.node!} x={n.box.x} y={n.box.y} />,
         )}
     </FitFrame>
   );
