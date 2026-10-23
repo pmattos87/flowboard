@@ -48,6 +48,11 @@ describe("MarkdownDescription — read mode", () => {
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 
+  it("renders GFM tables", () => {
+    render(<Harness initial={"| A | B |\n| --- | --- |\n| 1 | 2 |"} />);
+    expect(screen.getByRole("table")).toBeInTheDocument();
+  });
+
   it("shows a placeholder when empty", () => {
     render(<Harness initial="" />);
     expect(screen.getByText("Add a description…")).toBeInTheDocument();

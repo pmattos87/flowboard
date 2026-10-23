@@ -10,6 +10,8 @@
 ### Changed
 - On Factory projects a Story's points are the sum of its Subtasks' points: creating, canceling or reopening a Subtask, or changing its points, updates the Story's total. Bug Subtasks and canceled ones don't count. The Story's points field is read-only, and the velocity and workload reports count each Story once instead of again through its Subtasks. A Story with 0 points can't move from `refining` to `ready`; split it first. Migration `012_story_points_backfill.sql` sets the total once for Factory Stories that were already split (SF-68).
 - Upgrade the app and `flowboard-cli`/MCP together: after migration 012 the previous build's CLI refuses the database.
+- Story comments now render as Markdown (headings, lists, code, tables) the same way descriptions do, on the Story page and in the task detail panel. Editing a comment still shows the raw Markdown, and `comment-<id>` links still scroll to the comment (FB-149).
+- Descriptions and comments also render GFM tables (with dark-mode borders, scrolling when wide), task lists and strikethrough, through `remark-gfm`. Links still show as plain text, bare URLs are not linked and images are not loaded. D-012 is updated (FB-149).
 
 ## [1.8.0] - 2026-10-23
 
