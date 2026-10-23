@@ -1029,6 +1029,11 @@ mod tests {
         .await
     }
 
+    /// Give a Story the points a split would, so it may move to `ready`.
+    async fn split_story(f: &Factory, id: i64) {
+        sqlx::query("UPDATE tasks SET story_points = 3 WHERE id = ?").bind(id).execute(&f.pool).await.unwrap();
+    }
+
     async fn set_status(f: &Factory, id: i64, status: &str) -> Result<super::Task, String> {
         update_task_inner(&f.pool, id, TaskUpdate { status: Some(status.into()), ..empty_update() }).await
     }
@@ -1080,6 +1085,7 @@ mod tests {
             .unwrap_err();
         assert!(err.contains("only at ready"), "{err}");
 
+        split_story(&f, story.id).await;
         set_status(&f, story.id, "ready").await.unwrap();
         let story = update_task_inner(&f.pool, story.id, TaskUpdate { sprint_id: Some(Some(f.sprint_id)), ..empty_update() })
             .await
@@ -1098,6 +1104,7 @@ mod tests {
     async fn a_stage_move_keeps_its_assignee_when_the_payload_echoes_the_old_one() {
         let f = factory_project().await;
         let story = create_in(&f, "story", None, Some("refining")).await.unwrap();
+        split_story(&f, story.id).await;
         set_status(&f, story.id, "ready").await.unwrap();
         update_task_inner(&f.pool, story.id, TaskUpdate { sprint_id: Some(Some(f.sprint_id)), ..empty_update() })
             .await
@@ -1169,6 +1176,7 @@ mod tests {
         assert!(err.contains("backlog or refining"), "{err}");
 
         let story = create_in(&f, "story", None, Some("refining")).await.unwrap();
+        split_story(&f, story.id).await;
         set_status(&f, story.id, "ready").await.unwrap();
         update_task_inner(&f.pool, story.id, TaskUpdate { sprint_id: Some(Some(f.sprint_id)), ..empty_update() })
             .await
@@ -1212,11 +1220,23 @@ mod tests {
         set_points(&f, sub.id, 5).await.unwrap();
         assert_eq!(get_task_inner(&f.pool, story.id).await.unwrap().story_points, 5);
 
+        let err = set_status(&f, story.id, "ready").await;
+        assert!(err.is_ok(), "a Story sized by its Subtasks may become ready: {err:?}");
+
         let err = set_points(&f, story.id, 8).await.unwrap_err();
         assert!(err.contains("sum of its Subtasks' points"), "{err}");
         assert_eq!(get_task_inner(&f.pool, story.id).await.unwrap().story_points, 5);
         // Echoing the current value is not an edit.
         set_points(&f, story.id, 5).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_app_refuses_ready_for_an_unsplit_factory_story() {
+        let f = factory_project().await;
+        let story = create_in(&f, "story", None, Some("refining")).await.unwrap();
+        let err = set_status(&f, story.id, "ready").await.unwrap_err();
+        assert!(err.contains("0 points"), "{err}");
+        assert_eq!(get_task_inner(&f.pool, story.id).await.unwrap().status, "refining");
     }
 
     #[tokio::test]

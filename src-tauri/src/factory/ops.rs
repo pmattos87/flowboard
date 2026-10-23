@@ -696,6 +696,7 @@ async fn move_story(tx: &mut Tx<'_>, story: &Row, to: &str, actor: Actor) -> Res
         client_project: story.project_kind == "client",
         open_subtasks: open_subtasks(tx, story.id, false).await?,
         run_stopped: story.run_stopped != 0,
+        story_points: story.story_points,
     };
     ladder::check_story_move(&facts, to)?;
     let assignee = match ladder::story_owner(to) {
