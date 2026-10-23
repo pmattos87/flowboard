@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { RunGraphView, edgeStyle } from "@/features/story/RunGraphView";
+import { RunGraphView, edgeStyle, layoutRunGraph } from "@/features/story/RunGraphView";
 import { runGraph } from "@/features/story/runGraph";
 import type { Task, TrailEvent } from "@/types";
 
@@ -258,5 +258,59 @@ describe("RunGraphView Subtask → Verify lines", () => {
     expect(intoVerify).toBeDefined();
     const styles = intoVerify!.map((p) => `${p.getAttribute("stroke")}|${p.getAttribute("stroke-dasharray") ?? ""}`).sort();
     expect(styles).toEqual(["#34d399|", "#4b5563|5 5"]);
+  });
+});
+
+describe("layoutRunGraph BUILD lane", () => {
+  const H = 56, CAPTION = 22;
+  const graphOf = (n: number) =>
+    runGraph({
+      story: task({}),
+      subtasks: Array.from({ length: n }, (_, i) =>
+        task({ id: i + 2, task_number: i + 2, parent_id: 1, type: "subtask", status: "todo", title: `S${i}` })),
+      trail: [ev("stage_entered", "building")],
+      projectKey: "FB",
+      clientProject: false,
+    });
+
+  it.each([0, 1, 2, 3, 5])("keeps every BUILD node and caption inside the lane with %i Subtasks", (n) => {
+    const layout = layoutRunGraph(graphOf(n));
+    const [plan, build, review] = layout.lanes;
+    const buildIds = ["orchestrator", "verify", "stop", "docs", ...Array.from({ length: n }, (_, i) => `sub-${i + 2}`)];
+    for (const id of buildIds) {
+      const b = layout.nodes.find((p) => p.id === id)!.box;
+      expect(b.y, `${id} top`).toBeGreaterThanOrEqual(layout.buildLabelY + 14);
+      expect(b.y + b.h + CAPTION, `${id} bottom`).toBeLessThanOrEqual(build.bottom);
+    }
+    // No lane boxes overlap.
+    expect(plan.bottom).toBeLessThan(build.top);
+    expect(build.bottom).toBeLessThan(review.top);
+
+    // The "Pedro starts the Run" wire's horizontal run sits in the gap between PLAN and BUILD.
+    const wire = layout.edges.find((e) => e.label === "Pedro starts the Run")!;
+    const ys = wire.pts!.map((p) => p[1]);
+    expect(layout.startTurnY).toBeGreaterThan(plan.bottom);
+    expect(layout.startTurnY).toBeLessThan(build.top);
+    const horizontal = wire.pts!.slice(1).filter((p, i) => p[1] === wire.pts![i][1]);
+    expect(horizontal.length).toBe(1);
+    expect(horizontal[0][1]).toBe(layout.startTurnY);
+    // Its label (11px text above the line) clears the PLAN lane too.
+    expect(layout.startTurnY - 5 - 11).toBeGreaterThan(plan.bottom);
+    expect(ys[ys.length - 1]).toBe(layout.nodes.find((p) => p.id === "orchestrator")!.box.y);
+  });
+
+  it.each([3, 5])("leaves the BUILD node coordinates unchanged with %i Subtasks", (n) => {
+    // The layout before the Stop fix: subTop = buildLabelY + 40 = 210, no extra push.
+    const subTop = 210;
+    const subsHeight = n * 72 - 22;
+    const mid = subTop + subsHeight / 2;
+    const branch = Math.max(86, subsHeight / 2 - H / 2);
+    const layout = layoutRunGraph(graphOf(n));
+    const y = (id: string) => layout.nodes.find((p) => p.id === id)!.box.y;
+    expect(y("orchestrator")).toBe(mid - H / 2);
+    expect(y("verify")).toBe(mid - H / 2);
+    expect(y("stop")).toBe(mid - H / 2 - branch);
+    expect(y("docs")).toBe(mid - H / 2 + branch);
+    for (let i = 0; i < n; i++) expect(y(`sub-${i + 2}`)).toBe(subTop + i * 72);
   });
 });
