@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
@@ -596,6 +596,115 @@ describe("CommentsSection — edit a comment (FB-46)", () => {
     setupWithComment({ updated_at: "2024-01-02T00:00:00.000Z" });
     renderPanel();
     expect(await screen.findByText("(edited)")).toBeInTheDocument();
+  });
+});
+
+describe("CommentsSection — markdown bodies (FB-156)", () => {
+  const person = { id: 1, name: "Pedro", role: "", avatar_color: "#6366f1", avatar_data: null };
+  const md = [
+    "# Heading",
+    "",
+    "- item",
+    "",
+    "```",
+    "const x = 1;",
+    "```",
+    "",
+    "| A | B |",
+    "| - | - |",
+    "| 1 | 2 |",
+    "",
+    "[text](https://example.com)",
+  ].join("\n");
+  const comment = {
+    id: 42, task_id: 7, author_id: 1, body: md,
+    created_at: "2024-01-01T00:00:00.000Z", updated_at: null,
+  };
+
+  function setup() {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "get_task") return Promise.resolve(fakeTask);
+      if (cmd === "get_project") return Promise.resolve(fakeProject);
+      if (cmd === "list_people") return Promise.resolve([person]);
+      if (cmd === "list_sprints") return Promise.resolve([]);
+      if (cmd === "list_comments") return Promise.resolve([comment]);
+      if (cmd === "list_time_logs") return Promise.resolve([]);
+      if (cmd === "list_attachments") return Promise.resolve([]);
+      if (cmd === "update_comment") return Promise.resolve({ ...comment, body: md + "\nmore" });
+      return Promise.resolve(null);
+    });
+  }
+
+  it("renders the comment body as markdown inside the comment-<id> anchor", async () => {
+    setup();
+    useUiStore.setState({ selectedTaskId: 7 });
+    renderPanel();
+
+    const card = await waitFor(() => {
+      const el = document.getElementById("comment-42");
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    const scope = within(card);
+    expect(await scope.findByRole("heading", { level: 1, name: "Heading" })).toBeInTheDocument();
+    expect(scope.getByRole("listitem")).toHaveTextContent("item");
+    expect(card.querySelector("pre")).toHaveTextContent("const x = 1;");
+    expect(scope.getByRole("table")).toBeInTheDocument();
+    expect(scope.getByText("text")).toBeInTheDocument();
+    expect(scope.queryByRole("link")).not.toBeInTheDocument();
+    expect(card.textContent).not.toContain("#");
+    expect(card.textContent).not.toContain("```");
+  });
+
+  it("renders comment markdown inside a text-sm text-gray-100 context like descriptions", async () => {
+    setup();
+    useUiStore.setState({ selectedTaskId: 7 });
+    renderPanel();
+
+    const card = await waitFor(() => {
+      const el = document.getElementById("comment-42");
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    const heading = await within(card).findByRole("heading", { level: 1, name: "Heading" });
+    const ctx = heading.closest(".text-sm");
+    expect(ctx).not.toBeNull();
+    expect(card.contains(ctx)).toBe(true);
+    expect(ctx).toHaveClass("text-gray-100");
+  });
+
+  it("edit mode shows the raw markdown byte for byte and saves it raw", async () => {
+    setup();
+    const user = userEvent.setup();
+    useUiStore.setState({ selectedTaskId: 7 });
+    renderPanel();
+
+    await user.click(await screen.findByRole("button", { name: /edit comment/i }));
+    const textarea = screen.getByLabelText(/edit comment body/i);
+    expect(textarea).toHaveValue(md);
+
+    await user.type(textarea, "\nmore");
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("update_comment", { id: 42, body: md + "\nmore" }),
+    );
+  });
+
+  it("saving the raw markdown unchanged makes no backend write and re-renders it as markdown", async () => {
+    setup();
+    const user = userEvent.setup();
+    useUiStore.setState({ selectedTaskId: 7 });
+    renderPanel();
+
+    await user.click(await screen.findByRole("button", { name: /edit comment/i }));
+    expect(screen.getByLabelText(/edit comment body/i)).toHaveValue(md);
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    expect(mockInvoke).not.toHaveBeenCalledWith("update_comment", expect.anything());
+    expect(screen.queryByLabelText(/edit comment body/i)).not.toBeInTheDocument();
+    const card = document.getElementById("comment-42") as HTMLElement;
+    expect(within(card).getByRole("heading", { level: 1, name: "Heading" })).toBeInTheDocument();
+    expect(card.textContent).not.toContain("```");
   });
 });
 

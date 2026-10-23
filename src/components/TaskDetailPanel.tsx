@@ -33,6 +33,7 @@ import { cn } from "@/lib/utils";
 import { SELECT_CLS, TaskFields, useTaskDraft } from "@/components/TaskFields";
 import { Avatar } from "@/components/Avatar";
 import { MarkdownDescription } from "@/components/MarkdownDescription";
+import { MarkdownView } from "@/components/MarkdownView";
 import type {
   Attachment,
   Comment,
@@ -234,7 +235,9 @@ export function CommentsSection({ taskId, people }: { taskId: number; people: Pe
                         </div>
                       </div>
                     ) : (
-                      <p className="text-sm text-gray-200 whitespace-pre-wrap">{c.body}</p>
+                      <div className="text-sm text-gray-100">
+                        <MarkdownView value={c.body} />
+                      </div>
                     )}
                   </div>
                 )}
