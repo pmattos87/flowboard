@@ -21,8 +21,10 @@ import { useStoryCardDecor } from "@/features/story/useStoryCardDecor";
 import type { CardDecor } from "./shared/TaskCard";
 import { SprintFormDialog } from "@/features/sprints/SprintFormDialog";
 import { RefreshButton } from "@/components/RefreshButton";
-import type { Sprint, SprintStatus, Task } from "@/types";
+import type { Project, Sprint, SprintStatus, Task, TaskStatus } from "@/types";
 import { cn } from "@/lib/utils";
+import { sprintCompletion } from "@/lib/sprintProgress";
+import { statusOptionsForType } from "./shared/boardConstants";
 import { TaskCard } from "./shared/TaskCard";
 import { SprintFilterSelect } from "./shared/SprintFilterSelect";
 import {
@@ -66,8 +68,10 @@ function SprintSection({
   people,
   projectKey,
   decorate,
+  ladder,
 }: {
   row: SprintBoardRow;
+  ladder?: Project["ladder"];
   collapsed: boolean;
   onToggle: () => void;
   onEdit: (sprint: Sprint) => void;
@@ -80,10 +84,29 @@ function SprintSection({
   const sprint = row.sprint;
   const peopleList = people ?? [];
 
+  // FB-119: completion of the row's stories. Canceled points show in the tooltip
+  // but are not part of the total.
+  const completion = sprintCompletion(row.tasks);
+  const statusLabel = new Map(
+    statusOptionsForType("story", ladder).map((o) => [o.value, o.label.toLowerCase()]),
+  );
+  const progressTitle = Object.entries(completion.byStatus)
+    .map(
+      ([status, points]) =>
+        `${points} ${statusLabel.get(status as TaskStatus) ?? status}${status === "canceled" ? " (not counted)" : ""}`,
+    )
+    .join(" · ");
+  const barColor =
+    completion.percent === 100
+      ? "bg-emerald-500"
+      : sprint?.status === "active"
+        ? "bg-blue-500"
+        : "bg-gray-500";
+
   return (
     <div className="rounded-lg border border-gray-800 bg-gray-950 mb-3">
       {/* Section header */}
-      <div className="bg-gray-900 rounded-t-lg border-b border-gray-800">
+      <div className="relative bg-gray-900 rounded-t-lg border-b border-gray-800">
       <div className="flex items-center gap-2 px-3 py-2">
         <button
           type="button"
@@ -124,6 +147,11 @@ function SprintSection({
           </span>
         )}
         {sprint && (
+          <span className="text-xs text-gray-400 ml-1" title={progressTitle}>
+            {`${completion.donePoints} / ${completion.totalPoints} pts · ${completion.percent}%`}
+          </span>
+        )}
+        {sprint && (
           <div className="ml-auto flex items-center gap-1 shrink-0">
             <button
               type="button"
@@ -148,6 +176,13 @@ function SprintSection({
           <p className="px-3 pb-2 text-xs text-gray-400 truncate" title={sprint.goal}>
             <span className="text-gray-500">Goal:</span> {sprint.goal}
           </p>
+        )}
+        {sprint && (
+          <div
+            data-testid="sprint-progress-bar"
+            className={cn("absolute bottom-0 left-0 h-0.5", barColor)}
+            style={{ width: `${completion.percent}%` }}
+          />
         )}
       </div>
 
@@ -417,6 +452,7 @@ export function SprintPlanningBoard() {
               people={people}
               projectKey={projectKey}
               decorate={decorate}
+              ladder={project?.ladder}
             />
           ))}
         </div>
