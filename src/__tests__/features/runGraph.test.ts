@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { runGraph, type RunGraph, type RunNode } from "@/features/story/runGraph";
+import { runGraph, type NodeState, type RunGraph, type RunNode } from "@/features/story/runGraph";
 import type { Task, TaskStatus, TrailEvent } from "@/types";
 
 function task(over: Partial<Task>): Task {
@@ -301,5 +301,113 @@ describe("runGraph Review lane Stop gate (FB-174)", () => {
     expect(g.reviewStop.caption).toBe("Codex did not answer");
     expect(g.stop.state).toBe("done");
     expect(g.stop.caption).toBe("stopped 1× · restarted");
+  });
+});
+
+describe("runGraph second pass after a bug loop (FB-176)", () => {
+  const url1 = "https://github.com/o/r/pull/93";
+  const url2 = "https://github.com/o/r/pull/100";
+  const firstPass = [
+    stage("building"), ev("verify_round", { subtask: "FB-2", round: 1, result: "pass" }),
+    ev("review_round", { round: 1, verdict: "failed" }), ev("review_round", { round: 2, verdict: "passed" }),
+    ev("pr_opened", { url: url1, target: "develop" }), ev("pr_merged", { url: url1 }),
+    stage("integrated_tests"), ev("bug_subtask_filed", { subtask: "FB-3" }), stage("building"),
+  ];
+  const secondBuilt = [ev("verify_round", { subtask: "FB-3", round: 1, result: "pass" })];
+  const prOpen2 = ev("pr_opened", { url: url2, target: "develop" });
+  const passed = ev("review_round", { round: 3, verdict: "passed" });
+  const done = [sub(2, "done"), sub(3, "done", "bug")];
+  const ids = (g: RunGraph): Record<string, NodeState> => ({ ...states(g.ship), verify: g.verify.state, docs: g.docs.state });
+
+  it("second PR open and not merged: Auto-merge is the current node", () => {
+    const g = graph({ status: "building" }, done, [...firstPass, ...secondBuilt, passed, prOpen2]);
+    const s = ids(g);
+    expect(s.merge).toBe("current");
+    expect([s.pr, s.review, s.docs, s.verify]).toEqual(["done", "done", "done", "done"]);
+    expect(g.bugLoop).toBe(true);
+    expect([g.orchestrator, g.verify, g.docs, ...g.ship].filter((n) => n.state === "current").length).toBeGreaterThan(1);
+  });
+
+  it("second PR merged and back in integrated tests: Auto-merge done, Integrated tests current", () => {
+    const g = graph({ status: "integrated_tests" }, done, [
+      ...firstPass, ...secondBuilt, passed, prOpen2, ev("pr_merged", { url: url2 }), stage("integrated_tests"),
+    ]);
+    const s = ids(g);
+    expect(s.merge).toBe("done");
+    expect(s.integrated).toBe("current");
+  });
+
+  it("bug Subtask in progress: nothing past Build is done from the first pass", () => {
+    const g = graph({ status: "building" }, [sub(2, "done"), sub(3, "in_progress", "bug")], firstPass);
+    const s = ids(g);
+    for (const id of ["verify", "docs", "review", "pr", "merge"] as const) expect(s[id]).not.toBe("done");
+    expect(g.fix.state).not.toBe("done");
+  });
+
+  it("a failed Review round in the second pass shows as on a first pass, counting that pass only", () => {
+    const g = graph({ status: "building" }, done, [...firstPass, ...secondBuilt, ev("review_round", { round: 3, verdict: "failed" })]);
+    expect(g.ship[0].state).toBe("current");
+    expect(g.ship[0].caption).toBe("round 1 · failed");
+    expect(g.fix.state).toBe("current");
+    expect(g.fix.caption).toBe("1 round with findings · max 2");
+  });
+
+  it("a Review-side stop in the second pass lands on the Review gate, with max 2 counted per pass", () => {
+    const failed = ev("review_round", { round: 3, verdict: "failed" });
+    const one = graph({ status: "building", run_stopped: true }, done, [
+      ...firstPass, ...secondBuilt, failed, ev("run_stopped", { reason: "Codex did not answer" }),
+    ]);
+    expect(one.reviewStop.state).toBe("stopped");
+    expect(one.reviewStopFrom).toBe("review");
+    expect(one.stop.state).not.toBe("stopped");
+    const two = graph({ status: "building", run_stopped: true }, done, [
+      ...firstPass, ...secondBuilt, failed, ev("review_round", { round: 4, verdict: "failed" }), ev("run_stopped", { reason: "Review failed twice" }),
+    ]);
+    expect(two.reviewStopFrom).toBe("fix");
+    expect(two.reviewStop.state).toBe("stopped");
+    expect(two.stop.state).not.toBe("stopped");
+  });
+
+  it("second pass Review passed, no second PR yet: the first pass's merged PR does not light PR opened or Auto-merge", () => {
+    const g = graph({ status: "building" }, done, [...firstPass, ...secondBuilt, passed]);
+    const s = ids(g);
+    expect(s.review).toBe("done");
+    expect(s.pr).toBe("todo");
+    expect(s.merge).toBe("todo");
+  });
+
+  it("second pass Build finished, no Review round yet: Docs is current, Code review and PR are not done", () => {
+    const g = graph({ status: "building" }, done, [...firstPass, ...secondBuilt]);
+    const s = ids(g);
+    expect(s.verify).toBe("done");
+    expect(s.docs).toBe("current");
+    expect(s.review).toBe("todo");
+    expect(g.fix.state).toBe("todo");
+    expect(s.pr).toBe("todo");
+    expect(s.merge).toBe("todo");
+  });
+
+  it("an Integrate stop on the second PR lands on the Review gate from merge", () => {
+    const g = graph({ status: "building", run_stopped: true }, done, [
+      ...firstPass, ...secondBuilt, passed, prOpen2, ev("run_stopped", { reason: "Integrate failed: checks red" }),
+    ]);
+    expect(g.reviewStopFrom).toBe("merge");
+    expect(g.ship.find((n) => n.id === "merge")?.state).toBe("stopped");
+  });
+
+  it("past stops from the first pass still count on the Stop gates in the second pass", () => {
+    const g = graph({ status: "building" }, [sub(2, "done"), sub(3, "in_progress", "bug")], [
+      stage("building"), ev("verify_round", { subtask: "FB-2", round: 1, result: "fail" }),
+      ev("run_stopped", { reason: "Verify failed twice on FB-2" }), ev("run_restarted"),
+      ...firstPass.slice(1),
+    ]);
+    expect(g.stop.caption).toBe("stopped 1× · restarted");
+  });
+
+  it("PR opened counts the PRs into develop across passes", () => {
+    const two = graph({ status: "building" }, done, [...firstPass, ...secondBuilt, passed, prOpen2]);
+    expect(two.ship.find((n) => n.id === "pr")?.caption).toBe("2 PRs · PR gate: Review passed");
+    const one = graph({ status: "building" }, [sub(2, "done")], [stage("building"), ev("pr_opened", { url: url1, target: "develop" })]);
+    expect(one.ship.find((n) => n.id === "pr")?.caption).toBe("PR gate: Review passed");
   });
 });
