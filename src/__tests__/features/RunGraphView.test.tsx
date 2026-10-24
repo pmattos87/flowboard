@@ -343,7 +343,7 @@ describe("RunGraphView Review lane Stop gate (FB-174)", () => {
     expect(fx2).toBe(gate.x);
     expect(fy1).toBe(fy2);
     expect(fy1).toBeGreaterThan(fix.y + 12); // below Fix's badge
-    expect(fy1).toBeLessThan(fix.y + H / 2); // above the findings loop's exit
+    expect(fy1).toBeLessThan(fix.y + H); // on the card's side, above the findings loop's exit at its bottom
 
     // Auto-merge → Stop: straight down.
     const m = edge("merge");
@@ -400,7 +400,7 @@ describe("RunGraphView Review lane Stop gate (FB-174)", () => {
     const path = (label: string) => layout.edges.find((e) => e.label === label)!.pts;
     expect(path("findings")).toEqual([[reviewX, review.y + H], [reviewX, fix.y + H / 2], [fix.x, fix.y + H / 2]]);
     expect(path("bug Subtask → rebuild, then re-review")).toEqual([
-      [fix.x + W, fix.y + H / 2], [fix.x + W + 18, fix.y + H / 2], [fix.x + W + 18, fixLoopY],
+      [fix.x + W / 2, fix.y + H], [fix.x + W / 2, fixLoopY],
       [30, fixLoopY], [30, orch.y + H / 2 + 12], [orch.x, orch.y + H / 2 + 12],
     ]);
     expect(path("bug found → bug Subtask, Story holds")).toEqual([
@@ -644,5 +644,90 @@ describe("RunGraphView Subtask card heights (QA)", () => {
     expect(orch.y + 28).toBe((subs[0].y + subs[n - 1].y + subs[n - 1].h) / 2);
     expect(plan.bottom).toBeLessThan(build.top);
     expect(build.bottom).toBeLessThan(review.top);
+  });
+});
+
+describe("RunGraphView loop edges", () => {
+  const INDIGO = "#818cf8", AMBER = "#f59e0b", DIM = "#4b5563";
+  const box = { x: 0, y: 0, w: 1, h: 1, state: "done" as const };
+  const W = 196, H = 56;
+
+  it("draws an active loop solid in its colour and an inactive one dashed grey", () => {
+    const findings = edgeStyle({ a: box, b: box, loop: "findings", active: true });
+    const bug = edgeStyle({ a: box, b: box, loop: "bug", active: true });
+    expect([findings.stroke, findings.dash]).toEqual([INDIGO, ""]);
+    expect([bug.stroke, bug.dash]).toEqual([AMBER, ""]);
+    for (const loop of ["findings", "bug"] as const) {
+      const s = edgeStyle({ a: box, b: box, loop, active: false });
+      expect([s.stroke, s.dash]).toEqual([DIM, "6 5"]);
+    }
+  });
+
+  it("starts the Fix findings → Orchestrator loop at the card's bottom-centre, clear of the caption and the bug loop", () => {
+    const layout = layoutRunGraph(runGraph({ story: task({}), subtasks: [], trail: [], projectKey: "FB", clientProject: false }));
+    const at = (id: string) => layout.nodes.find((n) => n.id === id)!.box;
+    const fix = at("fix"), orch = at("orchestrator");
+    const loop = layout.edges.find((e) => e.a === fix && e.b === orch)!;
+    const pts = loop.pts!;
+    expect(pts[0]).toEqual([fix.x + W / 2, fix.y + H]);
+    expect(pts[1][0]).toBe(pts[0][0]);
+    expect(pts[1][1]).toBeGreaterThan(fix.y + H);
+    const last = pts[pts.length - 1];
+    expect(last[0]).toBe(orch.x);
+    expect(last[1]).toBeGreaterThan(orch.y);
+    expect(last[1]).toBeLessThan(orch.y + H);
+    // Its horizontal sits below the card and caption, above the bug loop's horizontal.
+    const fixLoopY = pts[1][1];
+    const bugEdge = layout.edges.find((e) => e.loop === "bug")!;
+    const bugY = bugEdge.pts![1][1];
+    expect(pts[2][1]).toBe(fixLoopY);
+    expect(fixLoopY).toBeGreaterThan(fix.y + H + 14);
+    expect(fixLoopY).toBeLessThan(bugY);
+    expect(loop.ly!).toBeGreaterThan(fix.y + H + 14);
+    expect(loop.ly!).toBeLessThan(bugY);
+  });
+
+  const pathOf = (container: HTMLElement, label: string) =>
+    [...container.querySelectorAll("g")].find((g) => g.textContent === label)!.querySelector("path")!;
+  /** The Fix findings → Orchestrator loop: the only path starting at Fix findings' bottom-centre. */
+  const fixLoopPath = (container: HTMLElement) => {
+    const s = (container.querySelector('[data-node="fix"]') as HTMLElement).style;
+    const start = `M${parseFloat(s.left) + W / 2} ${parseFloat(s.top) + H} L`;
+    return [...container.querySelectorAll("svg path")].find((p) => p.getAttribute("d")!.startsWith(start))!;
+  };
+  const style = (p: Element) => [p.getAttribute("stroke"), p.getAttribute("stroke-dasharray")];
+
+  it("draws the bug loop solid amber once a bug is found after Integrate", () => {
+    const graph = runGraph({
+      story: task({ status: "integrated_tests", run_stopped: false }),
+      subtasks: [],
+      trail: [ev("stage_entered", "integrated_tests"), ev("bug_subtask_filed", { subtask: "FB-9" })],
+      projectKey: "FB",
+      clientProject: false,
+    });
+    expect(graph.bugLoop).toBe(true);
+    const { container } = render(<RunGraphView graph={graph} />);
+    expect(style(pathOf(container, "bug found → bug Subtask, Story holds"))).toEqual([AMBER, ""]);
+  });
+
+  it("draws both findings loops solid indigo after a findings round, dashed grey before", () => {
+    const fired = runGraph({
+      story: task({ run_stopped: false }),
+      subtasks: [],
+      trail: [ev("stage_entered", "building"), ev("review_round", { round: 1, verdict: "failed" })],
+      projectKey: "FB",
+      clientProject: false,
+    });
+    expect(fired.fix.state).not.toBe("todo");
+    const { container } = render(<RunGraphView graph={fired} />);
+    expect(style(pathOf(container, "findings"))).toEqual([INDIGO, ""]);
+    expect(style(fixLoopPath(container))).toEqual([INDIGO, ""]);
+    cleanup();
+
+    const empty = runGraph({ story: task({ run_stopped: false }), subtasks: [], trail: [], projectKey: "FB", clientProject: false });
+    const { container: c2 } = render(<RunGraphView graph={empty} />);
+    expect(style(pathOf(c2, "findings"))).toEqual([DIM, "6 5"]);
+    expect(style(fixLoopPath(c2))).toEqual([DIM, "6 5"]);
+    expect(style(pathOf(c2, "bug found → bug Subtask, Story holds"))).toEqual([DIM, "6 5"]);
   });
 });
