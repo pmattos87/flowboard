@@ -265,7 +265,8 @@ export function layoutRunGraph(graph: RunGraph): RunGraphLayout {
     ],
   });
   // Review failing twice stops the Run at the same gate. The line leaves Fix
-  // findings' upper right (the findings loop leaves from the bottom), runs under the ship row to the right padding past its last card and past the
+  // findings' upper right (the findings loop leaves from the bottom), runs
+  // under the ship row to the right padding past its last card and past the
   // Docs turn, then up and into the Stop gate from the right.
   // It clears the lane border by 20px and stays inside the SVG (PAD = 48 past the content).
   const laneX = PAD - 10;
