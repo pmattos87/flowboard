@@ -7,6 +7,7 @@
 ### Fixed
 - The Run graph's "Stop, tell Pedro" node no longer sticks out above the BUILD lane box when a Story has one or two Subtasks: the lane's contents move down when the Subtask stack is short. The lane's top and the layout with three or more Subtasks are unchanged (FB-151).
 - The Run graph shows full node titles: stage, ship and plan node titles wrap to two lines and show the whole title in a tooltip on hover (so "Auto-merge → develop" is no longer cut off); Subtask cards get the taller two-line layout whenever the title's worst-case width doesn't fit beside its key (wide or long titles, symbols, non-Latin text, long keys) and the BUILD lane is laid out from the real card heights. The gate node "In integrated tests" is now called "Integrated tests" (FB-164).
+- The Run graph's loop edges follow the same rule as the rest of the graph: dashed means "not reached yet", solid means "this connection fired". An activated loop is drawn solid in its loop colour (indigo for the findings loops, amber for the bug loop from Integrated tests back to the Orchestrator); loops that haven't fired stay dashed grey. The Fix findings → Orchestrator loop now leaves from the bottom-centre of the Fix findings card instead of its right edge, then runs along its turn line and up the left padding into the Orchestrator (FB-173).
 
 ## [1.8.0] - 2026-10-23
 
