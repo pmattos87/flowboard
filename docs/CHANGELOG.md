@@ -2,6 +2,11 @@
 
 **All notable changes to this project will be documented in this file.**
 
+## [Unreleased]
+
+### Changed
+- On the Story page, each key in the Links section's "Depends on" field is now a link to that Story's page (`/story/<KEY>`), comma-separated; an empty list still shows "—". Dependencies are stored and loaded as before (FB-178).
+
 ## [1.8.0] - 2026-10-23
 
 ### Changed
