@@ -161,3 +161,145 @@ describe("runGraph", () => {
     expect(g.stop.caption).toBe("stopped 1× · restarted");
   });
 });
+
+describe("runGraph Review lane Stop gate (FB-174)", () => {
+  const built = [stage("building"), ev("verify_round", { subtask: "FB-2", round: 1, result: "pass" })];
+  const failed = (round: number) => ev("review_round", { round, verdict: "failed" });
+
+  it("Review failed twice: the Review gate stops with the reason, from Fix findings; the Build gate does not", () => {
+    const g = graph({ status: "building", run_stopped: true }, [sub(2, "done"), sub(3, "done", "bug")], [
+      ...built, failed(1), ev("bug_subtask_filed", { subtask: "FB-3" }), ev("verify_round", { subtask: "FB-3", round: 1, result: "pass" }),
+      failed(2), ev("run_stopped", { reason: "Review failed twice" }),
+    ]);
+    expect(g.reviewStop.state).toBe("stopped");
+    expect(g.reviewStop.caption).toBe("Review failed twice");
+    expect(g.reviewStopFrom).toBe("fix");
+    expect(g.fix.state).toBe("stopped");
+    expect(g.stop.state).toBe("todo");
+    expect(g.verify.state).toBe("done");
+  });
+
+  it("Integrate failed after a passed Review: Auto-merge stops, Code review and Fix findings do not", () => {
+    const g = graph({ status: "building", run_stopped: true }, [sub(2, "done")], [
+      ...built, ev("review_round", { round: 1, verdict: "passed" }),
+      ev("pr_opened", { url: "https://github.com/o/r/pull/9", target: "develop" }),
+      ev("run_stopped", { reason: "Integrate: a PR check failed" }),
+    ]);
+    expect(g.reviewStopFrom).toBe("merge");
+    expect(states(g.ship)).toMatchObject({ review: "done", pr: "done", merge: "stopped" });
+    expect(g.fix.state).toBe("todo");
+    expect(g.reviewStop.state).toBe("stopped");
+    expect(g.stop.state).toBe("todo");
+  });
+
+  it("Codex unavailable before any Review round: Code review stops, Fix findings does not", () => {
+    const g = graph({ status: "building", run_stopped: true }, [sub(2, "done")], [
+      ...built, ev("run_stopped", { reason: "Review waits: Codex unavailable" }),
+    ]);
+    expect(g.reviewStopFrom).toBe("review");
+    expect(g.ship[0].state).toBe("stopped");
+    expect(g.fix.state).toBe("todo");
+    expect(g.reviewStop.state).toBe("stopped");
+    expect(g.stop.state).toBe("todo");
+  });
+
+  it("Codex unavailable after one failed round: Code review stops, Fix findings is done, not stopped", () => {
+    const g = graph({ status: "building", run_stopped: true }, [sub(2, "done"), sub(3, "done", "bug")], [
+      ...built, failed(1), ev("bug_subtask_filed", { subtask: "FB-3" }), ev("verify_round", { subtask: "FB-3", round: 1, result: "pass" }),
+      ev("run_stopped", { reason: "Review waits: Codex unavailable" }),
+    ]);
+    expect(g.reviewStopFrom).toBe("review");
+    expect(g.ship[0].state).toBe("stopped");
+    expect(g.fix.state).toBe("done");
+    expect(g.reviewStop.state).toBe("stopped");
+  });
+
+  it("a Subtask failed Verify twice: the Build gate stops; the Review gate stays todo", () => {
+    const g = graph({ status: "building", run_stopped: true }, [sub(2, "in_progress")], [
+      stage("building"),
+      ev("verify_round", { subtask: "FB-2", round: 1, result: "fail" }),
+      ev("verify_round", { subtask: "FB-2", round: 2, result: "fail" }),
+      ev("run_stopped", { reason: "Verify failed twice on FB-2" }),
+    ]);
+    expect(g.stop.state).toBe("stopped");
+    expect(g.stop.caption).toBe("Verify failed twice on FB-2");
+    expect(g.verify.state).toBe("stopped");
+    expect(g.reviewStop.state).toBe("todo");
+    expect(g.reviewStopFrom).toBeNull();
+    expect(g.ship[0].state).toBe("todo");
+  });
+
+  it("the Review findings' bug Subtask failing Verify twice stops at the Build gate, and counts there after a restart", () => {
+    const trail = [
+      ...built, failed(1), ev("bug_subtask_filed", { subtask: "FB-3" }),
+      ev("verify_round", { subtask: "FB-3", round: 1, result: "fail" }),
+      ev("verify_round", { subtask: "FB-3", round: 2, result: "fail" }),
+      ev("run_stopped", { reason: "FB-3: Verify failed twice" }),
+    ];
+    const g = graph({ status: "building", run_stopped: true }, [sub(2, "done"), sub(3, "in_progress", "bug")], trail);
+    expect(g.stop.state).toBe("stopped");
+    expect(g.verify.state).toBe("stopped");
+    expect(g.reviewStop.state).toBe("todo");
+    expect(g.reviewStopFrom).toBeNull();
+    expect(g.ship[0].state).not.toBe("stopped");
+    expect(g.fix.state).not.toBe("stopped");
+    const restarted = graph({ status: "building" }, [sub(2, "done"), sub(3, "in_progress", "bug")], [...trail, ev("run_restarted")]);
+    expect(restarted.stop.caption).toBe("stopped 1× · restarted");
+    expect(restarted.reviewStop.state).toBe("todo");
+  });
+
+  it("a blocked builder (open Subtask, no failed Verify) stops at the Build gate", () => {
+    const g = graph({ status: "building", run_stopped: true }, [sub(2, "in_progress")], [stage("building"), ev("run_stopped", { reason: "Builder blocked" })]);
+    expect(g.stop.state).toBe("stopped");
+    expect(g.reviewStop.state).toBe("todo");
+  });
+
+  it("restarted after a Review-side stop: the Review gate counts it, the Build gate is untouched", () => {
+    const g = graph({ status: "building" }, [sub(2, "done"), sub(3, "in_progress", "bug")], [
+      ...built, failed(1), ev("bug_subtask_filed", { subtask: "FB-3" }), failed(2),
+      ev("run_stopped", { reason: "Review failed twice" }), ev("run_restarted"),
+    ]);
+    expect(g.reviewStop.state).toBe("done");
+    expect(g.reviewStop.caption).toBe("stopped 1× · restarted");
+    expect(g.stop.state).toBe("todo");
+    expect(g.stop.caption).toBe("fails twice");
+  });
+
+  it("restarted after a Build stop: the Build gate counts it, the Review gate is untouched", () => {
+    const g = graph({ status: "building" }, [sub(2, "in_progress")], [
+      stage("building"),
+      ev("verify_round", { subtask: "FB-2", round: 1, result: "fail" }),
+      ev("verify_round", { subtask: "FB-2", round: 2, result: "fail" }),
+      ev("run_stopped", { reason: "Verify failed twice on FB-2" }), ev("run_restarted"),
+    ]);
+    expect(g.stop.state).toBe("done");
+    expect(g.stop.caption).toBe("stopped 1× · restarted");
+    expect(g.reviewStop.state).toBe("todo");
+  });
+
+  it("classifies past stops by a \"Review \" reason or a Review round just before, else Build", () => {
+    const g = graph({ status: "building" }, [sub(2, "done")], [
+      ...built,
+      // Reason names Review, though the last step was a Verify round.
+      ev("run_stopped", { reason: "Review waits: Codex unavailable" }), ev("run_restarted"),
+      // An Integrate stop: no "Review " reason, but a passed Review round just before.
+      ev("review_round", { round: 1, verdict: "passed" }), ev("run_stopped", { reason: "Integrate: merge conflict" }), ev("run_restarted"),
+      // A bug Subtask filed after the round makes the next stop Build-side.
+      ev("bug_subtask_filed", { subtask: "FB-3" }), ev("run_stopped", { reason: "Builder blocked" }), ev("run_restarted"),
+    ]);
+    expect(g.reviewStop.caption).toBe("stopped 2× · restarted");
+    expect(g.stop.caption).toBe("stopped 1× · restarted");
+  });
+
+  it("the current stop is placed by the graph and not counted among the past ones", () => {
+    const g = graph({ status: "building", run_stopped: true }, [sub(2, "done")], [
+      ...built, ev("run_stopped", { reason: "Verify failed twice" }), ev("run_restarted"),
+      // Text says nothing of Review, but the Build is finished: Review-side.
+      ev("run_stopped", { reason: "Codex did not answer" }),
+    ]);
+    expect(g.reviewStop.state).toBe("stopped");
+    expect(g.reviewStop.caption).toBe("Codex did not answer");
+    expect(g.stop.state).toBe("done");
+    expect(g.stop.caption).toBe("stopped 1× · restarted");
+  });
+});
