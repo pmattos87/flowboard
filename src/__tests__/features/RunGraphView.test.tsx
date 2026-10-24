@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { RunGraphView, edgeStyle } from "@/features/story/RunGraphView";
+import { RunGraphView, edgeStyle, layoutRunGraph } from "@/features/story/RunGraphView";
 import { runGraph } from "@/features/story/runGraph";
 import type { Task, TrailEvent } from "@/types";
 
@@ -45,6 +45,15 @@ describe("RunGraphView", () => {
     expect(state("production")).toBe("todo");
     expect(screen.getByText("PLAN")).toBeInTheDocument();
     expect(screen.queryByText("User testing")).not.toBeInTheDocument();
+  });
+
+  it("gives stage and ship node titles a tooltip with the full text and wraps instead of truncating", () => {
+    const graph = runGraph({ story: task({}), subtasks: [], trail: [], projectKey: "FB", clientProject: false });
+    render(<RunGraphView graph={graph} />);
+    const title = screen.getByTitle("Auto-merge → develop");
+    expect(title).toHaveTextContent("Auto-merge → develop");
+    expect(title.className).toContain("line-clamp-2");
+    expect(title.className).not.toContain("truncate");
   });
 
   it("opens fitted and toggles to actual size and back", () => {
@@ -258,5 +267,213 @@ describe("RunGraphView Subtask → Verify lines", () => {
     expect(intoVerify).toBeDefined();
     const styles = intoVerify!.map((p) => `${p.getAttribute("stroke")}|${p.getAttribute("stroke-dasharray") ?? ""}`).sort();
     expect(styles).toEqual(["#34d399|", "#4b5563|5 5"]);
+  });
+});
+
+describe("layoutRunGraph BUILD lane", () => {
+  const H = 56, CAPTION = 22;
+  const graphOf = (n: number) =>
+    runGraph({
+      story: task({}),
+      subtasks: Array.from({ length: n }, (_, i) =>
+        task({ id: i + 2, task_number: i + 2, parent_id: 1, type: "subtask", status: "todo", title: `S${i}` })),
+      trail: [ev("stage_entered", "building")],
+      projectKey: "FB",
+      clientProject: false,
+    });
+
+  it.each([0, 1, 2, 3, 5])("keeps every BUILD node and caption inside the lane with %i Subtasks", (n) => {
+    const layout = layoutRunGraph(graphOf(n));
+    const [plan, build, review] = layout.lanes;
+    const buildIds = ["orchestrator", "verify", "stop", "docs", ...Array.from({ length: n }, (_, i) => `sub-${i + 2}`)];
+    for (const id of buildIds) {
+      const b = layout.nodes.find((p) => p.id === id)!.box;
+      expect(b.y, `${id} top`).toBeGreaterThanOrEqual(layout.buildLabelY + 14);
+      expect(b.y + b.h + CAPTION, `${id} bottom`).toBeLessThanOrEqual(build.bottom);
+    }
+    // No lane boxes overlap.
+    expect(plan.bottom).toBeLessThan(build.top);
+    expect(build.bottom).toBeLessThan(review.top);
+
+    // The "Pedro starts the Run" wire's horizontal run sits in the gap between PLAN and BUILD.
+    const wire = layout.edges.find((e) => e.label === "Pedro starts the Run")!;
+    const ys = wire.pts!.map((p) => p[1]);
+    expect(layout.startTurnY).toBeGreaterThan(plan.bottom);
+    expect(layout.startTurnY).toBeLessThan(build.top);
+    const horizontal = wire.pts!.slice(1).filter((p, i) => p[1] === wire.pts![i][1]);
+    expect(horizontal.length).toBe(1);
+    expect(horizontal[0][1]).toBe(layout.startTurnY);
+    // Its label (11px text above the line) clears the PLAN lane too.
+    expect(layout.startTurnY - 5 - 11).toBeGreaterThan(plan.bottom);
+    expect(ys[ys.length - 1]).toBe(layout.nodes.find((p) => p.id === "orchestrator")!.box.y);
+  });
+
+  it.each([3, 5])("leaves the BUILD node coordinates unchanged with %i Subtasks", (n) => {
+    // The layout before the Stop fix: subTop = buildLabelY + 40 = 210, no extra push.
+    const subTop = 210;
+    const subsHeight = n * 72 - 22;
+    const mid = subTop + subsHeight / 2;
+    const branch = Math.max(86, subsHeight / 2 - H / 2);
+    const layout = layoutRunGraph(graphOf(n));
+    const y = (id: string) => layout.nodes.find((p) => p.id === id)!.box.y;
+    expect(y("orchestrator")).toBe(mid - H / 2);
+    expect(y("verify")).toBe(mid - H / 2);
+    expect(y("stop")).toBe(mid - H / 2 - branch);
+    expect(y("docs")).toBe(mid - H / 2 + branch);
+    for (let i = 0; i < n; i++) expect(y(`sub-${i + 2}`)).toBe(subTop + i * 72);
+  });
+});
+
+describe("RunGraphView Subtask card heights", () => {
+  const LONG = "Show completion text, done points and percentage in each sprint header";
+  const build = (titles: string[]) => {
+    const graph = runGraph({
+      story: task({}),
+      subtasks: titles.map((title, i) =>
+        task({ id: i + 2, task_number: i + 2, parent_id: 1, type: "subtask", status: "todo", title })),
+      trail: [ev("stage_entered", "building")],
+      projectKey: "FB",
+      clientProject: false,
+    });
+    const { container } = render(<RunGraphView graph={graph} />);
+    const box = (id: string) => {
+      const el = container.querySelector(`[data-node="${id}"]`) as HTMLElement;
+      return { top: parseFloat(el.style.top), height: parseFloat(el.style.height) };
+    };
+    return { container, box, ids: titles.map((_, i) => `sub-${i + 2}`) };
+  };
+
+  it("keeps short-titled cards 50px tall, 72px apart", () => {
+    const { box } = build(["A", "Template layout", "Signature block"]);
+    for (const id of ["sub-2", "sub-3", "sub-4"]) expect(box(id).height).toBe(50);
+    expect(box("sub-3").top - box("sub-2").top).toBe(72);
+    expect(box("sub-4").top - box("sub-3").top).toBe(72);
+  });
+
+  it("grows a long-titled card and lays the stack, edges, Orchestrator, Verify and lane out from real heights", () => {
+    const { container, box, ids } = build(["Short", LONG, "Another one"]);
+    const [a, b, c] = ids.map(box);
+    expect(a.height).toBe(50);
+    expect(b.height).toBeGreaterThan(50);
+    expect(b.top).toBe(a.top + a.height + 22);
+    expect(c.top).toBe(b.top + b.height + 22);
+    expect(a.top + a.height).toBeLessThanOrEqual(b.top);
+    expect(b.top + b.height).toBeLessThanOrEqual(c.top);
+
+    const paths = [...container.querySelectorAll("svg path")].map((p) => p.getAttribute("d") ?? "");
+    const centre = b.top + b.height / 2;
+    // Orchestrator -> Subtask ends, Subtask -> Verify starts, at the long card's centre.
+    const ends = (d: string) => d.trim().split(/\s+/).slice(-1)[0];
+    const starts = (d: string) => d.trim().split(/\s+/)[1];
+    expect(paths.some((d) => d.includes(" C") && Number(ends(d)) === centre)).toBe(true);
+    expect(paths.some((d) => d.includes(" C") && Number(starts(d)) === centre)).toBe(true);
+
+    const mid = (a.top + c.top + c.height) / 2;
+    expect(box("orchestrator").top + 28).toBe(mid);
+    expect(box("verify").top + 28).toBe(mid);
+    const lane = layoutRunGraph(
+      runGraph({
+        story: task({}),
+        subtasks: ["Short", LONG, "Another one"].map((title, i) =>
+          task({ id: i + 2, task_number: i + 2, parent_id: 1, type: "subtask", status: "todo", title })),
+        trail: [ev("stage_entered", "building")],
+        projectKey: "FB",
+        clientProject: false,
+      }),
+    ).lanes[1];
+    expect(lane.bottom).toBeGreaterThan(c.top + c.height);
+  });
+
+  it("gives the Subtask title a two-line clamp and a tooltip with the full title", () => {
+    build([LONG]);
+    const title = screen.getByTitle(LONG);
+    expect(title.className).toContain("line-clamp-2");
+    expect(title.className).not.toContain("truncate");
+    expect(title).toHaveTextContent(LONG);
+  });
+});
+
+describe("RunGraphView Subtask card heights (QA)", () => {
+  const LONG = "Show completion text, done points and percentage in each sprint header";
+  const graphOf = (titles: string[]) =>
+    runGraph({
+      story: task({}),
+      subtasks: titles.map((title, i) =>
+        task({ id: i + 2, task_number: i + 2, parent_id: 1, type: "subtask", status: "todo", title })),
+      trail: [ev("stage_entered", "building")],
+      projectKey: "FB",
+      clientProject: false,
+    });
+
+  it("sizes short but wide titles, and short titles beside a long key, above 50px (FB-170)", () => {
+    const heights = (projectKey: string, num: number, titles: string[]) =>
+      layoutRunGraph(
+        runGraph({
+          story: task({}),
+          subtasks: titles.map((title, i) =>
+            task({ id: i + 2, task_number: num, parent_id: 1, type: "subtask", status: "todo", title })),
+          trail: [ev("stage_entered", "building")],
+          projectKey,
+          clientProject: false,
+        }),
+      ).nodes.filter((p) => p.sub).map((p) => p.box.h);
+    // 15 characters, but worst-case wide glyphs wrap beside "FB-166".
+    expect(heights("FB", 166, ["WWW WWW WWW WWW", "MMMM MMMM MMMM"])).toEqual([66, 66]);
+    // An ordinary title that fits beside "FB-2" wraps beside a 13-character key.
+    expect(heights("FB", 2, ["Template layout"])).toEqual([50]);
+    expect(heights("LONGKEY", 12345, ["Template layout"])).toEqual([66]);
+  });
+
+  it("sizes titles of wide symbols, em dashes and CJK above 50px beside FB-166 (FB-170, QA)", () => {
+    const heights = (titles: string[]) =>
+      layoutRunGraph(
+        runGraph({
+          story: task({}),
+          subtasks: titles.map((title, i) =>
+            task({ id: i + 2, task_number: 166, parent_id: 1, type: "subtask", status: "todo", title })),
+          trail: [ev("stage_entered", "building")],
+          projectKey: "FB",
+          clientProject: false,
+        }),
+      ).nodes.filter((p) => p.sub).map((p) => p.box.h);
+    // Measured in Segoe UI 12px (the app's system-ui on Windows), each of these
+    // is wider than the ~131px beside "FB-166" and wraps to two lines.
+    expect(heights([
+      "%%%%% &&&&& %%%%",          // % is 0.82em, & is 0.80em: ~143px
+      "— — — — — — — — — —", // em dash is 1em: ~150px
+      "数据库迁移和模式初始化",   // CJK is 1em: ~132px
+    ])).toEqual([66, 66, 66]);
+  });
+
+  it("anchors the exact Orchestrator->Subtask and Subtask->Verify paths at the long card's own centre (asymmetric stack)", () => {
+    // The long card is first, so its centre differs from the Orchestrator/Verify centre.
+    const layout = layoutRunGraph(graphOf([LONG, "Short", "Another"]));
+    const box = (id: string) => layout.nodes.find((p) => p.id === id)!.box;
+    const long = box("sub-2"), orch = box("orchestrator"), verify = box("verify");
+    const centre = long.y + long.h / 2;
+    expect(centre).not.toBe(orch.y + orch.h / 2);
+    const { container } = render(<RunGraphView graph={graphOf([LONG, "Short", "Another"])} />);
+    const ds = [...container.querySelectorAll("svg path")].map((p) => p.getAttribute("d") ?? "");
+    const into = ds.find((d) => d.startsWith(`M${orch.x + orch.w} ${orch.y + orch.h / 2} C`) && d.endsWith(` ${long.x} ${centre}`));
+    const out = ds.find((d) => d.startsWith(`M${long.x + long.w} ${centre} C`) && d.endsWith(` ${verify.x} ${verify.y + verify.h / 2}`));
+    expect(into, "Orchestrator -> long Subtask path").toBeDefined();
+    expect(out, "long Subtask -> Verify path").toBeDefined();
+  });
+
+  it.each([1, 2, 3, 5])("keeps every BUILD node inside the lane, without overlaps, with %i long-titled Subtasks", (n) => {
+    const layout = layoutRunGraph(graphOf(Array.from({ length: n }, () => LONG)));
+    const [plan, build, review] = layout.lanes;
+    const subs = Array.from({ length: n }, (_, i) => layout.nodes.find((p) => p.id === `sub-${i + 2}`)!.box);
+    for (const id of ["orchestrator", "verify", "stop", "docs", ...subs.map((_, i) => `sub-${i + 2}`)]) {
+      const b = layout.nodes.find((p) => p.id === id)!.box;
+      expect(b.y, `${id} top`).toBeGreaterThanOrEqual(layout.buildLabelY + 14);
+      expect(b.y + b.h + 22, `${id} bottom`).toBeLessThanOrEqual(build.bottom);
+    }
+    subs.forEach((b) => expect(b.h).toBeGreaterThan(50));
+    subs.slice(1).forEach((b, i) => expect(b.y).toBe(subs[i].y + subs[i].h + 22));
+    const orch = layout.nodes.find((p) => p.id === "orchestrator")!.box;
+    expect(orch.y + 28).toBe((subs[0].y + subs[n - 1].y + subs[n - 1].h) / 2);
+    expect(plan.bottom).toBeLessThan(build.top);
+    expect(build.bottom).toBeLessThan(review.top);
   });
 });
