@@ -126,8 +126,22 @@ describe("runGraph", () => {
       [stage("building"), stage("integrated_tests"), ev("bug_subtask_filed", { subtask: "FB-3" }), stage("building")],
     );
     expect(g.bugLoop).toBe(true);
-    expect(g.ship.find((n) => n.id === "merge")?.state).toBe("done");
+    expect(g.ship.find((n) => n.id === "merge")?.state).not.toBe("done");
     expect(g.orchestrator.state).toBe("current");
+  });
+
+  it("a bug loop with no pr_opened events does not keep the first pass's checks", () => {
+    const g = graph(
+      { status: "building" },
+      [sub(2, "done"), sub(3, "in_progress", "bug")],
+      [stage("building"), stage("integrated_tests"), ev("bug_subtask_filed", { subtask: "FB-3" }), stage("building")],
+    );
+    expect(g.bugLoop).toBe(true);
+    expect(g.verify.state).not.toBe("done");
+    expect(g.docs.state).not.toBe("done");
+    expect(g.ship.find((n) => n.id === "review")?.state).not.toBe("done");
+    expect(g.ship.find((n) => n.id === "pr")?.state).not.toBe("done");
+    expect(g.ship.find((n) => n.id === "merge")?.state).not.toBe("done");
   });
 
   it("a bug filed during Build is not the bug loop", () => {

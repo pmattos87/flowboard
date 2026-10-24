@@ -240,9 +240,7 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
   const merged = new Set(pass.filter((e) => e.action === "pr_merged").map((e) => str(obj(e).url)));
   // Every pass's PRs into develop, not only the current pass's.
   const prCount = trail.filter(isDevelopPr).length;
-  // A trail with no PR events at all (older Runs) can only say "reached", so
-  // those keep the furthest-Stage rule even after a bug loop.
-  const prReached = prCount === 0 ? reached("integrated_tests") : passIntegrated;
+  const prReached = passIntegrated;
   const prOpened = developPrs.length > 0 || prReached;
   const prMerged = developPrs.some((e) => merged.has(str(obj(e).url))) || prReached;
   const picks = trail.filter((e) => e.action === "release_picked" || e.action === "release_removed");
