@@ -92,6 +92,14 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
     ...trail.filter((e) => e.action === "stage_entered").map((e) => rank(str(e.new))),
   );
   const reached = (s: TaskStatus) => reachedRank >= rank(s);
+  // After a bug loop the Build -> Review -> Integrate nodes show the second
+  // pass only: the events since the latest stage_entered -> building, and
+  // whether that pass has reached integrated tests (the Story's status now,
+  // not the furthest Stage it ever reached).
+  const bugLoop = bugFoundAfterIntegrate(trail);
+  const passStart = bugLoop ? trail.map((e) => e.action === "stage_entered" && e.new === "building").lastIndexOf(true) : 0;
+  const pass = trail.slice(Math.max(passStart, 0));
+  const passIntegrated = bugLoop ? rank(status) >= rank("integrated_tests") : reached("integrated_tests");
   const at = (s: TaskStatus) => trail.filter((e) => e.action === "stage_entered" && e.new === s).at(-1)?.at ?? "";
   const pick = (done: boolean, current: boolean): NodeState => (done ? "done" : current ? "current" : "todo");
 
@@ -137,8 +145,8 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
   // A stop after the Build finished (every Subtask done or canceled, none
   // stopped) is Review-side: it waits at the Review lane's gate.
   const reviewSide = stopped && !buildStopped && open.length === 0;
-  const reviewRounds = trail.filter((e) => e.action === "review_round");
-  const buildFinished = reached("integrated_tests") || reviewRounds.length > 0 || (building && open.length === 0 && subtasks.length > 0);
+  const reviewRounds = pass.filter((e) => e.action === "review_round");
+  const buildFinished = passIntegrated || reviewRounds.length > 0 || (building && open.length === 0 && subtasks.length > 0);
 
   const orchestrator: RunNode = {
     id: "orchestrator",
@@ -185,7 +193,7 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
     title: "Docs",
     kind: "agent",
     caption: "once per Story",
-    state: pick(reached("integrated_tests") || reviewRounds.length > 0, building && open.length === 0 && subtasks.length > 0 && !stopped),
+    state: pick(passIntegrated || reviewRounds.length > 0, building && open.length === 0 && subtasks.length > 0 && !stopped),
   };
 
   // ─── Review → Integrate → Release → Production ───
@@ -209,7 +217,7 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
     state:
       reviewStopFrom === "review" || reviewStopFrom === "fix"
         ? "stopped"
-        : lastVerdict === "passed" || reached("integrated_tests")
+        : lastVerdict === "passed" || passIntegrated
           ? "done"
           : pick(false, lastVerdict === "failed" || (docs.state === "done" && building)),
   };
@@ -223,14 +231,18 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
         ? "stopped"
         : failedRounds === 0
           ? "todo"
-          : lastVerdict === "passed" || reached("integrated_tests") || reviewStopFrom === "review"
+          : lastVerdict === "passed" || passIntegrated || reviewStopFrom === "review"
             ? "done"
             : "current",
   };
-  const developPrs = trail.filter((e) => e.action === "pr_opened" && str(obj(e).target) === "develop");
-  const merged = new Set(trail.filter((e) => e.action === "pr_merged").map((e) => str(obj(e).url)));
-  const prOpened = developPrs.length > 0 || reached("integrated_tests");
-  const prMerged = developPrs.some((e) => merged.has(str(obj(e).url))) || reached("integrated_tests");
+  const isDevelopPr = (e: TrailEvent) => e.action === "pr_opened" && str(obj(e).target) === "develop";
+  const developPrs = pass.filter(isDevelopPr);
+  const merged = new Set(pass.filter((e) => e.action === "pr_merged").map((e) => str(obj(e).url)));
+  // Every pass's PRs into develop, not only the current pass's.
+  const prCount = trail.filter(isDevelopPr).length;
+  const prReached = passIntegrated;
+  const prOpened = developPrs.length > 0 || prReached;
+  const prMerged = developPrs.some((e) => merged.has(str(obj(e).url))) || prReached;
   const picks = trail.filter((e) => e.action === "release_picked" || e.action === "release_removed");
   const lastPick = picks.at(-1);
   const picked = story.release_id != null || lastPick?.action === "release_picked";
@@ -238,7 +250,7 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
 
   const ship: RunNode[] = [
     review,
-    { id: "pr", title: "PR opened", kind: "git", caption: "PR gate: Review passed", state: pick(prOpened, false) },
+    { id: "pr", title: "PR opened", kind: "git", caption: prCount > 1 ? `${prCount} PRs · PR gate: Review passed` : "PR gate: Review passed", state: pick(prOpened, false) },
     { id: "merge", title: "Auto-merge → develop", kind: "git", caption: "Integrate", state: reviewStopFrom === "merge" ? "stopped" : pick(prMerged, prOpened && !prMerged) },
     {
       id: "integrated",
@@ -271,6 +283,6 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
     docs,
     ship,
     fix,
-    bugLoop: bugFoundAfterIntegrate(trail),
+    bugLoop,
   };
 }
