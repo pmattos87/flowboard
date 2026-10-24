@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,30 @@ function LinkField({ label, value, mono = false }: { label: string; value: strin
     <div className="space-y-1">
       <div className="text-gray-500 text-[11px]">{label}</div>
       <div className={cn(FIELD_CLS, "text-gray-200 select-text", mono && "font-mono text-xs")}>{value}</div>
+    </div>
+  );
+}
+
+/** The Stories this one depends on, each an in-app link to its page. */
+function DependsOnField({ keys }: { keys: string[] }) {
+  return (
+    <div className="space-y-1">
+      <div className="text-gray-500 text-[11px]">Depends on</div>
+      <div className={cn(FIELD_CLS, "text-gray-200 select-text flex-wrap")}>
+        {keys.length === 0
+          ? "—"
+          : keys.map((k, i) => (
+              <span key={k}>
+                <Link
+                  to={`/story/${k}`}
+                  className="text-blue-400 hover:text-blue-300 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-400 rounded-sm"
+                >
+                  {k}
+                </Link>
+                {i < keys.length - 1 && ","}
+              </span>
+            ))}
+      </div>
     </div>
   );
 }
@@ -85,7 +109,7 @@ function LinksCard({ story }: { story: StoryView }) {
           label="Release"
           value={story.release ? `${story.release.version} · ${story.release.state.replace("_", " ")}` : "— not picked"}
         />
-        <LinkField label="Depends on" value={story.depends_on.length > 0 ? story.depends_on.join(", ") : "—"} />
+        <DependsOnField keys={story.depends_on} />
       </div>
     </section>
   );
