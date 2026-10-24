@@ -159,7 +159,11 @@ describe("RunGraphView Stop gate edges", () => {
     const restarted = runGraph({
       ...base,
       story: task({ run_stopped: false }),
-      trail: [ev("stage_entered", "building"), ...reviewFailed(1), ev("run_stopped", { reason: "Verify failed twice" })],
+      trail: [
+        ev("stage_entered", "building"),
+        ev("verify_round", { subtask: "FB-2", round: 1, result: "fail" }),
+        ev("run_stopped", { reason: "Verify failed twice" }),
+      ],
     });
     expect(never.stop.state).toBe("todo");
     expect(restarted.stop.state).toBe("done");
@@ -170,76 +174,241 @@ describe("RunGraphView Stop gate edges", () => {
       cleanup();
     }
   });
+});
 
-  it("routes Fix findings → Stop clear of the findings loops and the ship row", () => {
-    const graph = runGraph({ story: task({}), subtasks: [], trail: [], projectKey: "FB", clientProject: false });
-    const { container, fixEdge } = stopEdges(graph);
-    const pts = fixEdge.getAttribute("d")!.replace("M", "").split(" L").map((p) => p.split(" ").map(Number));
-    expect(pts).toHaveLength(4);
-    const fixTop = Number(container.querySelector('[data-node="fix"]')!.getAttribute("style")?.match(/top: (\d+)/)?.[1]);
-    const fixLeft = Number(container.querySelector('[data-node="fix"]')!.getAttribute("style")?.match(/left: (\d+)/)?.[1]);
-    const lastShip = container.querySelector('[data-node="production"]')!.getAttribute("style")!;
-    const shipEnd = Number(lastShip.match(/left: (\d+)/)![1]) + 196;
-    // Leaves Fix findings' upper right, above the findings loop that leaves at mid-height.
-    expect(pts[0]).toEqual([fixLeft + 196, fixTop + 12]);
-    // Its vertical run is past the last ship card, so it passes through none.
-    expect(pts[1][0]).toBeGreaterThan(shipEnd);
-    expect(pts[1][1]).toBe(pts[0][1]);
-    expect(pts[2][0]).toBe(pts[1][0]);
+describe("RunGraphView Review lane Stop gate (FB-174)", () => {
+  const RED = "#ef4444", DIM = "#4b5563";
+  const W = 196, H = 56, CAPTION = 22;
+  const sub = (n: number, status: Task["status"], type: Task["type"] = "subtask") =>
+    task({ id: n, task_number: n, parent_id: 1, type, status, title: `S${n}` });
+  const failed = (round: number) => ev("review_round", { round, verdict: "failed" });
+  const built = [ev("stage_entered", "building"), ev("verify_round", { subtask: "FB-2", round: 1, result: "pass" })];
+  const graphOf = (subtasks: Task[], trail: TrailEvent[], run_stopped = true, clientProject = false) =>
+    runGraph({ story: task({ run_stopped }), subtasks, trail, projectKey: "FB", clientProject });
+
+  /** The edges into a gate, found by the boxes they join, with their stroke. */
+  function gateEdges(graph: ReturnType<typeof runGraph>) {
+    const layout = layoutRunGraph(graph);
+    const box = (id: string) => layout.nodes.find((n) => n.id === id)!.box;
+    const into = (gate: string) => layout.edges.filter((e) => e.b === box(gate));
+    const stroke = (gate: string, from: string) => edgeStyle(into(gate).find((e) => e.a === box(from))!).stroke;
+    return { layout, box, into, stroke };
+  }
+
+  const reviewFailedTwice = () =>
+    graphOf([sub(2, "done"), sub(3, "done", "bug")], [
+      ...built, failed(1), ev("bug_subtask_filed", { subtask: "FB-3" }), ev("verify_round", { subtask: "FB-3", round: 1, result: "pass" }),
+      failed(2), ev("run_stopped", { reason: "Review failed twice" }),
+    ]);
+
+  it("Review failed twice: the Review gate is red with the reason; only Fix findings → Stop is red", () => {
+    const graph = reviewFailedTwice();
+    const { stroke } = gateEdges(graph);
+    expect(stroke("stop-review", "fix")).toBe(RED);
+    expect(stroke("stop-review", "review")).toBe(DIM);
+    expect(stroke("stop-review", "merge")).toBe(DIM);
+    expect(stroke("stop", "verify")).toBe(DIM);
+    const { container } = render(<RunGraphView graph={graph} />);
+    const gate = container.querySelector('[data-node="stop-review"]')!;
+    expect(gate.getAttribute("data-state")).toBe("stopped");
+    expect(gate.querySelector(".run-waiting")).not.toBeNull();
+    expect(gate).toHaveTextContent("Review failed twice");
+    expect(container.querySelector('[data-node="stop"]')!.getAttribute("data-state")).not.toBe("stopped");
   });
 
-  it("runs the Stop vertical clearly outside the lane border and inside the SVG", () => {
-    const layouts = [
-      { subtasks: [], clientProject: false },
-      { subtasks: [sub("done"), sub("done"), sub("done"), sub("done")], clientProject: false },
-      { subtasks: [sub("done")], clientProject: true },
-    ];
-    for (const { subtasks, clientProject } of layouts) {
-      const graph = runGraph({ story: task({}), subtasks, trail: [], projectKey: "FB", clientProject });
-      const { container, fixEdge } = stopEdges(graph);
-      const lane = container.querySelector("div.rounded-xl.border")!.getAttribute("style")!;
-      const laneRight = Number(lane.match(/left: (\d+)/)![1]) + Number(lane.match(/width: (\d+)/)![1]);
-      const svgWidth = Number(container.querySelector("svg")!.getAttribute("width"));
-      const stopX = Number(fixEdge.getAttribute("d")!.replace("M", "").split(" L")[1].split(" ")[0]);
-      expect(stopX).toBeGreaterThanOrEqual(laneRight + 12);
-      expect(stopX).toBeLessThan(svgWidth);
+  it("Integrate failed: the Auto-merge node and Auto-merge → Stop are red; the other two edges are dimmed", () => {
+    const graph = graphOf([sub(2, "done")], [
+      ...built, ev("review_round", { round: 1, verdict: "passed" }),
+      ev("pr_opened", { url: "https://github.com/o/r/pull/9", target: "develop" }),
+      ev("run_stopped", { reason: "Integrate: a PR check failed" }),
+    ]);
+    const { stroke, box } = gateEdges(graph);
+    expect(box("merge").state).toBe("stopped");
+    expect(stroke("stop-review", "merge")).toBe(RED);
+    expect(stroke("stop-review", "fix")).toBe(DIM);
+    expect(stroke("stop-review", "review")).toBe(DIM);
+  });
+
+  it.each([
+    ["before any Review round", [] as TrailEvent[], [sub(2, "done")]],
+    ["after one failed round", [failed(1), ev("bug_subtask_filed", { subtask: "FB-3" })], [sub(2, "done"), sub(3, "done", "bug")]],
+  ])("Codex unavailable %s: Code review and Code review → Stop are red, Fix findings is not", (_, rounds, subtasks) => {
+    const graph = graphOf(subtasks, [...built, ...rounds, ev("run_stopped", { reason: "Review waits: Codex unavailable" })]);
+    const { stroke, box } = gateEdges(graph);
+    expect(box("review").state).toBe("stopped");
+    expect(stroke("stop-review", "review")).toBe(RED);
+    expect(box("fix").state).not.toBe("stopped");
+    expect(stroke("stop-review", "fix")).toBe(DIM);
+    expect(stroke("stop-review", "merge")).toBe(DIM);
+  });
+
+  it("a Subtask failed Verify twice: the Build gate and Verify → Stop are red; the Review gate is todo, its edges dimmed", () => {
+    const graph = graphOf([sub(2, "in_progress")], [
+      ev("stage_entered", "building"),
+      ev("verify_round", { subtask: "FB-2", round: 1, result: "fail" }),
+      ev("verify_round", { subtask: "FB-2", round: 2, result: "fail" }),
+      ev("run_stopped", { reason: "Verify failed twice on FB-2" }),
+    ]);
+    const { stroke, box, into } = gateEdges(graph);
+    expect(box("stop").state).toBe("stopped");
+    expect(stroke("stop", "verify")).toBe(RED);
+    expect(box("stop-review").state).toBe("todo");
+    expect(into("stop-review")).toHaveLength(3);
+    for (const e of into("stop-review")) expect(edgeStyle(e).stroke).toBe(DIM);
+  });
+
+  it("Integrate failed: the Review gate waits in red with the reason and the Build gate does not", () => {
+    const graph = graphOf([sub(2, "done")], [
+      ...built, ev("review_round", { round: 1, verdict: "passed" }),
+      ev("pr_opened", { url: "https://github.com/o/r/pull/9", target: "develop" }),
+      ev("run_stopped", { reason: "Integrate: a PR check failed" }),
+    ]);
+    const { container } = render(<RunGraphView graph={graph} />);
+    const gate = container.querySelector('[data-node="stop-review"]')!;
+    expect(gate.getAttribute("data-state")).toBe("stopped");
+    expect(gate.querySelector(".run-waiting")).not.toBeNull();
+    expect(gate).toHaveTextContent("Integrate: a PR check failed");
+    const build = container.querySelector('[data-node="stop"]')!;
+    expect(build.getAttribute("data-state")).toBe("todo");
+    expect(build.querySelector(".run-waiting")).toBeNull();
+    expect(container.querySelector('[data-node="merge"]')!.getAttribute("data-state")).toBe("stopped");
+    expect(gateEdges(graph).stroke("stop", "verify")).toBe(DIM);
+    cleanup();
+  });
+
+  it("restarts: each gate shows only its own side's past stops", () => {
+    const afterReview = graphOf([sub(2, "done"), sub(3, "in_progress", "bug")], [
+      ...built, failed(1), failed(2), ev("run_stopped", { reason: "Review failed twice" }), ev("run_restarted", ""),
+    ], false);
+    const afterBuild = graphOf([sub(2, "in_progress")], [
+      ev("stage_entered", "building"), ev("verify_round", { subtask: "FB-2", round: 1, result: "fail" }),
+      ev("run_stopped", { reason: "Verify failed twice on FB-2" }), ev("run_restarted", ""),
+    ], false);
+    const shown = (graph: ReturnType<typeof runGraph>, id: string) => {
+      const { container } = render(<RunGraphView graph={graph} />);
+      const node = container.querySelector(`[data-node="${id}"]`)!;
+      const out = [node.getAttribute("data-state"), node.querySelector(".font-mono")!.textContent];
       cleanup();
-    }
+      return out;
+    };
+    expect(shown(afterReview, "stop-review")).toEqual(["done", "stopped 1× · restarted"]);
+    expect(shown(afterReview, "stop")).toEqual(["todo", "fails twice"]);
+    expect(shown(afterBuild, "stop")).toEqual(["done", "stopped 1× · restarted"]);
+    expect(shown(afterBuild, "stop-review")[0]).toBe("todo");
   });
 
-  it("enters Stop from the right and clears the findings loops, PR card and Docs turn", () => {
-    const graph = runGraph({ story: task({}), subtasks: [], trail: [], projectKey: "FB", clientProject: false });
-    const { container, fixEdge } = stopEdges(graph);
-    const xy = (id: string) => {
-      const s = container.querySelector(`[data-node="${id}"]`)!.getAttribute("style")!;
-      return [Number(s.match(/left: (\d+)/)![1]), Number(s.match(/top: (\d+)/)![1])];
-    };
-    const pathPts = (d: string) => d.replace("M", "").split(" L").map((p) => p.split(" ").map(Number));
-    const pts = pathPts(fixEdge.getAttribute("d")!);
-    const [stopX, stopY] = xy("stop"), [fixX, fixY] = xy("fix"), [, prY] = xy("pr"), [docsX] = xy("docs");
-    // Ends on Stop's right side at mid-height, coming in from the right.
-    expect(pts[3]).toEqual([stopX + 196, stopY + 28]);
-    expect(pts[2]).toEqual([pts[1][0], stopY + 28]);
-    expect(pts[2][0]).toBeGreaterThan(stopX + 196);
-    // Vertical run is right of the Docs turn (docs.x + W + 34).
-    expect(pts[1][0]).toBeGreaterThan(docsX + 196 + 34);
-    // Horizontal run stays below the PR card and above the Fix → Orchestrator
-    // loop, which leaves Fix findings at mid-height.
-    expect(pts[0][1]).toBeGreaterThan(prY + 56);
-    expect(pts[0][1]).toBeLessThan(fixY + 28);
-    // Every findings-loop point stays off the new line's horizontal run.
-    const loops = [...container.querySelectorAll("path")].filter((p) => p.getAttribute("stroke-dasharray") === "6 5");
-    for (const loop of loops) {
-      const lp = pathPts(loop.getAttribute("d")!);
-      for (let i = 1; i < lp.length; i++) {
-        const [[x1, y1], [x2, y2]] = [lp[i - 1], lp[i]];
-        if (x1 === x2 && x1 > pts[0][0] && x1 < pts[1][0]) {
-          // A vertical loop segment under the horizontal: only the bug loop may cross it.
-          const crosses = Math.min(y1, y2) <= pts[0][1] && Math.max(y1, y2) >= pts[0][1];
-          if (crosses) expect(x1).not.toBe(fixX + 196 + 18);
+  // ─── Layout ───
+  type Pt = [number, number];
+  type Rect = { x: number; y: number; w: number; h: number };
+  const segments = (pts: Pt[]) => pts.slice(1).map((p, i) => [pts[i], p] as [Pt, Pt]);
+  /** An axis-aligned segment runs through a rectangle's interior (touching its border is fine). */
+  const throughRect = ([[x1, y1], [x2, y2]]: [Pt, Pt], r: Rect) =>
+    Math.min(x1, x2) < r.x + r.w && Math.max(x1, x2) > r.x && Math.min(y1, y2) < r.y + r.h && Math.max(y1, y2) > r.y;
+  /** Two axis-aligned segments meet (cross, touch or overlap). */
+  const meet = ([[ax1, ay1], [ax2, ay2]]: [Pt, Pt], [[bx1, by1], [bx2, by2]]: [Pt, Pt]) =>
+    Math.min(ax1, ax2) <= Math.max(bx1, bx2) && Math.max(ax1, ax2) >= Math.min(bx1, bx2) &&
+    Math.min(ay1, ay2) <= Math.max(by1, by2) && Math.max(ay1, ay2) >= Math.min(by1, by2);
+
+  const layouts: [string, ReturnType<typeof runGraph>][] = [
+    ["no Subtasks", graphOf([], [])],
+    ["four Subtasks", graphOf([2, 3, 4, 5].map((n) => sub(n, "done")), built)],
+    ["a Client project", graphOf([sub(2, "done")], built, true, true)],
+    ["Review failed twice", reviewFailedTwice()],
+  ];
+
+  it.each(layouts)("places the Review gate under Auto-merge on the Fix findings row, inside the REVIEW lane (%s)", (_, graph) => {
+    const { layout, box } = gateEdges(graph);
+    const gate = box("stop-review"), merge = box("merge"), fix = box("fix");
+    const lane = layout.lanes[2];
+    expect(gate.x).toBe(merge.x);
+    expect(gate.y).toBe(fix.y);
+    expect(gate.x).toBeGreaterThan(fix.x + W);
+    expect(gate.x).toBeGreaterThanOrEqual(layout.laneX);
+    expect(gate.x + W).toBeLessThanOrEqual(layout.laneX + layout.laneW);
+    expect(gate.y).toBeGreaterThan(lane.top + 14);
+    expect(gate.y + H + CAPTION).toBeLessThanOrEqual(lane.bottom);
+  });
+
+  it.each(layouts)("routes the three edges into the Review gate as Pedro drew them (%s)", (_, graph) => {
+    const { layout, box, into } = gateEdges(graph);
+    const gate = box("stop-review"), fix = box("fix"), merge = box("merge"), review = box("review");
+    const edge = (from: string) => into("stop-review").find((e) => e.a === box(from))!;
+
+    // Fix findings → Stop: a short horizontal out of Fix's right side into the gate's left side.
+    const f = edge("fix");
+    expect(f.label).toBe("fails twice");
+    expect(f.pts).toHaveLength(2);
+    const [[fx1, fy1], [fx2, fy2]] = f.pts!;
+    expect(fx1).toBe(fix.x + W);
+    expect(fx2).toBe(gate.x);
+    expect(fy1).toBe(fy2);
+    expect(fy1).toBeGreaterThan(fix.y + 12); // below Fix's badge
+    expect(fy1).toBeLessThan(fix.y + H / 2); // above the findings loop's exit
+
+    // Auto-merge → Stop: straight down.
+    const m = edge("merge");
+    expect(m.label).toBe("fails");
+    expect(m.pts).toEqual([[merge.x + W / 2, merge.y + H], [merge.x + W / 2, gate.y]]);
+
+    // Code review → Stop: down from Code review's bottom, right of the findings drop,
+    // right through the gap above Fix findings, past it, then down into the gate's top.
+    const c = edge("review");
+    expect(c.label).toBe("Codex unavailable");
+    expect(c.pts).toHaveLength(4);
+    const [p0, p1, p2, p3] = c.pts!;
+    expect(p0[1]).toBe(review.y + H);
+    expect(p0[0]).toBeGreaterThan(review.x + W / 2);
+    expect(p0[0]).toBeLessThan(review.x + W);
+    expect(p1[0]).toBe(p0[0]);
+    expect(p1[1]).toBeGreaterThan(review.y + H + CAPTION); // under the ship captions
+    expect(p1[1]).toBeLessThan(fix.y - 8); // above Fix's badge
+    expect(p2[1]).toBe(p1[1]);
+    expect(p2[0]).toBeGreaterThan(fix.x + W);
+    expect(p2[0]).toBeGreaterThan(gate.x);
+    expect(p2[0]).toBeLessThan(merge.x + W / 2); // left of the Auto-merge drop
+    expect(p3).toEqual([p2[0], gate.y]);
+
+    // No new edge runs through a card, or another node's caption.
+    for (const e of [f, m, c]) {
+      for (const seg of segments(e.pts!)) {
+        for (const n of layout.nodes) {
+          expect(throughRect(seg, n.box), `${e.label} through ${n.id}`).toBe(false);
+          if (n.box !== e.a && n.box !== e.b)
+            expect(throughRect(seg, { x: n.box.x, y: n.box.y + n.box.h, w: n.box.w, h: CAPTION }), `${e.label} through ${n.id} caption`).toBe(false);
         }
       }
     }
+    // Nor meets the findings edge, the findings loop, the bug loop or each other.
+    const loops = layout.edges.filter((e) => e.loop);
+    expect(loops).toHaveLength(3);
+    for (const e of [f, m, c]) {
+      for (const o of [...loops, ...[f, m, c].filter((x) => x !== e)]) {
+        for (const s1 of segments(e.pts!)) {
+          for (const s2 of segments(o.pts!)) {
+            // Two edges into the gate may only share nothing; they end on different sides or points.
+            expect(meet(s1, s2), `${e.label} meets ${o.label}`).toBe(false);
+          }
+        }
+      }
+    }
+  });
+
+  it.each(layouts)("keeps the findings edge and both loops' paths, and drops the old Fix → Build Stop route (%s)", (_, graph) => {
+    const { layout, box, into } = gateEdges(graph);
+    const review = box("review"), fix = box("fix"), orch = box("orchestrator"), integrated = box("integrated");
+    const reviewX = review.x + W / 2, fixLoopY = fix.y + H + 30, bugY = fixLoopY + 28;
+    const path = (label: string) => layout.edges.find((e) => e.label === label)!.pts;
+    expect(path("findings")).toEqual([[reviewX, review.y + H], [reviewX, fix.y + H / 2], [fix.x, fix.y + H / 2]]);
+    expect(path("bug Subtask → rebuild, then re-review")).toEqual([
+      [fix.x + W, fix.y + H / 2], [fix.x + W + 18, fix.y + H / 2], [fix.x + W + 18, fixLoopY],
+      [30, fixLoopY], [30, orch.y + H / 2 + 12], [orch.x, orch.y + H / 2 + 12],
+    ]);
+    expect(path("bug found → bug Subtask, Story holds")).toEqual([
+      [integrated.x + W / 2, review.y + H], [integrated.x + W / 2, bugY], [14, bugY], [14, orch.y + H / 2], [orch.x, orch.y + H / 2],
+    ]);
+    // Only Verify leads into the Build gate now, and no routed edge runs past the lane border.
+    expect(into("stop").map((e) => e.a)).toEqual([box("verify")]);
+    for (const e of layout.edges) for (const [x] of e.pts ?? []) expect(x).toBeLessThanOrEqual(layout.laneX + layout.laneW);
   });
 });
 
