@@ -2,7 +2,7 @@
 
 **All notable changes to this project will be documented in this file.**
 
-## [Unreleased]
+## [1.9.0] - 2026-10-25
 
 ### Added
 - Each sprint's header on the Sprint Planning board (not the Ready for Development row) shows its completion after the date range: `<done> / <total> pts · <percent>%`, with a 2px bar along the header's bottom filled to the percent. The bar is emerald at 100% (with at least one done point) whatever the sprint's status, otherwise blue for an active sprint and gray for the rest. Hovering the figure lists the points per status label (canceled is marked "(not counted)"). Only stories count, not bugs or subtasks; only status `done` counts as done on both ladders (on Factory projects `integrated_tests`, `tested` and `user_testing` are in the total but not done, as in the velocity chart); canceled stories leave the total. The calculation is the `sprintCompletion` helper in `src/lib/sprintProgress.ts` (FB-119).
