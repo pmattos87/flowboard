@@ -342,7 +342,7 @@ Projects list in sidebar, Create Project modal, Project Settings page...
 ### Phase 14 — Realtime, Tauri Retirement & Data Migration (WS5 + WS6 + WS7)
 > **Git Setup:** git checkout epic/fb-6-web && git pull && git checkout -b phase/14-realtime-migrate
 - **Task 14.1** Subscribe to Supabase Realtime on tasks/sprints/comments and invalidate matching React Query keys (`taskKeys.all`, …); fallback refetch-on-focus + interval; replaces the desktop `notify()` flow → `skill:data-layer`
-- **Task 14.2** Retire Tauri: remove `src-tauri/`, Tauri plugins, and all remaining `@tauri-apps/*` imports (`commands.ts`/`notifications.ts`/`image.ts`); replace `isStagingBuild`/`seedDemoData` desktop hooks with env-based equivalents or drop → `skill:backend-engineer`
+- **Task 14.2** Retire Tauri: remove `src-tauri/`, Tauri plugins, and all remaining `@tauri-apps/*` imports (`commands.ts`/`notifications.ts`/`image.ts`); replace the `seedDemoData` desktop hook with an env-based equivalent or drop (`isStagingBuild` is already gone: staging is signalled by `VITE_APP_ENV`) → `skill:backend-engineer`
 - **Task 14.3** One-time migration script: read existing local SQLite and insert into Supabase **preserving IDs** (FKs/`task_number` keys stay stable); upload attachment files to Storage → `skill:backend-engineer`
 - **Task 14.4** Tests: verify row counts and `{key}-{task_number}` task keys match between old SQLite and Supabase; confirm a live update appears when the owner changes a task → `skill:qa-engineer`
 > **Phase Exit Criteria:** Live updates work, the Tauri shell is gone, and existing data is migrated with matching keys/counts. Push `phase/14-realtime-migrate`, open a PR into `epic/fb-6-web`, merge via GitHub UI. After merge: `git checkout epic/fb-6-web && git pull && git tag -a v2.0-migration -m "FB-6 Phase 14: realtime, Tauri retired, local data migrated" && git push origin v2.0-migration`
@@ -440,7 +440,7 @@ Projects list in sidebar, Create Project modal, Project Settings page...
 **Depends on:** Phase 12 (data seam off Tauri)
 **Design ref:** `FB-6-CLIENT-ACCESS.md` §6.
 
-- Remove `src-tauri/`, Tauri plugins, and all remaining `@tauri-apps/*` imports (now only in `commands.ts`/`notifications.ts`/`image.ts`). Replace `isStagingBuild`/`seedDemoData` desktop hooks with env-based equivalents or drop.
+- Remove `src-tauri/`, Tauri plugins, and all remaining `@tauri-apps/*` imports (now only in `commands.ts`/`notifications.ts`/`image.ts`). Replace the `seedDemoData` desktop hook with an env-based equivalent or drop (`isStagingBuild` is already gone: staging is signalled by `VITE_APP_ENV`).
 
 ### Handoff: Tasks 14.3–14.4 — Data migration
 **Assigned to:** skill:backend-engineer (+ skill:qa-engineer for verification)

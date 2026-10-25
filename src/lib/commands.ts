@@ -247,9 +247,6 @@ export const listAllActivityLog = () =>
 
 // ─── Dev / Staging ─────────────────────────────────────────
 
-/** Returns true when running a debug (tauri dev) build. */
-export const isStagingBuild = () => invoke<boolean>("is_staging_build");
-
 /**
  * Populate the database with demo data.
  * Pass `force = true` to wipe existing data and re-seed from scratch.
