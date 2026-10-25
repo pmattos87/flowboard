@@ -140,8 +140,9 @@ function SubtaskBox({ node, x, y, h }: { node: SubtaskNode; x: number; y: number
 export interface Edge { a: Box; b: Box; pts?: [number, number][]; label?: string; lx?: number; ly?: number; loop?: "bug" | "findings"; active?: boolean; subtaskToVerify?: boolean; intoStop?: boolean }
 
 export function edgeStyle(e: Edge) {
-  if (e.loop === "bug") return e.active ? { stroke: "#f59e0b", dash: "6 5", op: 0.85 } : { stroke: "#4b5563", dash: "6 5", op: 0.6 };
-  if (e.loop === "findings") return e.active ? { stroke: "#818cf8", dash: "6 5", op: 0.85 } : { stroke: "#4b5563", dash: "6 5", op: 0.6 };
+  // A loop is dashed grey until its trigger fires, then solid in its colour.
+  if (e.loop === "bug") return e.active ? { stroke: "#f59e0b", dash: "", op: 0.85 } : { stroke: "#4b5563", dash: "6 5", op: 0.6 };
+  if (e.loop === "findings") return e.active ? { stroke: "#818cf8", dash: "", op: 0.85 } : { stroke: "#4b5563", dash: "6 5", op: 0.6 };
   // A Subtask's line to Verify lights as soon as that Subtask is done, even
   // while Verify itself waits for the other Subtasks.
   if (e.subtaskToVerify && e.a.state === "done") return { stroke: "#34d399", dash: "", op: 0.7 };
@@ -254,13 +255,15 @@ export function layoutRunGraph(graph: RunGraph): RunGraphLayout {
   });
   // The findings go back to the builders as a bug Subtask; once it passes
   // Verify, the normal path takes the Story to Review round 2. The loop leaves
-  // the node's right side, runs under its caption, then up the left padding.
+  // the node's bottom-centre (through its caption, like "Pedro starts the Run"),
+  // turns under the caption, then runs up the left padding.
   const fixLoopY = fix.y + H + 30;
+  const fixX = fix.x + W / 2;
   edges.push({
     a: fix, b: orch, loop: "findings", active: findingsLive,
     label: "bug Subtask → rebuild, then re-review", lx: (FIX_X + fix.x) / 2 + 20, ly: fixLoopY,
     pts: [
-      [fix.x + W, fix.y + H / 2], [fix.x + W + 18, fix.y + H / 2], [fix.x + W + 18, fixLoopY],
+      [fixX, fix.y + H], [fixX, fixLoopY],
       [FIX_X, fixLoopY], [FIX_X, orch.y + H / 2 + 12], [orch.x, orch.y + H / 2 + 12],
     ],
   });
@@ -271,9 +274,10 @@ export function layoutRunGraph(graph: RunGraph): RunGraphLayout {
   const merge = ship[graph.ship.findIndex((n) => n.id === "merge")];
   const reviewStop = place(graph.reviewStop, merge.x, fix.y);
   const from = graph.reviewStopFrom;
-  // Review failed twice: a short line out of Fix findings' upper right, below
-  // its badge and above the findings loop, which leaves at mid-height.
-  const fixStopY = fix.y + 16;
+  // Review failed twice: a straight line from the centre of Fix findings' right
+  // side into the centre of the gate's left side (the findings loop leaves from
+  // the bottom, so the side is free).
+  const fixStopY = fix.y + H / 2;
   edges.push({
     a: fix, b: reviewStop, label: "fails twice", intoStop: true, active: from === "fix", lx: (fix.x + W + reviewStop.x) / 2, ly: fixStopY,
     pts: [[fix.x + W, fixStopY], [reviewStop.x, fixStopY]],
