@@ -98,9 +98,9 @@
 ### D-012: Markdown Descriptions via `react-markdown` (2026-10-21)
 **Status:** Accepted
 **Context:** FB-100. Task descriptions (agent briefs, multi-section specs) are stored as raw text and shown in a plain textarea, which is hard to read. Rendering Markdown needs a parser — a new dependency, which CLAUDE.md requires to be approved.
-**Decision:** Add **`react-markdown`** only (approved by Pedro). No `remark-gfm`, no `rehype-raw`, no `dangerouslySetInnerHTML`. The description renders as Markdown in read mode; clicking it switches to the existing textarea. The stored text is unchanged.
+**Decision:** Add **`react-markdown`** (approved by Pedro). **`remark-gfm`** was later approved by Pedro on FB-149 so descriptions and Story comments render GFM tables, task lists and strikethrough. No `rehype-raw`, no `dangerouslySetInnerHTML`. The description renders as Markdown in read mode; clicking it switches to the existing textarea. The stored text is unchanged.
 **Rationale:** `react-markdown` builds React elements rather than HTML strings, so raw HTML in a description is never injected. CommonMark covers headings, lists and code, which is what briefs use.
-**Consequences:** GFM tables, task lists and strikethrough render as plain text. Links are not opened externally (that would need `tauri-plugin-shell`); file paths render as text or inline code.
+**Consequences:** GFM tables, task lists and strikethrough render (FB-149); autolinked URLs stay plain text. Links are not opened externally (that would need `tauri-plugin-shell`); file paths render as text or inline code.
 
 ### D-013: Rename the Issue Type `task` to `subtask`, Keep the `tasks` Table (2026-10-22)
 **Status:** Accepted
