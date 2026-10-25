@@ -93,8 +93,8 @@ npm run dev:staging
 ### Building
 
 ```bash
-# Production build → outputs the NSIS setup .exe installer
-npm run build
+# Production build → NSIS setup .exe in src-tauri/target/release/bundle/nsis/
+npx tauri build
 
 # Staging build (separate app data directory)
 npm run build:staging
