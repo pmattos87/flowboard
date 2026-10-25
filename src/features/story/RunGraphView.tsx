@@ -274,9 +274,10 @@ export function layoutRunGraph(graph: RunGraph): RunGraphLayout {
   const merge = ship[graph.ship.findIndex((n) => n.id === "merge")];
   const reviewStop = place(graph.reviewStop, merge.x, fix.y);
   const from = graph.reviewStopFrom;
-  // Review failed twice: a short line out of Fix findings' upper right, below
-  // its badge and clear of the findings loop, which leaves from the bottom.
-  const fixStopY = fix.y + 16;
+  // Review failed twice: a straight line from the centre of Fix findings' right
+  // side into the centre of the gate's left side (the findings loop leaves from
+  // the bottom, so the side is free).
+  const fixStopY = fix.y + H / 2;
   edges.push({
     a: fix, b: reviewStop, label: "fails twice", intoStop: true, active: from === "fix", lx: (fix.x + W + reviewStop.x) / 2, ly: fixStopY,
     pts: [[fix.x + W, fixStopY], [reviewStop.x, fixStopY]],
