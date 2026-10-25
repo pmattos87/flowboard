@@ -334,7 +334,7 @@ describe("RunGraphView Review lane Stop gate (FB-174)", () => {
     const gate = box("stop-review"), fix = box("fix"), merge = box("merge"), review = box("review");
     const edge = (from: string) => into("stop-review").find((e) => e.a === box(from))!;
 
-    // Fix findings → Stop: a short horizontal out of Fix's right side into the gate's left side.
+    // Fix findings → Stop: a short horizontal out of the centre of Fix's right side into the gate's left side.
     const f = edge("fix");
     expect(f.label).toBe("fails twice");
     expect(f.pts).toHaveLength(2);
@@ -342,8 +342,7 @@ describe("RunGraphView Review lane Stop gate (FB-174)", () => {
     expect(fx1).toBe(fix.x + W);
     expect(fx2).toBe(gate.x);
     expect(fy1).toBe(fy2);
-    expect(fy1).toBeGreaterThan(fix.y + 12); // below Fix's badge
-    expect(fy1).toBeLessThan(fix.y + H); // on the card's side, above the findings loop's exit at its bottom
+    expect(fy1).toBe(fix.y + H / 2); // centre of Fix's right side, straight into the centre of the gate's left side
 
     // Auto-merge → Stop: straight down.
     const m = edge("merge");
@@ -367,6 +366,14 @@ describe("RunGraphView Review lane Stop gate (FB-174)", () => {
     expect(p2[0]).toBeGreaterThan(gate.x);
     expect(p2[0]).toBeLessThan(merge.x + W / 2); // left of the Auto-merge drop
     expect(p3).toEqual([p2[0], gate.y]);
+
+    // "fails twice" label (11px italic, centred on lx, baseline at ly - 5, 4px halo) sits in the
+    // gap between Fix and the gate, on its own line, below the "Codex unavailable" horizontal.
+    const labelW = f.label!.length * 11 * 0.62 + 4; // conservative per-glyph width plus halo
+    expect(f.ly).toBe(fy1);
+    expect(f.lx! - labelW / 2).toBeGreaterThanOrEqual(fix.x + W);
+    expect(f.lx! + labelW / 2).toBeLessThanOrEqual(gate.x);
+    expect(f.ly! - 5 - 11 - 2).toBeGreaterThan(p1[1] + 2);
 
     // No new edge runs through a card, or another node's caption.
     for (const e of [f, m, c]) {
