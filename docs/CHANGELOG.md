@@ -10,6 +10,7 @@
 ### Changed
 - Story comments now render as Markdown (headings, lists, code, tables) the same way descriptions do, on the Story page and in the task detail panel. Editing a comment still shows the raw Markdown, and `comment-<id>` links still scroll to the comment (FB-149).
 - Descriptions and comments also render GFM tables (with dark-mode borders, scrolling when wide), task lists and strikethrough, through `remark-gfm`. Links still show as plain text, bare URLs are not linked and images are not loaded. D-012 is updated (FB-149).
+- On the Story page, each key in the Links section's "Depends on" field is now a link to that Story's page (`/story/<KEY>`), comma-separated; an empty list still shows "—". Dependencies are stored and loaded as before (FB-178).
 
 ### Fixed
 - The Run graph shows the second pass after a bug loop, not the first pass's green checks: Verify, Docs, Code review, Fix findings, PR opened and Auto-merge now take their state only from events since the Story last entered building. Review rounds and the "fails twice" stop count are counted per pass, and PR opened's caption reads "N PRs · PR gate: Review passed" once the Story has opened two or more PRs into develop (FB-176).
