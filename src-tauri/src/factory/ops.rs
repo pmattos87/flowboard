@@ -1235,7 +1235,7 @@ pub async fn release_create(pool: &SqlitePool, project: &str, version: &str) -> 
     release_show(pool, project, version).await
 }
 
-/// The project's Releases, oldest first, with how many Stories each holds.
+/// The project's Releases, newest first, with how many Stories each holds.
 pub async fn release_list(pool: &SqlitePool, project: &str) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let (pid, ladder, _) = project_id(&mut tx, project).await?;
@@ -1245,7 +1245,7 @@ pub async fn release_list(pool: &SqlitePool, project: &str) -> Result<Value, Str
     let rows: Vec<(String, String, String, Option<String>, i64)> = sqlx::query_as(
         r#"SELECT r.version, r.state, r.created_at, r.released_at,
                   (SELECT COUNT(*) FROM tasks t WHERE t.release_id = r.id)
-             FROM releases r WHERE r.project_id = ? ORDER BY r.id"#,
+             FROM releases r WHERE r.project_id = ? ORDER BY r.id DESC"#,
     )
     .bind(pid)
     .fetch_all(&mut *tx)
