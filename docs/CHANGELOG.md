@@ -7,6 +7,11 @@
 ### Added
 - Each sprint's header on the Sprint Planning board (not the Ready for Development row) shows its completion after the date range: `<done> / <total> pts · <percent>%`, with a 2px bar along the header's bottom filled to the percent. The bar is emerald at 100% (with at least one done point) whatever the sprint's status, otherwise blue for an active sprint and gray for the rest. Hovering the figure lists the points per status label (canceled is marked "(not counted)"). Only stories count, not bugs or subtasks; only status `done` counts as done on both ladders (on Factory projects `integrated_tests`, `tested` and `user_testing` are in the total but not done, as in the velocity chart); canceled stories leave the total. The calculation is the `sprintCompletion` helper in `src/lib/sprintProgress.ts` (FB-119).
 
+### Fixed
+- The Run graph's edges now show how the Run went: a Subtask's line to Verify lights green as soon as that Subtask is done, even while Verify waits for the others; and the Stop gates show where the Run stopped. The Build lane's "Stop, tell Pedro" gate takes Verify's "fails twice" edge. Review and Integrate stops go to a second Stop gate in the Review lane, under Auto-merge, with an edge from Fix findings ("fails twice"), Auto-merge ("fails") and Code review ("Codex unavailable"). The edge that carries the stop is red, the others dimmed dashed, and each gate counts only its own side's past stops ("stopped N× · restarted"). The old Fix findings line to the Build lane's Stop gate round the right padding is gone (FB-125).
+- The Run graph's "Stop, tell Pedro" node no longer sticks out above the BUILD lane box when a Story has one or two Subtasks: the lane's contents move down when the Subtask stack is short. The lane's top and the layout with three or more Subtasks are unchanged (FB-151).
+- The Run graph shows full node titles: stage, ship and plan node titles wrap to two lines and show the whole title in a tooltip on hover (so "Auto-merge → develop" is no longer cut off); Subtask cards get the taller two-line layout whenever the title's worst-case width doesn't fit beside its key (wide or long titles, symbols, non-Latin text, long keys) and the BUILD lane is laid out from the real card heights. The gate node "In integrated tests" is now called "Integrated tests" (FB-164).
+
 ## [1.8.0] - 2026-10-23
 
 ### Changed
