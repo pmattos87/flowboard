@@ -131,6 +131,39 @@ describe("StoryPage", () => {
     expect(screen.queryByText("Brief text")).not.toBeInTheDocument();
   });
 
+  it("links each Depends on key to its Story page", async () => {
+    const nineTask = { ...storyTask, id: 8, task_number: 9, title: "Earlier Story" };
+    mockInvoke.mockImplementation((cmd, args) => {
+      if (cmd === "list_projects") return Promise.resolve([factoryProject]);
+      if (cmd === "get_project") return Promise.resolve(factoryProject);
+      if (cmd === "list_tasks") return Promise.resolve([storyTask, nineTask]);
+      if (cmd === "get_story") {
+        const key = (args as { key: string }).key;
+        return Promise.resolve(key === "FB-9" ? storyView({ key, title: "Earlier Story", depends_on: [] }) : storyView({ depends_on: ["FB-9", "FB-10"] }));
+      }
+      return Promise.resolve([]);
+    });
+    renderPage();
+    await screen.findByDisplayValue("Export contract");
+    const nine = screen.getByRole("link", { name: "FB-9" });
+    expect(nine).toHaveAttribute("href", "/story/FB-9");
+    expect(nine).not.toHaveAttribute("target");
+    expect(screen.getByRole("link", { name: "FB-10" })).toHaveAttribute("href", "/story/FB-10");
+    expect(screen.getAllByRole("link")).toHaveLength(2);
+    await userEvent.click(screen.getByRole("link", { name: "FB-9" }));
+    // The linked Story's page opens: its title replaces this Story's.
+    expect(await screen.findByDisplayValue("Earlier Story")).toBeInTheDocument();
+    expect(screen.getByText("FB-9")).toBeInTheDocument();
+  });
+
+  it("shows a dash and no link when the Story depends on nothing", async () => {
+    setupInvoke(factoryProject, storyView({ depends_on: [] }));
+    renderPage();
+    await screen.findByDisplayValue("Export contract");
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    expect(screen.getByText("Depends on").nextElementSibling).toHaveTextContent("—");
+  });
+
   it("refuses a legacy project without asking for the Story", async () => {
     setupInvoke({ ...factoryProject, ladder: "legacy" });
     renderPage();

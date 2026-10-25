@@ -30,7 +30,12 @@ export interface RunGraph {
   orchestrator: RunNode;
   subtasks: SubtaskNode[];
   verify: RunNode;
+  /** The Build lane's Stop gate: a Subtask failed Verify twice, a blocked builder, a merge failure. */
   stop: RunNode;
+  /** The Review lane's Stop gate: Review failed twice, Codex unavailable, or Integrate failed. */
+  reviewStop: RunNode;
+  /** Which node's edge carries a Review-side stop into `reviewStop`, or null. */
+  reviewStopFrom: "review" | "fix" | "merge" | null;
   docs: RunNode;
   /** Review → Integrate → Release → Production, in order. */
   ship: RunNode[];
@@ -87,6 +92,14 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
     ...trail.filter((e) => e.action === "stage_entered").map((e) => rank(str(e.new))),
   );
   const reached = (s: TaskStatus) => reachedRank >= rank(s);
+  // After a bug loop the Build -> Review -> Integrate nodes show the second
+  // pass only: the events since the latest stage_entered -> building, and
+  // whether that pass has reached integrated tests (the Story's status now,
+  // not the furthest Stage it ever reached).
+  const bugLoop = bugFoundAfterIntegrate(trail);
+  const passStart = bugLoop ? trail.map((e) => e.action === "stage_entered" && e.new === "building").lastIndexOf(true) : 0;
+  const pass = trail.slice(Math.max(passStart, 0));
+  const passIntegrated = bugLoop ? rank(status) >= rank("integrated_tests") : reached("integrated_tests");
   const at = (s: TaskStatus) => trail.filter((e) => e.action === "stage_entered" && e.new === s).at(-1)?.at ?? "";
   const pick = (done: boolean, current: boolean): NodeState => (done ? "done" : current ? "current" : "todo");
 
@@ -129,8 +142,11 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
     return { id: `sub-${s.id}`, key, title: s.title, state, info: run };
   });
   const buildStopped = stopped && subNodes.some((n) => n.state === "stopped");
-  const reviewRounds = trail.filter((e) => e.action === "review_round");
-  const buildFinished = reached("integrated_tests") || reviewRounds.length > 0 || (building && open.length === 0 && subtasks.length > 0);
+  // A stop after the Build finished (every Subtask done or canceled, none
+  // stopped) is Review-side: it waits at the Review lane's gate.
+  const reviewSide = stopped && !buildStopped && open.length === 0;
+  const reviewRounds = pass.filter((e) => e.action === "review_round");
+  const buildFinished = passIntegrated || reviewRounds.length > 0 || (building && open.length === 0 && subtasks.length > 0);
 
   const orchestrator: RunNode = {
     id: "orchestrator",
@@ -147,41 +163,62 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
     // The Subtasks show where the Build is; Verify only shows its outcome.
     state: buildStopped ? "stopped" : pick(buildFinished, false),
   };
-  const stopEvents = trail.filter((e) => e.action === "run_stopped");
-  const lastStop = stopEvents.at(-1);
-  const stop: RunNode = {
-    id: "stop",
-    title: "Stop, tell Pedro",
-    kind: "gate",
-    caption: stopped
-      ? (lastStop && str(obj(lastStop).reason)) || "Run stopped"
-      : stopEvents.length > 0
-        ? `stopped ${stopEvents.length}× · restarted`
-        : "fails twice",
-    state: stopped ? "stopped" : stopEvents.length > 0 ? "done" : "todo",
+  // Each gate counts its own past stops. A past stop is Review-side when its
+  // reason names Review, or when the last Review round / Verify round / bug
+  // Subtask before it was a Review round (Integrate stops follow a passed one).
+  // The current stop's side comes from the graph, not the trail.
+  const pastStops: ("build" | "review")[] = [];
+  let lastStep = "";
+  for (const e of trail) {
+    if (e.action === "review_round" || e.action === "verify_round" || e.action === "bug_subtask_filed") lastStep = e.action;
+    else if (e.action === "run_stopped")
+      pastStops.push(str(obj(e).reason).startsWith("Review ") || lastStep === "review_round" ? "review" : "build");
+  }
+  const lastStop = trail.filter((e) => e.action === "run_stopped").at(-1);
+  if (stopped) pastStops.pop();
+  const gate = (id: string, here: boolean, side: "build" | "review", idle: string): RunNode => {
+    const n = pastStops.filter((s) => s === side).length;
+    return {
+      id,
+      title: "Stop, tell Pedro",
+      kind: "gate",
+      caption: here ? (lastStop && str(obj(lastStop).reason)) || "Run stopped" : n > 0 ? `stopped ${n}× · restarted` : idle,
+      state: here ? "stopped" : n > 0 ? "done" : "todo",
+    };
   };
+  const stop = gate("stop", stopped && !reviewSide, "build", "fails twice");
+  const reviewStop = gate("stop-review", reviewSide, "review", "Review or Integrate fails");
   const docs: RunNode = {
     id: "docs",
     title: "Docs",
     kind: "agent",
     caption: "once per Story",
-    state: pick(reached("integrated_tests") || reviewRounds.length > 0, building && open.length === 0 && subtasks.length > 0 && !stopped),
+    state: pick(passIntegrated || reviewRounds.length > 0, building && open.length === 0 && subtasks.length > 0 && !stopped),
   };
 
   // ─── Review → Integrate → Release → Production ───
   const lastReview = reviewRounds.at(-1);
   const lastVerdict = lastReview ? str(obj(lastReview).verdict) : "";
   const failedRounds = reviewRounds.filter((e) => str(obj(e).verdict) === "failed").length;
+  // Which node a Review-side stop came from: Integrate failed after a passed
+  // Review, Review failed twice, or else Codex was unavailable.
+  const reviewStopFrom: RunGraph["reviewStopFrom"] = !reviewSide
+    ? null
+    : lastVerdict === "passed"
+      ? "merge"
+      : failedRounds >= 2 && lastVerdict === "failed"
+        ? "fix"
+        : "review";
   const review: RunNode = {
     id: "review",
     title: "Code review",
     kind: "review",
     caption: reviewRounds.length > 0 ? `round ${reviewRounds.length} · ${lastVerdict}` : "whole Story diff",
     state:
-      lastVerdict === "passed" || reached("integrated_tests")
-        ? "done"
-        : lastVerdict === "failed" && stopped
-          ? "stopped"
+      reviewStopFrom === "review" || reviewStopFrom === "fix"
+        ? "stopped"
+        : lastVerdict === "passed" || passIntegrated
+          ? "done"
           : pick(false, lastVerdict === "failed" || (docs.state === "done" && building)),
   };
   const fix: RunNode = {
@@ -190,18 +227,22 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
     kind: "review",
     caption: failedRounds > 0 ? `${failedRounds} round${failedRounds === 1 ? "" : "s"} with findings · max 2` : "then re-review · max 2 rounds",
     state:
-      failedRounds === 0
-        ? "todo"
-        : lastVerdict === "passed" || reached("integrated_tests")
-          ? "done"
-          : stopped
-            ? "stopped"
+      reviewStopFrom === "fix"
+        ? "stopped"
+        : failedRounds === 0
+          ? "todo"
+          : lastVerdict === "passed" || passIntegrated || reviewStopFrom === "review"
+            ? "done"
             : "current",
   };
-  const developPrs = trail.filter((e) => e.action === "pr_opened" && str(obj(e).target) === "develop");
-  const merged = new Set(trail.filter((e) => e.action === "pr_merged").map((e) => str(obj(e).url)));
-  const prOpened = developPrs.length > 0 || reached("integrated_tests");
-  const prMerged = developPrs.some((e) => merged.has(str(obj(e).url))) || reached("integrated_tests");
+  const isDevelopPr = (e: TrailEvent) => e.action === "pr_opened" && str(obj(e).target) === "develop";
+  const developPrs = pass.filter(isDevelopPr);
+  const merged = new Set(pass.filter((e) => e.action === "pr_merged").map((e) => str(obj(e).url)));
+  // Every pass's PRs into develop, not only the current pass's.
+  const prCount = trail.filter(isDevelopPr).length;
+  const prReached = passIntegrated;
+  const prOpened = developPrs.length > 0 || prReached;
+  const prMerged = developPrs.some((e) => merged.has(str(obj(e).url))) || prReached;
   const picks = trail.filter((e) => e.action === "release_picked" || e.action === "release_removed");
   const lastPick = picks.at(-1);
   const picked = story.release_id != null || lastPick?.action === "release_picked";
@@ -209,11 +250,11 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
 
   const ship: RunNode[] = [
     review,
-    { id: "pr", title: "PR opened", kind: "git", caption: "PR gate: Review passed", state: pick(prOpened, false) },
-    { id: "merge", title: "Auto-merge → develop", kind: "git", caption: "Integrate", state: pick(prMerged, prOpened && !prMerged) },
+    { id: "pr", title: "PR opened", kind: "git", caption: prCount > 1 ? `${prCount} PRs · PR gate: Review passed` : "PR gate: Review passed", state: pick(prOpened, false) },
+    { id: "merge", title: "Auto-merge → develop", kind: "git", caption: "Integrate", state: reviewStopFrom === "merge" ? "stopped" : pick(prMerged, prOpened && !prMerged) },
     {
       id: "integrated",
-      title: "In integrated tests",
+      title: "Integrated tests",
       kind: "gate",
       caption: "Pedro tests on develop",
       state: pick(reached("tested"), status === "integrated_tests"),
@@ -237,9 +278,11 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
     subtasks: subNodes,
     verify,
     stop,
+    reviewStop,
+    reviewStopFrom,
     docs,
     ship,
     fix,
-    bugLoop: bugFoundAfterIntegrate(trail),
+    bugLoop,
   };
 }

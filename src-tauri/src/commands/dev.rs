@@ -1,12 +1,6 @@
 use sqlx::SqlitePool;
 use tauri::State;
 
-/// Returns true when running a debug build (tauri dev). Always false in release.
-#[tauri::command]
-pub fn is_staging_build() -> bool {
-    cfg!(debug_assertions)
-}
-
 /// Populate the database with realistic demo data for staging / manual testing.
 ///
 /// - `force = false`: skips if any projects already exist (idempotent).

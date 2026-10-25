@@ -551,9 +551,9 @@ async fn release_list_shows_each_release_with_its_story_count() {
     let list = ops::release_list(&fx.pool, "SF").await.unwrap();
     let rs = list["releases"].as_array().unwrap();
     assert_eq!(rs.len(), 2);
-    assert_eq!((rs[0]["version"].as_str(), rs[0]["state"].as_str(), rs[0]["stories"].as_i64()), (Some("1.6.0"), Some("released"), Some(1)));
-    assert!(rs[0]["released_at"].is_string());
-    assert_eq!((rs[1]["version"].as_str(), rs[1]["state"].as_str(), rs[1]["stories"].as_i64()), (Some("1.7.0"), Some("planned"), Some(0)));
+    assert_eq!((rs[0]["version"].as_str(), rs[0]["state"].as_str(), rs[0]["stories"].as_i64()), (Some("1.7.0"), Some("planned"), Some(0)));
+    assert_eq!((rs[1]["version"].as_str(), rs[1]["state"].as_str(), rs[1]["stories"].as_i64()), (Some("1.6.0"), Some("released"), Some(1)));
+    assert!(rs[1]["released_at"].is_string());
 
     let err = ops::release_list(&fx.pool, "LG").await.unwrap_err();
     assert!(err.contains("legacy"), "{err}");
