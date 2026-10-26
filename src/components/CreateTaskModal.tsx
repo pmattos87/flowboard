@@ -96,6 +96,8 @@ export function CreateTaskModal() {
     ? form.status
     : statusOptions[0].value;
   const gate = sprintGateToast(project?.ladder);
+  // A Factory Story's points are the sum of its Subtasks' (SF-68).
+  const derivedPoints = project?.ladder === "factory" && form.type === "story";
 
   const lockType = createTaskPrefill?.lockType ?? false;
   const typeOptions = lockType
@@ -131,7 +133,7 @@ export function CreateTaskModal() {
         sprint_id: form.sprint_id,
         parent_id: form.parent_id,
         assignee_id: form.assignee_id,
-        story_points: form.story_points,
+        story_points: derivedPoints ? 0 : form.story_points,
         due_date: form.due_date || null,
         labels: form.labels.trim(),
         description: form.description.trim(),
@@ -285,7 +287,9 @@ export function CreateTaskModal() {
                   type="number"
                   min={0}
                   step={1}
-                  value={form.story_points}
+                  value={derivedPoints ? 0 : form.story_points}
+                  disabled={derivedPoints}
+                  title={derivedPoints ? "The sum of its Subtasks' points, once it is split" : undefined}
                   onChange={(e) => setForm((f) => ({ ...f, story_points: Math.max(0, Number(e.target.value)) }))}
                   className="bg-gray-800 border-gray-700 text-gray-100"
                 />

@@ -165,6 +165,7 @@ pub async fn create_task_inner(
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| e.to_string())?;
+    factory::ops::app_sync_points(&mut tx, id, None).await?;
 
     sqlx::query(
         r#"INSERT INTO activity_log (task_id, person_id, action, old_value, new_value, created_at)
@@ -255,6 +256,7 @@ pub async fn update_task_inner(
     // On a Factory project, status and sprint changes go through the ladder
     // operations (SF-31); the rest of the payload is applied below as usual.
     let before = get_task_inner(pool, id).await?;
+    factory::ops::app_check_points(pool, id, payload.story_points).await?;
     if factory::ops::app_move(pool, id, payload.status.as_deref(), payload.sprint_id).await? {
         payload.status = None;
         payload.sprint_id = None;
@@ -354,6 +356,8 @@ pub async fn update_task_inner(
         .await
         .map_err(|e| e.to_string())?;
     }
+    // A Factory Story's points follow its Subtasks' (SF-68).
+    factory::ops::app_sync_points(&mut tx, id, current.parent_id).await?;
 
     tx.commit().await.map_err(|e| e.to_string())?;
 
@@ -371,7 +375,7 @@ pub async fn update_task(
 
 #[cfg(test)]
 mod tests {
-    use super::{create_task_inner, update_task_inner, TaskCreate, TaskUpdate};
+    use super::{create_task_inner, get_task_inner, update_task_inner, TaskCreate, TaskUpdate};
     use sqlx::SqlitePool;
 
     #[test]
@@ -1025,6 +1029,11 @@ mod tests {
         .await
     }
 
+    /// Give a Story the points a split would, so it may move to `ready`.
+    async fn split_story(f: &Factory, id: i64) {
+        sqlx::query("UPDATE tasks SET story_points = 3 WHERE id = ?").bind(id).execute(&f.pool).await.unwrap();
+    }
+
     async fn set_status(f: &Factory, id: i64, status: &str) -> Result<super::Task, String> {
         update_task_inner(&f.pool, id, TaskUpdate { status: Some(status.into()), ..empty_update() }).await
     }
@@ -1076,6 +1085,7 @@ mod tests {
             .unwrap_err();
         assert!(err.contains("only at ready"), "{err}");
 
+        split_story(&f, story.id).await;
         set_status(&f, story.id, "ready").await.unwrap();
         let story = update_task_inner(&f.pool, story.id, TaskUpdate { sprint_id: Some(Some(f.sprint_id)), ..empty_update() })
             .await
@@ -1094,6 +1104,7 @@ mod tests {
     async fn a_stage_move_keeps_its_assignee_when_the_payload_echoes_the_old_one() {
         let f = factory_project().await;
         let story = create_in(&f, "story", None, Some("refining")).await.unwrap();
+        split_story(&f, story.id).await;
         set_status(&f, story.id, "ready").await.unwrap();
         update_task_inner(&f.pool, story.id, TaskUpdate { sprint_id: Some(Some(f.sprint_id)), ..empty_update() })
             .await
@@ -1165,6 +1176,7 @@ mod tests {
         assert!(err.contains("backlog or refining"), "{err}");
 
         let story = create_in(&f, "story", None, Some("refining")).await.unwrap();
+        split_story(&f, story.id).await;
         set_status(&f, story.id, "ready").await.unwrap();
         update_task_inner(&f.pool, story.id, TaskUpdate { sprint_id: Some(Some(f.sprint_id)), ..empty_update() })
             .await
@@ -1174,5 +1186,87 @@ mod tests {
         assert_eq!(bug.sprint_id, Some(f.sprint_id));
         let err = create_in(&f, "subtask", Some(story.id), Some("in_review")).await.unwrap_err();
         assert!(err.contains("starts in todo"), "{err}");
+    }
+
+    async fn set_points(f: &Factory, id: i64, points: i64) -> Result<super::Task, String> {
+        update_task_inner(&f.pool, id, TaskUpdate { story_points: Some(points), ..empty_update() }).await
+    }
+
+    #[tokio::test]
+    async fn a_factory_storys_points_follow_its_subtasks_in_the_app() {
+        let f = factory_project().await;
+        let story = create_in(&f, "story", None, Some("refining")).await.unwrap();
+        let sub = create_task_inner(
+            &f.pool,
+            TaskCreate {
+                project_id: f.project_id,
+                sprint_id: None,
+                parent_id: Some(story.id),
+                title: "slice".into(),
+                description: None,
+                r#type: Some("subtask".into()),
+                status: None,
+                priority: None,
+                assignee_id: None,
+                story_points: Some(3),
+                due_date: None,
+                labels: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(get_task_inner(&f.pool, story.id).await.unwrap().story_points, 3);
+
+        set_points(&f, sub.id, 5).await.unwrap();
+        assert_eq!(get_task_inner(&f.pool, story.id).await.unwrap().story_points, 5);
+
+        let err = set_status(&f, story.id, "ready").await;
+        assert!(err.is_ok(), "a Story sized by its Subtasks may become ready: {err:?}");
+
+        let err = set_points(&f, story.id, 8).await.unwrap_err();
+        assert!(err.contains("sum of its Subtasks' points"), "{err}");
+        assert_eq!(get_task_inner(&f.pool, story.id).await.unwrap().story_points, 5);
+        // Echoing the current value is not an edit.
+        set_points(&f, story.id, 5).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_app_refuses_ready_for_an_unsplit_factory_story() {
+        let f = factory_project().await;
+        let story = create_in(&f, "story", None, Some("refining")).await.unwrap();
+        let err = set_status(&f, story.id, "ready").await.unwrap_err();
+        assert!(err.contains("0 points"), "{err}");
+        assert_eq!(get_task_inner(&f.pool, story.id).await.unwrap().status, "refining");
+    }
+
+    #[tokio::test]
+    async fn a_legacy_storys_points_stay_editable() {
+        let pool = new_test_pool().await;
+        let project_id = seed_project(&pool).await;
+        seed_person(&pool, "Alice").await;
+        let story = create_task_inner(
+            &pool,
+            TaskCreate {
+                project_id,
+                sprint_id: None,
+                parent_id: None,
+                title: "legacy".into(),
+                description: None,
+                r#type: Some("story".into()),
+                status: None,
+                priority: None,
+                assignee_id: None,
+                story_points: Some(8),
+                due_date: None,
+                labels: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(story.story_points, 8);
+        let story = update_task_inner(&pool, story.id, TaskUpdate { story_points: Some(13), ..empty_update() })
+            .await
+            .unwrap();
+        assert_eq!(story.story_points, 13);
     }
 }

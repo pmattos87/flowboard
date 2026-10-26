@@ -10,6 +10,8 @@ import {
 } from "recharts";
 import { useSprints } from "@/hooks/useSprints";
 import { useTasks } from "@/hooks/useTasks";
+import { useProject } from "@/hooks/useProjects";
+import { reportedTasks } from "./reportedTasks";
 
 interface Props {
   projectId: number;
@@ -20,16 +22,17 @@ export function VelocityChart({ projectId }: Props) {
   const { data: tasks = [], isLoading: tasksLoading } = useTasks({
     project_id: projectId,
   });
+  const { data: project } = useProject(projectId);
 
   const chartData = useMemo(() => {
     const completed = sprints.filter((s) => s.status === "completed");
     return completed.map((s) => {
-      const points = tasks
+      const points = reportedTasks(tasks, project?.ladder)
         .filter((t) => t.sprint_id === s.id && t.status === "done")
         .reduce((sum, t) => sum + t.story_points, 0);
       return { name: s.name, points };
     });
-  }, [sprints, tasks]);
+  }, [sprints, tasks, project?.ladder]);
 
   if (sprintsLoading || tasksLoading) {
     return <p className="text-sm text-gray-500">Loading…</p>;
