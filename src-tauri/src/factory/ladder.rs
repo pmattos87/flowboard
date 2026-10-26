@@ -43,6 +43,8 @@ pub struct StoryFacts<'a> {
     pub client_project: bool,
     pub open_subtasks: i64,
     pub run_stopped: bool,
+    /// The sum of its Subtasks' points (SF-68); 0 until it is split.
+    pub story_points: i64,
 }
 
 fn rank(status: &str) -> Option<usize> {
@@ -103,6 +105,9 @@ pub fn check_story_move(facts: &StoryFacts, to: &str) -> Result<(), String> {
         return Err(format!(
             "a Story in a sprint cannot go back to {to}; remove it from the sprint first"
         ));
+    }
+    if from == "refining" && to == "ready" && facts.story_points == 0 {
+        return Err("the Story has 0 points; split it into Subtasks first (factory:split)".into());
     }
     if to == "building" && !facts.in_sprint {
         return Err("a Run can only start on a Story that is in a sprint".into());
@@ -195,7 +200,22 @@ mod tests {
             client_project: false,
             open_subtasks: 0,
             run_stopped: false,
+            story_points: 3,
         }
+    }
+
+    #[test]
+    fn a_story_with_no_points_cannot_become_ready() {
+        let mut f = facts("refining");
+        f.in_sprint = false;
+        f.story_points = 0;
+        let err = check_story_move(&f, "ready").unwrap_err();
+        assert!(err.contains("0 points") && err.contains("split"), "{err}");
+        for to in ["backlog", "canceled"] {
+            check_story_move(&f, to).unwrap_or_else(|e| panic!("refining -> {to}: {e}"));
+        }
+        f.story_points = 1;
+        check_story_move(&f, "ready").unwrap();
     }
 
     #[test]

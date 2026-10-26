@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import type { ReactNode } from "react";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useTaskDraft } from "@/components/TaskFields";
+import { TaskFields, useTaskDraft } from "@/components/TaskFields";
 import type { Task } from "@/types";
 
 const baseTask: Task = {
@@ -95,5 +95,44 @@ describe("useTaskDraft re-sync", () => {
     rerender({ t: baseTask });
     expect(renders - before).toBeLessThanOrEqual(2);
     expect(result.current.draft.title).toBe("Export contract");
+  });
+});
+
+function PointsField({ task }: { task: Task }) {
+  const state = useTaskDraft(task);
+  return <TaskFields task={task} state={state} />;
+}
+
+function renderFields(task: Task, ladder: "legacy" | "factory") {
+  vi.mocked(invoke).mockImplementation((cmd) => {
+    if (cmd === "get_project") return Promise.resolve({ id: 1, ladder });
+    return Promise.resolve([]);
+  });
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={qc}>
+      <PointsField task={task} />
+    </QueryClientProvider>,
+  );
+}
+
+describe("TaskFields points", () => {
+  it("is read-only on a Factory Story, whose points are its Subtasks' sum", async () => {
+    renderFields(baseTask, "factory");
+    await waitFor(() => expect(screen.getByLabelText("Points")).toHaveAttribute("readonly"));
+  });
+
+  it("stays editable on a Factory Subtask", async () => {
+    renderFields({ ...baseTask, type: "subtask", parent_id: 3 }, "factory");
+    await waitFor(() => expect(vi.mocked(invoke)).toHaveBeenCalledWith("get_project", { id: 1 }));
+    await act(async () => {}); // let the project query settle
+    expect(screen.getByLabelText("Points")).not.toHaveAttribute("readonly");
+  });
+
+  it("stays editable on a legacy Story", async () => {
+    renderFields(baseTask, "legacy");
+    await waitFor(() => expect(vi.mocked(invoke)).toHaveBeenCalledWith("get_project", { id: 1 }));
+    await act(async () => {}); // let the project query settle
+    expect(screen.getByLabelText("Points")).not.toHaveAttribute("readonly");
   });
 });
