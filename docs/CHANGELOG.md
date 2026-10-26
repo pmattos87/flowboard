@@ -2,7 +2,7 @@
 
 **All notable changes to this project will be documented in this file.**
 
-## [Unreleased]
+## [1.10.0] - 2026-10-26
 
 ### Changed
 - On Factory projects a Story's points are the sum of its Subtasks' points: creating, canceling or reopening a Subtask, or changing its points, updates the Story's total. Bug Subtasks and canceled ones don't count. The Story's points field is read-only, and the velocity and workload reports count each Story once instead of again through its Subtasks. A Story with 0 points can't move from `refining` to `ready`; split it first. Migration `012_story_points_backfill.sql` sets the total once for Factory Stories that were already split (SF-68).
