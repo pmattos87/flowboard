@@ -43,9 +43,10 @@ export default function Settings() {
   const updateProject = useUpdateProject();
   const deleteProject = useDeleteProject();
 
-  const [searchParams] = useSearchParams();
-  const tabParam = searchParams.get("tab");
-  const [activeTab, setActiveTab] = useState<Tab>(() => tabFromParam(tabParam));
+  // The URL is the source of truth for the tab, so a tab click and a link to
+  // `?tab=backup` (the sidebar's backup warning) always agree.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = tabFromParam(searchParams.get("tab"));
   const [name, setName] = useState("");
   const [key, setKey] = useState("");
   const [description, setDescription] = useState("");
@@ -59,11 +60,6 @@ export default function Settings() {
   const isStaging = import.meta.env.VITE_APP_ENV === "staging";
   const [seeding, setSeeding] = useState(false);
   const [seedResult, setSeedResult] = useState<string | null>(null);
-
-  // Re-reads the param when Settings is already open (e.g. the sidebar's backup warning).
-  useEffect(() => {
-    if (tabParam) setActiveTab(tabFromParam(tabParam));
-  }, [tabParam]);
 
   useEffect(() => {
     if (project) {
@@ -155,7 +151,7 @@ export default function Settings() {
           <button
             key={tab.id}
             type="button"
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => setSearchParams({ tab: tab.id })}
             className={cn(
               "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
               activeTab === tab.id

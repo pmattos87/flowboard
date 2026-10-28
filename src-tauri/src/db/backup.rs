@@ -16,7 +16,6 @@ use sqlx::{ConnectOptions, Connection, SqlitePool};
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 
 /// File name of the backup settings, inside the app data dir.
 pub const SETTINGS_FILE: &str = "backup.json";
@@ -165,9 +164,11 @@ async fn run_with(
 /// `PRAGMA quick_check` on a plain connection (mode `rw`, no journal_mode, no
 /// migrations: LESSONS SF-2), closed before the caller renames the file.
 async fn verify(path: &Path) -> bool {
-    let Ok(options) = SqliteConnectOptions::from_str(&super::sqlite_url(path, "rw")) else {
-        return false;
-    };
+    // `filename` takes the literal path: a URL would be percent-decoded, so a
+    // folder named `Backups%20Archive` would open a different file.
+    let options = SqliteConnectOptions::new()
+        .filename(path)
+        .create_if_missing(false);
     let Ok(mut conn) = options.connect().await else {
         return false;
     };
@@ -215,6 +216,7 @@ fn prune(dir: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     struct Fixture {
         pool: SqlitePool,
@@ -550,6 +552,32 @@ mod tests {
         assert_eq!(first.len(), KEEP);
         run_backup(&f.pool, &f.settings, &clock("2026-10-28")).await.unwrap();
         assert_eq!(names(&f.backups), first);
+    }
+
+    /// A folder name holding a literal `%20` must not be percent-decoded when
+    /// the copy is verified.
+    #[tokio::test]
+    async fn a_folder_with_a_literal_percent_sequence_gets_a_verified_copy() {
+        let f = fixture("percent").await;
+        let odd = f.backups.join("Backups%20Archive");
+        fs::create_dir_all(&odd).unwrap();
+        BackupSettings {
+            backup_dir: Some(odd.clone()),
+            last_backup_at: None,
+        }
+        .save(&f.settings)
+        .unwrap();
+
+        let path = run_backup(&f.pool, &f.settings, &clock("2026-10-28"))
+            .await
+            .expect("the backup runs");
+
+        assert_eq!(names(&odd), ["flowboard-2026-10-28.db"]);
+        assert!(path.is_file());
+        assert_eq!(
+            BackupSettings::load(&f.settings).last_backup_at.as_deref(),
+            Some("2026-10-28T12:00:00.000Z")
+        );
     }
 
     #[tokio::test]

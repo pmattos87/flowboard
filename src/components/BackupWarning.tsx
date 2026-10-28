@@ -1,9 +1,12 @@
+import { useEffect, useState } from "react";
 import { CloudOff } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useBackupStatus } from "@/hooks/useBackup";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const STALE_AFTER_DAYS = 3;
+/** How often the age is re-read, so the card appears while the app sits idle. */
+const TICK_MS = 60 * 1000;
 
 /**
  * Non-dismissible warning under the sidebar nav when the last backup is
@@ -12,10 +15,15 @@ const STALE_AFTER_DAYS = 3;
  */
 export function BackupWarning() {
   const { data: status } = useBackupStatus();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), TICK_MS);
+    return () => clearInterval(id);
+  }, []);
   if (!status) return null;
 
   const ageMs = status.last_backup_at
-    ? Date.now() - new Date(status.last_backup_at).getTime()
+    ? now - new Date(status.last_backup_at).getTime()
     : null;
   const stale = ageMs === null || ageMs > STALE_AFTER_DAYS * DAY_MS;
   if (status.enabled && !stale) return null;

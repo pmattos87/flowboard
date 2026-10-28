@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { Link, MemoryRouter } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import Settings from "@/pages/Settings";
 import { useUiStore } from "@/stores/uiStore";
@@ -71,6 +71,40 @@ describe("Settings — tab search param", () => {
   it("opens on the Project tab for an unknown tab value", () => {
     renderSettings("/settings?tab=nope");
     expect(screen.getByText(/select a project/i)).toBeInTheDocument();
+  });
+});
+
+describe("Settings — reopening the Backup tab from the warning link", () => {
+  it("lands on Backup again after switching to other tabs", async () => {
+    mockInvoke.mockResolvedValue({
+      backup_dir: null,
+      last_backup_at: null,
+      last_error: null,
+      enabled: true,
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <MemoryRouter initialEntries={["/settings"]}>
+        <QueryClientProvider client={qc}>
+          <Link to="/settings?tab=backup">warning</Link>
+          <Settings />
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("link", { name: "warning" }));
+    expect(await screen.findByText(/no folder chosen/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Project" }));
+    expect(screen.queryByText(/no folder chosen/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "warning" }));
+    expect(await screen.findByText(/no folder chosen/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Keyboard Shortcuts" }));
+    expect(screen.queryByText(/no folder chosen/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "warning" }));
+    expect(await screen.findByText(/no folder chosen/i)).toBeInTheDocument();
   });
 });
 

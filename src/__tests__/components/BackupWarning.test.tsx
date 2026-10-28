@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
@@ -88,6 +88,49 @@ describe("BackupWarning", () => {
       expect(qc.getQueryState(backupKeys.status())?.status).toBe("success")
     );
     expect(screen.queryByTestId("backup-warning")).not.toBeInTheDocument();
+  });
+
+  it("shows the card once an idle app's last backup crosses 3 days old", async () => {
+    // Capture the component's tick; waitFor and React Query keep their own timers.
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+    const qc = renderWarning({
+      ...baseStatus,
+      last_backup_at: new Date(NOW.getTime() - 3 * DAY_MS + 30 * 60 * 1000).toISOString(),
+    });
+    await waitFor(() =>
+      expect(qc.getQueryState(backupKeys.status())?.status).toBe("success")
+    );
+    expect(screen.queryByTestId("backup-warning")).not.toBeInTheDocument();
+
+    // No refetch, no other render: only time passes and the tick fires.
+    const calls = mockInvoke.mock.calls.length;
+    vi.setSystemTime(new Date(NOW.getTime() + 31 * 60 * 1000));
+    const [tick] = setIntervalSpy.mock.calls.find(([, ms]) => ms === 60_000)!;
+    act(() => (tick as () => void)());
+    expect(screen.getByTestId("backup-warning")).toBeInTheDocument();
+    expect(mockInvoke.mock.calls.length).toBe(calls);
+    setIntervalSpy.mockRestore();
+  });
+
+  it("clears its age tick when it unmounts", () => {
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+    const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
+    mockInvoke.mockReturnValue(new Promise(() => {}));
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { unmount } = render(
+      <MemoryRouter>
+        <QueryClientProvider client={qc}>
+          <BackupWarning />
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+    const index = setIntervalSpy.mock.calls.findIndex(([, ms]) => ms === 60_000);
+    expect(index).toBeGreaterThanOrEqual(0);
+    const id = setIntervalSpy.mock.results[index].value;
+    unmount();
+    expect(clearIntervalSpy).toHaveBeenCalledWith(id);
+    setIntervalSpy.mockRestore();
+    clearIntervalSpy.mockRestore();
   });
 
   it("shows no card while the status is still loading", () => {
