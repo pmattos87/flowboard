@@ -51,6 +51,8 @@
 | Subtask | Blue  |
 | Epic   | Purple |
 
+A Run's Simplify Subtask (a `subtask` titled `Simplify`, or whose description starts with `agent: simplify`) is a display role, not a type: it shows a wand icon in fuchsia on Kanban cards, in the Run graph and in the "Simplify" type badge. The rule lives in `src/lib/subtaskRole.ts`.
+
 ## Priority Icons
 - Critical → red chevron
 - High → orange chevron  

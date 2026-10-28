@@ -2,6 +2,11 @@
 
 **All notable changes to this project will be documented in this file.**
 
+## [Unreleased]
+
+### Added
+- A Run's Simplify Subtask and its bug Subtasks now look different from the Subtasks in the plan. On the Run graph every Subtask card has a role icon before its key (blue checkbox for a plan Subtask, fuchsia wand for Simplify, red bug for a bug) and the agent line takes the role colour: `SIMPLIFY` for Simplify, `BUG · <agent> · <model>` (or `BUG · not handed out`) for a bug, teal agent for a plan Subtask. The Run legend lists the three roles. On Kanban cards Simplify shows the fuchsia wand, and the type badge of the task detail panel and the Story page shows a fuchsia "Simplify" badge. Simplify is recognised by a `subtask` titled `Simplify` or whose description starts with `agent: simplify` (`subtaskRole` in `src/lib/subtaskRole.ts`); it is a display role, not a new type, so there is no migration (FB-171).
+
 ## [1.10.0] - 2026-10-26
 
 ### Changed
