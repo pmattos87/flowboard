@@ -274,6 +274,62 @@ async fn verify_and_review_rounds_are_numbered() {
     assert_eq!(reviews, vec![1, 2]);
 }
 
+/// The `new_value` of every `review_started` row on a Story, oldest first.
+async fn review_starts(fx: &Fx, key: &str) -> Vec<Value> {
+    ops::trail(&fx.pool, key)
+        .await
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["action"] == "review_started")
+        .map(|e| e["new"].clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn review_start_logs_the_round_about_to_run() {
+    let fx = setup("internal").await;
+    let s = story(&fx, "review start").await;
+    // An open Subtask must not block it: manual Reviews still work.
+    subtask(&fx, &s, false).await;
+    ready_in_sprint(&fx, &s).await;
+    mv(&fx, &s, "building").await.unwrap();
+
+    ops::review_start(&fx.pool, &s, Actor::Agent).await.unwrap();
+    assert_eq!(review_starts(&fx, &s).await, vec![serde_json::json!({ "round": 1 })]);
+
+    ops::review_record(&fx.pool, &s, "failed", "c1", None, Actor::Agent).await.unwrap();
+    ops::review_start(&fx.pool, &s, Actor::Agent).await.unwrap();
+    assert_eq!(
+        review_starts(&fx, &s).await,
+        vec![serde_json::json!({ "round": 1 }), serde_json::json!({ "round": 2 })]
+    );
+}
+
+#[tokio::test]
+async fn review_start_is_refused_off_building_and_on_a_stopped_run() {
+    let fx = setup("internal").await;
+    let s = story(&fx, "refused start").await;
+    ready_in_sprint(&fx, &s).await;
+    let rows = || async {
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM activity_log WHERE action = 'review_started'")
+            .fetch_one(&fx.pool)
+            .await
+            .unwrap()
+    };
+
+    let err = ops::review_start(&fx.pool, &s, Actor::Agent).await.unwrap_err();
+    assert!(err.contains("building"), "{err}");
+
+    mv(&fx, &s, "building").await.unwrap();
+    ops::run_stop(&fx.pool, &s, "held", Actor::Agent).await.unwrap();
+    let err = ops::review_start(&fx.pool, &s, Actor::Agent).await.unwrap_err();
+    assert!(err.contains("stopped"), "{err}");
+
+    assert_eq!(rows().await, 0, "a refused review_start must not log");
+}
+
 #[tokio::test]
 async fn sprint_entry_and_exit_only_at_ready_and_subtasks_follow() {
     let fx = setup("internal").await;
