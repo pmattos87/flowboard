@@ -142,15 +142,18 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
     return { id: `sub-${s.id}`, key, title: s.title, state, info: run };
   });
   const buildStopped = stopped && subNodes.some((n) => n.state === "stopped");
-  // A stop after the Build finished (every Subtask done or canceled, none
-  // stopped) is Review-side: it waits at the Review lane's gate.
-  const reviewSide = stopped && !buildStopped && open.length === 0;
   const reviewRounds = pass.filter((e) => e.action === "review_round");
   // A Review round is running when this pass's latest review_started comes
   // after its latest review_round (FB-158); trails without the event never are.
   const lastIndex = (action: string) => pass.map((e) => e.action === action).lastIndexOf(true);
   const reviewStarted = lastIndex("review_started");
   const reviewRunning = reviewStarted > lastIndex("review_round");
+  // The running round is still the Run's latest step: no Build activity since.
+  const reviewInFlight = reviewRunning && reviewStarted > Math.max(lastIndex("subtask_handoff"), lastIndex("verify_round"));
+  // A stop after the Build finished (every Subtask done or canceled, none
+  // stopped), or during a Review round in flight (a manual Review may leave
+  // Subtasks open), is Review-side: it waits at the Review lane's gate.
+  const reviewSide = stopped && !buildStopped && (open.length === 0 || reviewInFlight);
   const buildFinished = passIntegrated || reviewRounds.length > 0 || (building && open.length === 0 && subtasks.length > 0);
 
   const orchestrator: RunNode = {

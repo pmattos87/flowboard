@@ -518,4 +518,69 @@ describe("runGraph Review lit from review_started (FB-158)", () => {
     expect(g2(reviewStop)).toEqual(["stopped", "done"]);
   });
   const g2 = (g: RunGraph) => [review(g)?.state, g.fix.state];
+
+  it("a manual Review with an open Subtask stopped for Codex unavailable stops at the Review gate", () => {
+    const subs = [sub(2, "done"), sub(3, "todo")];
+    const g = graph({ status: "building", run_stopped: true }, subs, [
+      ...built, started(1), ev("run_stopped", { reason: "Review waits: Codex unavailable" }),
+    ]);
+    expect(review(g)?.state).toBe("stopped");
+    expect(g.reviewStopFrom).toBe("review");
+    expect(g.reviewStop.state).toBe("stopped");
+    expect(g.stop.state).toBe("todo");
+  });
+
+  it("a stop with an open Subtask and no running Review is still a Build stop", () => {
+    const subs = [sub(2, "done"), sub(3, "todo")];
+    const g = graph({ status: "building", run_stopped: true }, subs, [
+      ...built, started(1), ev("review_round", { round: 1, verdict: "failed" }),
+      ev("run_stopped", { reason: "Subtask FB-3 failed Verify twice" }),
+    ]);
+    expect(g.reviewStopFrom).toBeNull();
+    expect(g.stop.state).toBe("stopped");
+    expect(g.reviewStop.state).toBe("todo");
+  });
+
+  it("QA: a Verify stop with a stale review_started in the pass is a Build stop", () => {
+    const subs = [sub(2, "done"), sub(3, "in_progress"), sub(4, "todo")];
+    const g = graph({ status: "building", run_stopped: true }, subs, [
+      ...built, started(1), ev("run_stopped", { reason: "Review waits: Codex unavailable" }), ev("run_restarted"),
+      ev("subtask_handoff", { subtask: "FB-3", agent: "frontend-design", model: "opus" }),
+      ev("verify_round", { subtask: "FB-3", round: 1, result: "fail" }),
+      ev("verify_round", { subtask: "FB-3", round: 2, result: "fail" }),
+      ev("run_stopped", { reason: "Verify failed twice on FB-3" }),
+    ]);
+    expect(g.verify.state).toBe("stopped");
+    expect(g.reviewStopFrom).toBeNull();
+    expect(g.stop.state).toBe("stopped");
+    expect(g.reviewStop.state).toBe("done");
+  });
+
+  it("QA: a non-Verify stop while building an open Subtask after a stale review_started is a Build stop", () => {
+    const subs = [sub(2, "done"), sub(3, "done"), sub(4, "in_progress")];
+    const g = graph({ status: "building", run_stopped: true }, subs, [
+      ...built, started(1), ev("run_stopped", { reason: "Review waits: Codex unavailable" }), ev("run_restarted"),
+      ev("subtask_handoff", { subtask: "FB-3", agent: "frontend-design", model: "opus" }),
+      ev("verify_round", { subtask: "FB-3", round: 1, result: "pass" }),
+      ev("subtask_handoff", { subtask: "FB-4", agent: "frontend-design", model: "opus" }),
+      ev("run_stopped", { reason: "Builder blocked on FB-4: needs a decision" }),
+    ]);
+    expect(g.reviewStopFrom).toBeNull();
+    expect(g.stop.state).toBe("stopped");
+    expect(g.reviewStop.state).toBe("done");
+  });
+
+  it("QA: a second manual Review round started after Build work, stopped for Codex unavailable with an open Subtask, stops at the Review gate", () => {
+    const subs = [sub(2, "done"), sub(3, "done", "bug"), sub(4, "todo")];
+    const g = graph({ status: "building", run_stopped: true }, subs, [
+      ...built, started(1), ev("review_round", { round: 1, verdict: "failed" }),
+      ev("subtask_handoff", { subtask: "FB-3", agent: "frontend-design", model: "opus" }),
+      ev("verify_round", { subtask: "FB-3", round: 1, result: "pass" }),
+      started(2), ev("run_stopped", { reason: "Review waits: Codex unavailable" }),
+    ]);
+    expect(review(g)?.state).toBe("stopped");
+    expect(g.reviewStopFrom).toBe("review");
+    expect(g.reviewStop.state).toBe("stopped");
+    expect(g.stop.state).toBe("todo");
+  });
 });
