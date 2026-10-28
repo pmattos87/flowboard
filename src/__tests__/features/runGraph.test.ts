@@ -425,3 +425,14 @@ describe("runGraph second pass after a bug loop (FB-176)", () => {
     expect(one.ship.find((n) => n.id === "pr")?.caption).toBe("PR gate: Review passed");
   });
 });
+
+describe("runGraph Subtask roles (FB-171)", () => {
+  it("gives each Subtask its role: Simplify by title, bug by type, the rest from the plan", () => {
+    const g = graph({ status: "building" }, [
+      sub(2, "done"),
+      task({ id: 103, task_number: 3, parent_id: 1, type: "subtask", status: "todo", title: "Simplify" }),
+      sub(4, "todo", "bug"),
+    ], [stage("building")]);
+    expect(g.subtasks.map((s) => [s.key, s.role])).toEqual([["FB-2", "subtask"], ["FB-3", "simplify"], ["FB-4", "bug"]]);
+  });
+});

@@ -1,4 +1,5 @@
 import type { Task, TaskStatus, TrailEvent } from "@/types";
+import { subtaskRole, type SubtaskRole } from "@/lib/subtaskRole";
 import { isSubtaskStopped, subtaskRunInfo, type SubtaskRunInfo } from "./subtaskRun";
 
 // The state of every node of a Story's Run graph (SF-62), derived from the
@@ -21,6 +22,8 @@ export interface SubtaskNode {
   id: string;
   key: string;
   title: string;
+  /** From the plan, the Run's Simplify step, or a bug (FB-171). */
+  role: SubtaskRole;
   state: NodeState;
   info: SubtaskRunInfo | undefined;
 }
@@ -139,7 +142,7 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
         : s.status === "in_progress"
           ? "current"
           : "todo";
-    return { id: `sub-${s.id}`, key, title: s.title, state, info: run };
+    return { id: `sub-${s.id}`, key, title: s.title, role: subtaskRole(s), state, info: run };
   });
   const buildStopped = stopped && subNodes.some((n) => n.state === "stopped");
   // A stop after the Build finished (every Subtask done or canceled, none
