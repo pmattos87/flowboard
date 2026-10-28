@@ -32,7 +32,12 @@ pub fn run() {
                         commands::backup::backups_enabled(&app.config().identifier),
                     ));
                     app.manage(Arc::clone(&backups));
-                    let backup_signal = commands::backup::start(backups, pool);
+                    let emitter = app.handle().clone();
+                    let backup_signal = commands::backup::start(backups, pool, move || {
+                        emitter
+                            .emit(commands::backup::BACKUP_FINISHED_EVENT, ())
+                            .map_err(|e| e.to_string())
+                    });
 
                     let handle = app.handle().clone();
                     tauri::async_runtime::spawn(async move {

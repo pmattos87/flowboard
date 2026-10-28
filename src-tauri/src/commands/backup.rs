@@ -9,6 +9,12 @@
 //!
 //! Nothing here returns an error to the launch path or blocks the watcher: a
 //! failed snapshot is logged and kept as `last_error` for `get_backup_status`.
+//!
+//! After each snapshot attempt (success or failure) the scheduler calls its
+//! emitter, which the app wires to the `backup-finished` event (unit payload):
+//! a snapshot changes neither `PRAGMA data_version` nor anything `db-changed`
+//! covers, so this is how the UI learns to refresh the status. No folder set
+//! and the staging build are not attempts, so they emit nothing.
 
 use crate::db::backup::{run_backup, BackupClock, BackupError, BackupSettings};
 use serde::Serialize;
@@ -24,6 +30,12 @@ use tokio::time::Instant;
 pub const DEBOUNCE: Duration = Duration::from_secs(5 * 60);
 /// The staging build's Tauri identifier: it never writes a backup.
 pub const STAGING_IDENTIFIER: &str = "com.flowboard.staging";
+/// Event emitted after each snapshot attempt. Payload: unit, like `db-changed`.
+pub const BACKUP_FINISHED_EVENT: &str = "backup-finished";
+
+/// Announces that a snapshot attempt finished. Injected so tests can count
+/// calls; the app passes one that emits `BACKUP_FINISHED_EVENT`.
+pub type Emit = dyn Fn() -> Result<(), String> + Send + Sync;
 
 /// Backups are written by every build except staging.
 pub fn backups_enabled(identifier: &str) -> bool {
@@ -62,23 +74,36 @@ impl Backups {
 
     /// One snapshot attempt. Never fails: an error is logged and recorded.
     /// With no folder set, backups are off, which is not an error.
-    pub async fn snapshot(&self, pool: &SqlitePool) {
+    /// Returns whether an attempt was made (false for staging or no folder).
+    pub async fn snapshot(&self, pool: &SqlitePool) -> bool {
         if !self.enabled {
-            return;
+            return false;
         }
         let _writer = self.writer.lock().await;
         let result = match BackupClock::now(pool).await {
             Ok(clock) => run_backup(pool, &self.settings_path, &clock).await.map(|_| ()),
             Err(e) => Err(BackupError::Failed(e)),
         };
-        let error = match result {
-            Ok(()) | Err(BackupError::NotConfigured) => None,
+        let (attempted, error) = match result {
+            Ok(()) => (true, None),
+            Err(BackupError::NotConfigured) => (false, None),
             Err(e) => {
                 eprintln!("backup failed: {e}");
-                Some(e.to_string())
+                (true, Some(e.to_string()))
             }
         };
         *self.last_error.lock().unwrap_or_else(PoisonError::into_inner) = error;
+        attempted
+    }
+
+    /// `snapshot`, then `emit` once if an attempt was made. An emit failure
+    /// is only logged: it never stops the caller.
+    async fn snapshot_and_emit(&self, pool: &SqlitePool, emit: &Emit) {
+        if self.snapshot(pool).await {
+            if let Err(e) = emit() {
+                eprintln!("failed to emit {BACKUP_FINISHED_EVENT}: {e}");
+            }
+        }
     }
 
     /// Reads `backup.json` without waiting for a running snapshot: the file is
@@ -150,9 +175,16 @@ impl Debounce {
 
 /// Snapshot once, then after each quiet `window` following a `signal`.
 /// Runs forever. Snapshots run inline, so two never overlap; a write during
-/// one leaves a permit in `signal` and starts the next window.
-async fn schedule(backups: &Backups, pool: &SqlitePool, signal: &Notify, window: Duration) {
-    backups.snapshot(pool).await;
+/// one leaves a permit in `signal` and starts the next window. Every attempt,
+/// at launch or debounced, is followed by one `emit`.
+async fn schedule(
+    backups: &Backups,
+    pool: &SqlitePool,
+    signal: &Notify,
+    window: Duration,
+    emit: &Emit,
+) {
+    backups.snapshot_and_emit(pool, emit).await;
     let mut debounce = Debounce::new(window);
     loop {
         match debounce.due {
@@ -164,7 +196,7 @@ async fn schedule(backups: &Backups, pool: &SqlitePool, signal: &Notify, window:
                 _ = signal.notified() => debounce.signal(Instant::now()),
                 _ = tokio::time::sleep_until(due) => {
                     if debounce.take_due(Instant::now()) {
-                        backups.snapshot(pool).await;
+                        backups.snapshot_and_emit(pool, emit).await;
                     }
                 }
             },
@@ -175,11 +207,16 @@ async fn schedule(backups: &Backups, pool: &SqlitePool, signal: &Notify, window:
 /// Starts the launch snapshot and the debounce off the caller's thread, and
 /// returns the handle the `db::watch` callback notifies on each change.
 /// `notify_one` never blocks, so the watcher loop is never held up.
-pub fn start(backups: Arc<Backups>, pool: SqlitePool) -> Arc<Notify> {
+/// `emit` runs after each snapshot attempt (see `BACKUP_FINISHED_EVENT`).
+pub fn start(
+    backups: Arc<Backups>,
+    pool: SqlitePool,
+    emit: impl Fn() -> Result<(), String> + Send + Sync + 'static,
+) -> Arc<Notify> {
     let signal = Arc::new(Notify::new());
     let rx = Arc::clone(&signal);
     tauri::async_runtime::spawn(async move {
-        schedule(&backups, &pool, &rx, DEBOUNCE).await;
+        schedule(&backups, &pool, &rx, DEBOUNCE, &emit).await;
     });
     signal
 }
@@ -200,6 +237,39 @@ mod tests {
     use crate::db::backup::SETTINGS_FILE;
     use crate::db::open_and_migrate;
     use std::fs;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// An emitter that counts its calls, optionally failing every one.
+    #[derive(Clone, Default)]
+    struct Emits {
+        count: Arc<AtomicUsize>,
+        fail: bool,
+    }
+
+    impl Emits {
+        fn failing() -> Self {
+            Self {
+                fail: true,
+                ..Self::default()
+            }
+        }
+
+        fn count(&self) -> usize {
+            self.count.load(Ordering::SeqCst)
+        }
+
+        fn emitter(&self) -> impl Fn() -> Result<(), String> + Send + Sync + 'static {
+            let (count, fail) = (Arc::clone(&self.count), self.fail);
+            move || {
+                count.fetch_add(1, Ordering::SeqCst);
+                if fail {
+                    Err("window is gone".into())
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
 
     struct Fixture {
         pool: SqlitePool,
@@ -345,22 +415,28 @@ mod tests {
         f.set_folder(&f.folder);
         let backups = Arc::new(f.backups(true));
         let signal = Arc::new(Notify::new());
+        let emits = Emits::default();
         let task = {
             let (backups, pool, signal) = (backups.clone(), f.pool.clone(), signal.clone());
+            let emit = emits.emitter();
             tokio::spawn(async move {
-                schedule(&backups, &pool, &signal, Duration::from_millis(50)).await
+                schedule(&backups, &pool, &signal, Duration::from_millis(50), &emit).await
             })
         };
 
         let stamped = || BackupSettings::load(&f.settings()).last_backup_at;
-        wait_until(|| stamped().is_some()).await;
+        wait_until(|| emits.count() == 1).await;
         let launch = stamped();
+        assert!(launch.is_some(), "the emit follows the launch snapshot");
         assert_eq!(names(&f.folder).len(), 1, "the launch snapshot");
 
         // The stamp has millisecond resolution; make the next one differ.
         tokio::time::sleep(Duration::from_millis(5)).await;
         signal.notify_one();
-        wait_until(|| stamped() != launch).await;
+        wait_until(|| emits.count() == 2).await;
+        assert_ne!(stamped(), launch, "the debounced snapshot emits too");
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert_eq!(emits.count(), 2, "one emit per snapshot attempt");
         task.abort();
     }
 
@@ -374,9 +450,11 @@ mod tests {
         let window = Duration::from_millis(400);
         let backups = Arc::new(f.backups(true));
         let signal = Arc::new(Notify::new());
+        let emits = Emits::default();
         let task = {
             let (backups, pool, signal) = (backups.clone(), f.pool.clone(), signal.clone());
-            tokio::spawn(async move { schedule(&backups, &pool, &signal, window).await })
+            let emit = emits.emitter();
+            tokio::spawn(async move { schedule(&backups, &pool, &signal, window, &emit).await })
         };
         let stamped = || BackupSettings::load(&f.settings()).last_backup_at;
         wait_until(|| stamped().is_some()).await;
@@ -422,6 +500,9 @@ mod tests {
             .filter(|s| Some(*s) != launch.as_ref() && **s != burst)
             .collect();
         assert_eq!(newer.len(), 1, "a second snapshot for the later write: {later:?}");
+        // The emit follows the stamp, so it may land just after `collect` ends.
+        wait_until(|| emits.count() >= 3).await;
+        assert_eq!(emits.count(), 3, "launch, burst and later write: one emit each");
         task.abort();
     }
 
@@ -442,10 +523,12 @@ mod tests {
         f.set_folder(&f.folder);
         let backups = Arc::new(f.backups(backups_enabled(STAGING_IDENTIFIER)));
         let signal = Arc::new(Notify::new());
+        let emits = Emits::default();
         let task = {
             let (backups, pool, signal) = (backups.clone(), f.pool.clone(), signal.clone());
+            let emit = emits.emitter();
             tokio::spawn(async move {
-                schedule(&backups, &pool, &signal, Duration::from_millis(20)).await
+                schedule(&backups, &pool, &signal, Duration::from_millis(20), &emit).await
             })
         };
         for _ in 0..3 {
@@ -455,6 +538,7 @@ mod tests {
         task.abort();
 
         assert!(names(&f.folder).is_empty());
+        assert_eq!(emits.count(), 0, "staging emits no backup-finished");
         let status = backups.status();
         assert!(!status.enabled);
         assert_eq!(status.last_backup_at, None);
@@ -464,6 +548,73 @@ mod tests {
             Some(f.folder.to_string_lossy().as_ref()),
             "the folder is still stored and reported"
         );
+    }
+
+    #[tokio::test]
+    async fn a_successful_and_a_failed_snapshot_each_emit_once() {
+        let f = fixture("emit-attempts").await;
+        let backups = f.backups(true);
+        let emits = Emits::default();
+        let emit = emits.emitter();
+
+        f.set_folder(&f.folder);
+        backups.snapshot_and_emit(&f.pool, &emit).await;
+        assert_eq!(names(&f.folder).len(), 1);
+        assert_eq!(emits.count(), 1, "a success emits once");
+
+        f.set_folder(&f.folder.join("drive-unplugged"));
+        backups.snapshot_and_emit(&f.pool, &emit).await;
+        assert!(backups.status().last_error.is_some());
+        assert_eq!(emits.count(), 2, "a failure emits once, so last_error shows");
+    }
+
+    #[tokio::test]
+    async fn no_folder_set_and_staging_emit_nothing() {
+        let f = fixture("emit-none").await;
+        let emits = Emits::default();
+        let emit = emits.emitter();
+
+        f.backups(true).snapshot_and_emit(&f.pool, &emit).await;
+        assert_eq!(emits.count(), 0, "no folder set is not an attempt");
+
+        f.set_folder(&f.folder);
+        f.backups(backups_enabled(STAGING_IDENTIFIER))
+            .snapshot_and_emit(&f.pool, &emit)
+            .await;
+        assert!(names(&f.folder).is_empty());
+        assert_eq!(emits.count(), 0, "staging never snapshots, so never emits");
+    }
+
+    /// A failing emitter is logged and the loop carries on: the launch emit
+    /// fails, and the debounced snapshot after a write still runs and emits.
+    #[tokio::test]
+    async fn an_emit_failure_never_stops_the_scheduler() {
+        let f = fixture("emit-fails").await;
+        f.set_folder(&f.folder);
+        let backups = Arc::new(f.backups(true));
+        let signal = Arc::new(Notify::new());
+        let emits = Emits::failing();
+        let task = {
+            let (backups, pool, signal) = (backups.clone(), f.pool.clone(), signal.clone());
+            let emit = emits.emitter();
+            tokio::spawn(async move {
+                schedule(&backups, &pool, &signal, Duration::from_millis(50), &emit).await
+            })
+        };
+
+        wait_until(|| emits.count() == 1).await;
+        let launch = BackupSettings::load(&f.settings()).last_backup_at;
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        signal.notify_one();
+        wait_until(|| emits.count() == 2).await;
+        assert_ne!(BackupSettings::load(&f.settings()).last_backup_at, launch);
+        assert!(!task.is_finished(), "the loop is still running");
+        assert_eq!(
+            backups.status().last_error,
+            None,
+            "an emit failure is not a backup error"
+        );
+        task.abort();
     }
 
     #[tokio::test]
