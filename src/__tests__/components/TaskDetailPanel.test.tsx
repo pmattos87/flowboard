@@ -144,6 +144,36 @@ describe("TaskDetailPanel — Subtask wording (FB-123)", () => {
   });
 });
 
+describe("TaskDetailPanel — Subtask role badge (FB-171)", () => {
+  async function badgeFor(row: Partial<typeof fakeTask>, label: string) {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "get_task") return Promise.resolve({ ...fakeTask, ...row });
+      if (cmd === "get_project") return Promise.resolve(fakeProject);
+      return Promise.resolve([]);
+    });
+    useUiStore.setState({ selectedTaskId: 7 });
+    renderPanel();
+    await waitFor(() => expect(screen.getByText("AL-3")).toBeInTheDocument());
+    return screen.getByText(label, { selector: "span" });
+  }
+
+  it("gives the Run's Simplify Subtask a fuchsia Simplify badge with the wand", async () => {
+    const badge = await badgeFor({ type: "subtask", title: "Simplify" }, "Simplify");
+    expect(badge).toHaveClass("bg-fuchsia-900/40", "text-fuchsia-400", "border", "border-fuchsia-700");
+    expect(badge.querySelector("svg")).toHaveClass("lucide-wand-sparkles");
+  });
+
+  it("keeps the red Bug badge for a bug", async () => {
+    const badge = await badgeFor({ type: "bug" }, "Bug");
+    expect(badge).toHaveClass("bg-red-900/40", "text-red-400", "border-red-700");
+  });
+
+  it("keeps the blue Subtask badge for an ordinary Subtask", async () => {
+    const badge = await badgeFor({ type: "subtask" }, "Subtask");
+    expect(badge).toHaveClass("bg-blue-900/40", "text-blue-400", "border-blue-700");
+  });
+});
+
 describe("TaskDetailPanel — Markdown description (FB-100)", () => {
   it("saves the edited raw Markdown unchanged via update_task", async () => {
     setupInvoke();
