@@ -662,6 +662,32 @@ describe("runGraph one in-flight rule (FB-245, QA)", () => {
       started(2), ev("subtask_handoff", { subtask: "FB-3", agent: "frontend-design", model: "opus" }),
     ]);
     expect(g.fix.state).toBe("current");
+    expect(review(g)?.state).toBe("todo");
+  });
+
+  it("B2: a re-review started then overtaken by a verify_round leaves Code review todo and Fix findings current", () => {
+    const g = graph({ status: "building" }, [sub(2, "done"), sub(3, "in_progress", "bug")], [
+      ...built, ev("review_round", { round: 1, verdict: "failed" }), ev("bug_subtask_filed", { subtask: "FB-3" }),
+      started(2), ev("verify_round", { subtask: "FB-3", round: 1, result: "pass" }),
+    ]);
+    expect(review(g)?.state).toBe("todo");
+    expect(g.fix.state).toBe("current");
+  });
+
+  it("no review_started after a failed round: Code review and Fix findings are current, as before", () => {
+    const subs = [sub(2, "done"), sub(3, "in_progress", "bug")];
+    const legacy = graph({ status: "building" }, subs, [
+      ...built, ev("review_round", { round: 1, verdict: "failed" }), ev("bug_subtask_filed", { subtask: "FB-3" }),
+      ev("subtask_handoff", { subtask: "FB-3", agent: "frontend-design", model: "opus" }),
+    ]);
+    expect(review(legacy)?.state).toBe("current");
+    expect(legacy.fix.state).toBe("current");
+    const startedBefore = graph({ status: "building" }, subs, [
+      ...built, started(1), ev("review_round", { round: 1, verdict: "failed" }), ev("bug_subtask_filed", { subtask: "FB-3" }),
+      ev("subtask_handoff", { subtask: "FB-3", agent: "frontend-design", model: "opus" }),
+    ]);
+    expect(review(startedBefore)?.state).toBe("current");
+    expect(startedBefore.fix.state).toBe("current");
   });
 
   it("a review_started overtaken by a failed Verify, then a stop: the Subtask and Build gate stop", () => {
@@ -692,5 +718,41 @@ describe("runGraph one in-flight rule (FB-245, QA)", () => {
     expect(stoppedG.subtasks[0].state).toBe("stopped");
     expect(stoppedG.stop.state).toBe("stopped");
     expect(review(stoppedG)?.state).toBe("todo");
+  });
+});
+
+describe("runGraph overtaken review_started never lights Code review (FB-246, QA)", () => {
+  const built = [stage("building"), ev("verify_round", { subtask: "FB-2", round: 1, result: "pass" })];
+  const started = (round: number) => ev("review_started", { round });
+  const review = (g: RunGraph) => g.ship.find((n) => n.id === "review");
+  const handoff = ev("subtask_handoff", { subtask: "FB-3", agent: "frontend-design", model: "opus" });
+
+  it("a passed round, then a review_started overtaken by Build work: Code review is done, not current", () => {
+    const g = graph({ status: "building" }, [sub(2, "done"), sub(3, "in_progress")], [
+      ...built, started(1), ev("review_round", { round: 1, verdict: "passed" }), started(2), handoff,
+    ]);
+    expect(review(g)?.state).toBe("done");
+  });
+
+  it("a failed round, an overtaken re-review, then a Build stop: Code review is not current or stopped", () => {
+    const g = graph({ status: "building", run_stopped: true }, [sub(2, "done"), sub(3, "in_progress", "bug")], [
+      ...built, ev("review_round", { round: 1, verdict: "failed" }), ev("bug_subtask_filed", { subtask: "FB-3" }),
+      started(2), handoff,
+      ev("verify_round", { subtask: "FB-3", round: 1, result: "fail" }),
+      ev("verify_round", { subtask: "FB-3", round: 2, result: "fail" }),
+      ev("run_stopped", { reason: "Verify failed twice on FB-3" }),
+    ]);
+    expect(review(g)?.state).toBe("todo");
+    expect(g.stop.state).toBe("stopped");
+    expect(g.reviewStopFrom).toBeNull();
+  });
+
+  it("a failed round, an overtaken re-review, then the re-review started again: Code review is current", () => {
+    const g = graph({ status: "building" }, [sub(2, "done"), sub(3, "done", "bug")], [
+      ...built, ev("review_round", { round: 1, verdict: "failed" }), ev("bug_subtask_filed", { subtask: "FB-3" }),
+      started(2), handoff, ev("verify_round", { subtask: "FB-3", round: 1, result: "pass" }), started(2),
+    ]);
+    expect(review(g)?.state).toBe("current");
+    expect(g.fix.state).toBe("done");
   });
 });
