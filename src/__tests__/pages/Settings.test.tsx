@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import Settings from "@/pages/Settings";
 import { useUiStore } from "@/stores/uiStore";
@@ -17,12 +18,14 @@ const fakeProject = {
   created_at: "2024-01-01T00:00:00.000Z",
 };
 
-function renderSettings() {
+function renderSettings(path = "/settings") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={qc}>
-      <Settings />
-    </QueryClientProvider>
+    <MemoryRouter initialEntries={[path]}>
+      <QueryClientProvider client={qc}>
+        <Settings />
+      </QueryClientProvider>
+    </MemoryRouter>
   );
 }
 
@@ -34,6 +37,39 @@ beforeEach(() => {
 describe("Settings — no project selected", () => {
   it("shows select-project prompt when no project is active", () => {
     renderSettings();
+    expect(screen.getByText(/select a project/i)).toBeInTheDocument();
+  });
+});
+
+describe("Settings — tab search param", () => {
+  it("opens on the Backup tab for /settings?tab=backup", async () => {
+    mockInvoke.mockResolvedValue({
+      backup_dir: null,
+      last_backup_at: null,
+      last_error: null,
+      enabled: true,
+    });
+    renderSettings("/settings?tab=backup");
+    expect(await screen.findByText(/no folder chosen/i)).toBeInTheDocument();
+    expect(screen.queryByText(/select a project/i)).not.toBeInTheDocument();
+  });
+
+  it("lets a tab click switch away from the ?tab=backup tab", async () => {
+    mockInvoke.mockResolvedValue({
+      backup_dir: null,
+      last_backup_at: null,
+      last_error: null,
+      enabled: true,
+    });
+    renderSettings("/settings?tab=backup");
+    expect(await screen.findByText(/no folder chosen/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Project" }));
+    expect(await screen.findByText(/select a project/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no folder chosen/i)).not.toBeInTheDocument();
+  });
+
+  it("opens on the Project tab for an unknown tab value", () => {
+    renderSettings("/settings?tab=nope");
     expect(screen.getByText(/select a project/i)).toBeInTheDocument();
   });
 });

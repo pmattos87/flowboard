@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openFolderPicker } from "@tauri-apps/plugin-dialog";
 import Settings from "@/pages/Settings";
@@ -34,9 +35,11 @@ function setupStatus(status: BackupStatus) {
 async function openBackupTab() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider client={qc}>
-      <Settings />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={qc}>
+        <Settings />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
   await userEvent.click(screen.getByRole("button", { name: "Backup" }));
   return screen.findByRole("button", { name: /choose folder/i });

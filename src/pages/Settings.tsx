@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Trash2, Upload } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,6 +31,11 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "shortcuts", label: "Keyboard Shortcuts" },
 ];
 
+/** `/settings?tab=backup` opens on that tab; anything else opens on Project. */
+function tabFromParam(value: string | null): Tab {
+  return TABS.find((t) => t.id === value)?.id ?? "project";
+}
+
 export default function Settings() {
   const activeProjectId = useUiStore((s) => s.activeProjectId);
   const setActiveProjectId = useUiStore((s) => s.setActiveProjectId);
@@ -37,7 +43,9 @@ export default function Settings() {
   const updateProject = useUpdateProject();
   const deleteProject = useDeleteProject();
 
-  const [activeTab, setActiveTab] = useState<Tab>("project");
+  const [searchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const [activeTab, setActiveTab] = useState<Tab>(() => tabFromParam(tabParam));
   const [name, setName] = useState("");
   const [key, setKey] = useState("");
   const [description, setDescription] = useState("");
@@ -51,6 +59,11 @@ export default function Settings() {
   const isStaging = import.meta.env.VITE_APP_ENV === "staging";
   const [seeding, setSeeding] = useState(false);
   const [seedResult, setSeedResult] = useState<string | null>(null);
+
+  // Re-reads the param when Settings is already open (e.g. the sidebar's backup warning).
+  useEffect(() => {
+    if (tabParam) setActiveTab(tabFromParam(tabParam));
+  }, [tabParam]);
 
   useEffect(() => {
     if (project) {
