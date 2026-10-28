@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import React from "react";
-import { useBackupStatus, useSetBackupDir } from "@/hooks/useBackup";
+import { useBackupFinishedSync, useBackupStatus, useSetBackupDir } from "@/hooks/useBackup";
 import { useDbChangeSync } from "@/hooks/useDbChangeSync";
 import type { BackupStatus } from "@/types";
 
@@ -138,5 +138,81 @@ describe("backup status and db-changed", () => {
 
     await waitFor(() => expect(result.current.data).toEqual(backedUp));
     expect(statusCalls()).toBe(2);
+  });
+});
+
+describe("useBackupFinishedSync", () => {
+  it("refetches the backup status when a backup-finished event arrives", async () => {
+    const backend: { status: BackupStatus } = { status: noBackup };
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === "get_backup_status") return backend.status;
+      throw new Error(`unexpected command ${cmd}`);
+    });
+
+    const { result } = renderHook(
+      () => {
+        useBackupFinishedSync();
+        return useBackupStatus();
+      },
+      { wrapper: makeWrapper() },
+    );
+    await waitFor(() => expect(result.current.data).toEqual(noBackup));
+    await waitFor(() => expect(mockListen).toHaveBeenCalledTimes(1));
+    expect(mockListen.mock.calls[0][0]).toBe("backup-finished");
+    expect(statusCalls()).toBe(1);
+
+    backend.status = backedUp;
+    const handler = mockListen.mock.calls[0][1] as (e: unknown) => void;
+    act(() => handler({ payload: null }));
+
+    await waitFor(() => expect(result.current.data?.last_backup_at).toBe(backedUp.last_backup_at));
+    expect(statusCalls()).toBe(2);
+  });
+
+  it("only invalidates the backup queries", async () => {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
+    });
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    renderHook(() => useBackupFinishedSync(), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+      ),
+    });
+    await waitFor(() => expect(mockListen).toHaveBeenCalledTimes(1));
+
+    const handler = mockListen.mock.calls[0][1] as (e: unknown) => void;
+    handler({ payload: null });
+
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["backup"] });
+  });
+
+  it("registers the listener once across re-renders and unlistens on unmount", async () => {
+    const unlisten = vi.fn();
+    mockListen.mockResolvedValue(unlisten);
+    const { rerender, unmount } = renderHook(() => useBackupFinishedSync(), {
+      wrapper: makeWrapper(),
+    });
+    await waitFor(() => expect(mockListen).toHaveBeenCalledTimes(1));
+    rerender();
+    rerender();
+    await Promise.resolve();
+    expect(mockListen).toHaveBeenCalledTimes(1);
+    expect(unlisten).not.toHaveBeenCalled();
+
+    unmount();
+    expect(unlisten).toHaveBeenCalledTimes(1);
+  });
+
+  it("unlistens when unmounted before listen resolves", async () => {
+    const unlisten = vi.fn();
+    let resolve!: (fn: () => void) => void;
+    mockListen.mockReturnValue(new Promise((r) => (resolve = r)));
+    const { unmount } = renderHook(() => useBackupFinishedSync(), { wrapper: makeWrapper() });
+    unmount();
+    expect(unlisten).not.toHaveBeenCalled();
+    resolve(unlisten);
+    await waitFor(() => expect(unlisten).toHaveBeenCalledTimes(1));
   });
 });
