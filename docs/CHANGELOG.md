@@ -2,6 +2,11 @@
 
 **All notable changes to this project will be documented in this file.**
 
+## [Unreleased]
+
+### Changed
+- On the Story page, the Run section (the graph, its legend, Review rounds and Trail) now sits at the top, full width, between the title and the description/sidebar row, so it is above the Details and Links sidebar instead of at the bottom of the page. The Run section's contents and the graph are unchanged (FB-150).
+
 ## [1.10.0] - 2026-10-26
 
 ### Changed
