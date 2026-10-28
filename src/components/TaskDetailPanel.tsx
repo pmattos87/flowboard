@@ -9,6 +9,7 @@ import {
   Paperclip,
   Pencil,
   Trash2,
+  WandSparkles,
   X,
 } from "lucide-react";
 import { open as openFilePicker } from "@tauri-apps/plugin-dialog";
@@ -30,6 +31,7 @@ import { usePeople } from "@/hooks/usePeople";
 import { useProject } from "@/hooks/useProjects";
 import { useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
+import { subtaskRole } from "@/lib/subtaskRole";
 import { SELECT_CLS, TaskFields, useTaskDraft } from "@/components/TaskFields";
 import { Avatar } from "@/components/Avatar";
 import { MarkdownDescription } from "@/components/MarkdownDescription";
@@ -38,6 +40,7 @@ import type {
   Attachment,
   Comment,
   Person,
+  Task,
   TaskType,
   TimeLog,
 } from "@/types";
@@ -87,6 +90,14 @@ export const TYPE_BADGE: Record<TaskType, { label: string; icon: React.ReactNode
   subtask:  { label: "Subtask",  icon: <CheckSquare className="h-3 w-3" />, cls: "bg-blue-900/40 text-blue-400 border border-blue-700" },
   epic:  { label: "Epic",  icon: <Layers className="h-3 w-3" />,     cls: "bg-purple-900/40 text-purple-400 border border-purple-700" },
 };
+
+/** The type badge, with the Run's Simplify Subtask shown by its role (FB-171). */
+export function typeBadgeFor(task: Pick<Task, "type" | "title" | "description">) {
+  if (subtaskRole(task) === "simplify") {
+    return { label: "Simplify", icon: <WandSparkles className="h-3 w-3" />, cls: "bg-fuchsia-900/40 text-fuchsia-400 border border-fuchsia-700" };
+  }
+  return TYPE_BADGE[task.type];
+}
 
 
 // ─── CommentsSection ───────────────────────────────────────
@@ -603,7 +614,7 @@ export function TaskDetailPanel() {
   const { draft, setDraft, save, handleSelectChange } = draftState;
 
   const taskKey = project && task ? `${project.key}-${task.task_number}` : task ? `#${task.id}` : "";
-  const typeBadge = task ? TYPE_BADGE[task.type] : null;
+  const typeBadge = task ? typeBadgeFor(task) : null;
   const peopleSafe = people ?? [];
 
   // Cancel is reversible (reopen via the Status picker), so no confirmation and

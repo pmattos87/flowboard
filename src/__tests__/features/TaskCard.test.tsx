@@ -95,3 +95,23 @@ describe("TaskCard — click to open detail", () => {
     expect(useUiStore.getState().selectedTaskId).toBe(42);
   });
 });
+
+describe("TaskCard — Subtask role icon (FB-171)", () => {
+  const typeIcon = (container: HTMLElement) => container.querySelector("svg") as SVGElement;
+
+  it("shows the fuchsia wand for the Run's Simplify Subtask", () => {
+    const { container } = renderCard({ ...fakeTask, title: "Simplify" });
+    expect(typeIcon(container)).toHaveClass("lucide-wand-sparkles", "text-fuchsia-400");
+  });
+
+  it("shows the red bug icon for a bug", () => {
+    const { container } = renderCard({ ...fakeTask, type: "bug" });
+    expect(typeIcon(container)).toHaveClass("lucide-bug", "text-red-400");
+  });
+
+  it("keeps the blue icon for an ordinary Subtask", () => {
+    const { container } = renderCard();
+    expect(typeIcon(container)).toHaveClass("text-blue-400");
+    expect(typeIcon(container)).not.toHaveClass("lucide-wand-sparkles");
+  });
+});
