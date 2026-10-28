@@ -9,6 +9,9 @@
 - Known limitation: a backup folder whose name literally contains a `%XX` sequence fails verification; the failure is safe and shows as the last error in the Backup tab.
 - New trail event `review_started` (`new_value` `{"round": n}`, numbered like `review_round`), logged when a Review round begins. It is the MCP tool `review_start` (`{ key }`) and the CLI command `flowboard-cli run review-start <KEY>`. It refuses a Story that isn't `building` and a stopped Run, and does not check for open Subtasks. No migration. The trail shows it as "Review rN started" (FB-158).
 
+### Changed
+- On the Story page, the Run section (the graph, its legend, Review rounds and Trail) now sits at the top, full width, between the title and the description/sidebar row, so it is above the Details and Links sidebar instead of at the bottom of the page. The Run section's contents and the graph are unchanged (FB-150).
+
 ### Fixed
 - The Run graph lights Code review while a Review round runs: Docs is `done` and Code review is `current` from `review_started` until that round's `review_round`, scoped to the current pass. Fix findings is `done` once the next round starts after a failed one, and a stop during a running round counts as a Review stop. Trails without the event render as before (FB-158).
 
