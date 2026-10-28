@@ -24,6 +24,7 @@
     - Reports
     - People
     - Inbox
+  - Backup warning card under the nav (non-dismissible; shown when there is no backup or the last one is over 3 days old, and always in the staging build), linking to `/settings?tab=backup`
   - Settings pinned at bottom
 
 - **Top Bar** (`bg-gray-900`, height 48px):
