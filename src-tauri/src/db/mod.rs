@@ -6,6 +6,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
+pub mod backup;
 pub mod watch;
 
 pub static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
