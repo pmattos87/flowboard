@@ -14,6 +14,7 @@ import { seedDemoData } from "@/lib/commands";
 import { ProjectBadge } from "@/components/ProjectBadge";
 import { fileToLogoDataUrl } from "@/lib/image";
 import { cn } from "@/lib/utils";
+import { BackupSettings } from "@/features/backup/BackupSettings";
 
 // Matches the shortcuts registered in AppShell.tsx useKeyboardShortcuts
 const SHORTCUTS = [
@@ -21,10 +22,11 @@ const SHORTCUTS = [
   { key: "/", action: "Focus global search bar" },
 ] as const;
 
-type Tab = "project" | "shortcuts";
+type Tab = "project" | "backup" | "shortcuts";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "project", label: "Project" },
+  { id: "backup", label: "Backup" },
   { id: "shortcuts", label: "Keyboard Shortcuts" },
 ];
 
@@ -345,6 +347,9 @@ export default function Settings() {
           )}
         </>
       )}
+
+      {/* ── Backup tab ── */}
+      {activeTab === "backup" && <BackupSettings />}
 
       {/* ── Keyboard Shortcuts tab ── */}
       {activeTab === "shortcuts" && (
