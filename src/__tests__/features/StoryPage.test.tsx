@@ -164,6 +164,32 @@ describe("StoryPage", () => {
     expect(screen.getByText("Depends on").nextElementSibling).toHaveTextContent("—");
   });
 
+  it("renders the Run section above the description", async () => {
+    setupInvoke();
+    renderPage();
+    const description = await screen.findByText("Description");
+    for (const heading of ["Run", "Review rounds", "Trail"]) {
+      const el = screen.getByText(heading);
+      expect(el.compareDocumentPosition(description) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
+  it("shows the Run graph's nodes for a Story with no Subtasks and an empty trail", async () => {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "list_projects") return Promise.resolve([factoryProject]);
+      if (cmd === "get_project") return Promise.resolve(factoryProject);
+      if (cmd === "list_tasks") return Promise.resolve([{ ...storyTask, status: "backlog", run_stopped: false }]);
+      if (cmd === "get_story")
+        return Promise.resolve(storyView({ status: "backlog", flags: { stopped: false, waiting_on_bugs: 0 } }));
+      return Promise.resolve([]);
+    });
+    renderPage();
+    const run = await screen.findByText("Run");
+    const section = run.closest("section");
+    expect(section).not.toBeNull();
+    expect(section!.querySelectorAll("[data-node]").length).toBeGreaterThan(0);
+  });
+
   it("refuses a legacy project without asking for the Story", async () => {
     setupInvoke({ ...factoryProject, ladder: "legacy" });
     renderPage();
