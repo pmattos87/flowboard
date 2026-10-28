@@ -35,6 +35,7 @@ FlowBoard is a Jira-inspired project management tool built as a native Windows d
 - **Reports** — Burndown chart, velocity chart, status distribution, workload per member
 - **Comments & Time Tracking** — Per-task collaboration and time logging
 - **File Attachments** — Local file storage linked to tasks
+- **Automatic Backup** — Verified daily snapshots of the database to a folder you choose (Settings > Backup)
 - **Inbox & Notifications** — In-app inbox with native OS notification support
 - **Global Search** — Searches tasks, sprints, projects, and people
 - **Keyboard Shortcuts** — Full keyboard navigation support
@@ -113,6 +114,19 @@ All data is stored locally in a SQLite database at:
 ```
 
 No data is ever sent to a server. There is no cloud sync, no analytics, and no external HTTP calls.
+
+### Backups
+
+Pick a backup folder in Settings > Backup (off until you do). The app saves a verified snapshot of `flowboard.db` at launch and 5 minutes after the last write, as one file per day (`flowboard-YYYY-MM-DD.db`), keeping the 10 newest. The folder and last-backup time are kept in `backup.json` in the app data folder. A warning card appears under the sidebar nav when there is no backup or the last one is more than 3 days old.
+
+#### Restoring a backup
+
+There is no restore screen. To restore:
+
+1. Close the app.
+2. Copy the chosen `flowboard-YYYY-MM-DD.db` over `%APPDATA%\com.flowboard.app\flowboard.db`.
+3. Delete `flowboard.db-wal` and `flowboard.db-shm` from the same folder.
+4. Start the app.
 
 File attachments are stored at:
 

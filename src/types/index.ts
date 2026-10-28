@@ -208,3 +208,15 @@ export interface TrailEvent {
   /** Who did it (a person's name). */
   by: string;
 }
+
+/** `get_backup_status`: the automatic backup's settings and last result. */
+export interface BackupStatus {
+  /** The chosen backup folder; null until one is set (backups are off). */
+  backup_dir: string | null;
+  /** UTC ISO time of the last verified backup; null when none was made. */
+  last_backup_at: string | null;
+  /** The last snapshot's failure, cleared by the next success. */
+  last_error: string | null;
+  /** False in the staging build, which never writes a copy. */
+  enabled: boolean;
+}

@@ -20,6 +20,20 @@ function renderSidebar() {
   );
 }
 
+const healthyBackup = {
+  backup_dir: "G:\Backups",
+  last_backup_at: new Date().toISOString(),
+  last_error: null,
+  enabled: true,
+};
+
+/** Answers the projects list with `projects`; the backup warning's status is healthy. */
+function mockCommands(projects: unknown, backup: unknown = healthyBackup) {
+  mockInvoke.mockImplementation(async (cmd: string) =>
+    cmd === "get_backup_status" ? backup : projects
+  );
+}
+
 const fakeProject = { id: 1, name: "Alpha", key: "AL", description: "", color: "#6366f1", created_at: "" };
 
 beforeEach(() => {
@@ -29,7 +43,7 @@ beforeEach(() => {
 
 describe("Sidebar", () => {
   it("shows 'No projects yet' when project list is empty", async () => {
-    mockInvoke.mockResolvedValueOnce([]);
+    mockCommands([]);
     renderSidebar();
     await waitFor(() => {
       expect(screen.getByText(/no projects yet/i)).toBeInTheDocument();
@@ -37,7 +51,7 @@ describe("Sidebar", () => {
   });
 
   it("renders project names when projects are loaded", async () => {
-    mockInvoke.mockResolvedValueOnce([fakeProject]);
+    mockCommands([fakeProject]);
     renderSidebar();
     await waitFor(() => {
       expect(screen.getByText("Alpha")).toBeInTheDocument();
@@ -45,7 +59,7 @@ describe("Sidebar", () => {
   });
 
   it("renders a logo image for a project with logo_data", async () => {
-    mockInvoke.mockResolvedValueOnce([
+    mockCommands([
       { ...fakeProject, logo_data: "data:image/png;base64,AAAA" },
     ]);
     renderSidebar();
@@ -58,7 +72,7 @@ describe("Sidebar", () => {
   });
 
   it("renders no image (color square) for a project without a logo", async () => {
-    mockInvoke.mockResolvedValueOnce([{ ...fakeProject, logo_data: null }]);
+    mockCommands([{ ...fakeProject, logo_data: null }]);
     renderSidebar();
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
     expect(screen.queryByRole("img", { name: "Alpha" })).not.toBeInTheDocument();
@@ -66,7 +80,7 @@ describe("Sidebar", () => {
 
   it("calls setActiveProjectId when a project is clicked", async () => {
     const user = userEvent.setup();
-    mockInvoke.mockResolvedValueOnce([fakeProject]);
+    mockCommands([fakeProject]);
     renderSidebar();
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
     await user.click(screen.getByText("Alpha"));
@@ -75,7 +89,7 @@ describe("Sidebar", () => {
 
   it("applies active styling to the selected project", async () => {
     useUiStore.setState({ activeProjectId: 1 });
-    mockInvoke.mockResolvedValueOnce([fakeProject]);
+    mockCommands([fakeProject]);
     renderSidebar();
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
     const btn = screen.getByText("Alpha").closest("button");
@@ -84,10 +98,19 @@ describe("Sidebar", () => {
 
   it("opens create project modal when + button is clicked", async () => {
     const user = userEvent.setup();
-    mockInvoke.mockResolvedValueOnce([]);
+    mockCommands([]);
     renderSidebar();
     await waitFor(() => expect(mockInvoke).toHaveBeenCalled());
     await user.click(screen.getByLabelText("Create project"));
     expect(useUiStore.getState().createProjectModalOpen).toBe(true);
+  });
+
+  it("renders the backup warning below the nav", async () => {
+    mockCommands([], { ...healthyBackup, backup_dir: null, last_backup_at: null });
+    renderSidebar();
+    const card = await screen.findByTestId("backup-warning");
+    const nav = screen.getByRole("navigation");
+    expect(nav.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(nav).not.toContainElement(card);
   });
 });
