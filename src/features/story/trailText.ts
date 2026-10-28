@@ -42,6 +42,8 @@ export function trailLine(e: TrailEvent): TrailLine {
       const commit = f("commit").slice(0, 7);
       return { tone: pass ? "pass" : "fail", text: `Review r${f("round")} ${pass ? "passed" : "failed"}`, detail: commit ? `at ${commit}` : "" };
     }
+    case "review_started":
+      return { tone: "info", text: `Review r${f("round")} started`, detail: "" };
     case "run_stopped":
       return { tone: "stop", text: "Run stopped", detail: f("reason") };
     case "run_restarted":
