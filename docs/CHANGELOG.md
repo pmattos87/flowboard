@@ -2,6 +2,12 @@
 
 **All notable changes to this project will be documented in this file.**
 
+## [Unreleased]
+
+### Added
+- Automatic backup of `flowboard.db` (FB-95). In Settings, the new Backup tab (also reachable at `/settings?tab=backup`) has a folder picker; backups stay off until a folder is chosen. The app snapshots the database (`VACUUM INTO`) at launch and 5 minutes after the last write (each new write restarts the wait, whether it came from the app or from the CLI/MCP while the app is open); writes made while the app is closed are caught at the next launch. It keeps one file per day, `flowboard-YYYY-MM-DD.db`, rewritten through the day, and the 10 newest are kept. Each copy is checked with `PRAGMA quick_check` before it counts; a failed copy is deleted and the last-backup time does not move. The folder and last-backup time are stored in `backup.json` in the app data folder. A warning card under the sidebar nav links to the Backup tab when there is no backup or the last one is more than 3 days old. The staging build (`com.flowboard.staging`) never writes a copy, but its Backup tab and sidebar card work. There is no restore screen: see "Restoring a backup" in the README.
+- Known limitation: a backup folder whose name literally contains a `%XX` sequence fails verification; the failure is safe and shows as the last error in the Backup tab.
+
 ## [1.10.0] - 2026-10-26
 
 ### Changed
