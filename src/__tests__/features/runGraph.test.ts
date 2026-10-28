@@ -756,3 +756,14 @@ describe("runGraph overtaken review_started never lights Code review (FB-246, QA
     expect(g.fix.state).toBe("done");
   });
 });
+
+describe("runGraph Subtask roles (FB-171)", () => {
+  it("gives each Subtask its role: Simplify by title, bug by type, the rest from the plan", () => {
+    const g = graph({ status: "building" }, [
+      sub(2, "done"),
+      task({ id: 103, task_number: 3, parent_id: 1, type: "subtask", status: "todo", title: "Simplify" }),
+      sub(4, "todo", "bug"),
+    ], [stage("building")]);
+    expect(g.subtasks.map((s) => [s.key, s.role])).toEqual([["FB-2", "subtask"], ["FB-3", "simplify"], ["FB-4", "bug"]]);
+  });
+});
