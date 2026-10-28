@@ -129,10 +129,19 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
   const info = subtaskRunInfo(trail);
   const open = subtasks.filter((s) => s.status !== "done" && s.status !== "canceled");
   const building = status === "building";
+  const reviewRounds = pass.filter((e) => e.action === "review_round");
+  // A Review round is in flight while this pass's latest review_started is its
+  // latest step: after its latest review_round, subtask_handoff and
+  // verify_round (FB-158). Trails without the event never are.
+  const lastIndex = (action: string) => pass.map((e) => e.action === action).lastIndexOf(true);
+  const reviewStarted = lastIndex("review_started");
+  const reviewInFlight =
+    reviewStarted > Math.max(lastIndex("review_round"), lastIndex("subtask_handoff"), lastIndex("verify_round"));
   const subNodes: SubtaskNode[] = subtasks.map((s) => {
     const key = `${projectKey}-${s.task_number}`;
     const run = info[key];
-    const state: NodeState = isSubtaskStopped(stopped, run)
+    // A failed Verify before the round in flight is not what stopped the Run.
+    const state: NodeState = isSubtaskStopped(stopped && !reviewInFlight, run)
       ? "stopped"
       : s.status === "done"
         ? "done"
@@ -142,14 +151,6 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
     return { id: `sub-${s.id}`, key, title: s.title, state, info: run };
   });
   const buildStopped = stopped && subNodes.some((n) => n.state === "stopped");
-  const reviewRounds = pass.filter((e) => e.action === "review_round");
-  // A Review round is running when this pass's latest review_started comes
-  // after its latest review_round (FB-158); trails without the event never are.
-  const lastIndex = (action: string) => pass.map((e) => e.action === action).lastIndexOf(true);
-  const reviewStarted = lastIndex("review_started");
-  const reviewRunning = reviewStarted > lastIndex("review_round");
-  // The running round is still the Run's latest step: no Build activity since.
-  const reviewInFlight = reviewRunning && reviewStarted > Math.max(lastIndex("subtask_handoff"), lastIndex("verify_round"));
   // A stop after the Build finished (every Subtask done or canceled, none
   // stopped), or during a Review round in flight (a manual Review may leave
   // Subtasks open), is Review-side: it waits at the Review lane's gate.
@@ -212,9 +213,9 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
   // Review, Review failed twice, or else Codex was unavailable.
   const reviewStopFrom: RunGraph["reviewStopFrom"] = !reviewSide
     ? null
-    : lastVerdict === "passed" && !reviewRunning
+    : lastVerdict === "passed" && !reviewInFlight
       ? "merge"
-      : failedRounds >= 2 && lastVerdict === "failed" && !reviewRunning
+      : failedRounds >= 2 && lastVerdict === "failed" && !reviewInFlight
         ? "fix"
         : "review";
   const review: RunNode = {
@@ -227,11 +228,11 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
         ? "stopped"
         : passIntegrated
           ? "done"
-          : reviewRunning
+          : reviewInFlight
             ? "current"
             : lastVerdict === "passed"
               ? "done"
-              : pick(false, lastVerdict === "failed" || (docs.state === "done" && building)),
+              : pick(false, lastVerdict === "failed"),
   };
   const fix: RunNode = {
     id: "fix",
@@ -243,7 +244,7 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
         ? "stopped"
         : failedRounds === 0
           ? "todo"
-          : lastVerdict === "passed" || passIntegrated || reviewStopFrom === "review" || reviewRunning
+          : lastVerdict === "passed" || passIntegrated || reviewStopFrom === "review" || reviewInFlight
             ? "done"
             : "current",
   };
