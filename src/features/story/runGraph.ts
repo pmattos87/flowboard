@@ -129,10 +129,19 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
   const info = subtaskRunInfo(trail);
   const open = subtasks.filter((s) => s.status !== "done" && s.status !== "canceled");
   const building = status === "building";
+  const reviewRounds = pass.filter((e) => e.action === "review_round");
+  // A Review round is in flight while this pass's latest review_started is its
+  // latest step: after its latest review_round, subtask_handoff and
+  // verify_round (FB-158). Trails without the event never are.
+  const lastIndex = (action: string) => pass.map((e) => e.action === action).lastIndexOf(true);
+  const reviewStarted = lastIndex("review_started");
+  const reviewInFlight =
+    reviewStarted > Math.max(lastIndex("review_round"), lastIndex("subtask_handoff"), lastIndex("verify_round"));
   const subNodes: SubtaskNode[] = subtasks.map((s) => {
     const key = `${projectKey}-${s.task_number}`;
     const run = info[key];
-    const state: NodeState = isSubtaskStopped(stopped, run)
+    // A failed Verify before the round in flight is not what stopped the Run.
+    const state: NodeState = isSubtaskStopped(stopped && !reviewInFlight, run)
       ? "stopped"
       : s.status === "done"
         ? "done"
@@ -143,9 +152,9 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
   });
   const buildStopped = stopped && subNodes.some((n) => n.state === "stopped");
   // A stop after the Build finished (every Subtask done or canceled, none
-  // stopped) is Review-side: it waits at the Review lane's gate.
-  const reviewSide = stopped && !buildStopped && open.length === 0;
-  const reviewRounds = pass.filter((e) => e.action === "review_round");
+  // stopped), or during a Review round in flight (a manual Review may leave
+  // Subtasks open), is Review-side: it waits at the Review lane's gate.
+  const reviewSide = stopped && !buildStopped && (open.length === 0 || reviewInFlight);
   const buildFinished = passIntegrated || reviewRounds.length > 0 || (building && open.length === 0 && subtasks.length > 0);
 
   const orchestrator: RunNode = {
@@ -193,7 +202,7 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
     title: "Docs",
     kind: "agent",
     caption: "once per Story",
-    state: pick(passIntegrated || reviewRounds.length > 0, building && open.length === 0 && subtasks.length > 0 && !stopped),
+    state: pick(passIntegrated || reviewRounds.length > 0 || reviewStarted >= 0, building && open.length === 0 && subtasks.length > 0 && !stopped),
   };
 
   // ─── Review → Integrate → Release → Production ───
@@ -204,9 +213,9 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
   // Review, Review failed twice, or else Codex was unavailable.
   const reviewStopFrom: RunGraph["reviewStopFrom"] = !reviewSide
     ? null
-    : lastVerdict === "passed"
+    : lastVerdict === "passed" && !reviewInFlight
       ? "merge"
-      : failedRounds >= 2 && lastVerdict === "failed"
+      : failedRounds >= 2 && lastVerdict === "failed" && !reviewInFlight
         ? "fix"
         : "review";
   const review: RunNode = {
@@ -217,9 +226,15 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
     state:
       reviewStopFrom === "review" || reviewStopFrom === "fix"
         ? "stopped"
-        : lastVerdict === "passed" || passIntegrated
+        : passIntegrated
           ? "done"
-          : pick(false, lastVerdict === "failed" || (docs.state === "done" && building)),
+          : reviewInFlight
+            ? "current"
+            : lastVerdict === "passed"
+              ? "done"
+              : // After a failed round, until the next round starts; once started
+                // and then overtaken by Build work, it waits like a first round.
+                pick(false, lastVerdict === "failed" && reviewStarted < lastIndex("review_round")),
   };
   const fix: RunNode = {
     id: "fix",
@@ -231,7 +246,7 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
         ? "stopped"
         : failedRounds === 0
           ? "todo"
-          : lastVerdict === "passed" || passIntegrated || reviewStopFrom === "review"
+          : lastVerdict === "passed" || passIntegrated || reviewStopFrom === "review" || reviewInFlight
             ? "done"
             : "current",
   };
