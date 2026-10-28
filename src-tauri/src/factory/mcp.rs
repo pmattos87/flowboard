@@ -264,6 +264,11 @@ impl FlowboardMcp {
         out(ops::review_record(&self.pool, &p.key, &p.verdict, &p.commit, p.findings_url.as_deref(), AGENT).await)
     }
 
+    #[tool(description = "Log the start of a Review round on a building Story")]
+    async fn review_start(&self, Parameters(p): Parameters<Key>) -> Result<String, String> {
+        out(ops::review_start(&self.pool, &p.key, AGENT).await)
+    }
+
     #[tool(description = "Stop a building Story's Run and hand it to Pedro")]
     async fn run_stop(&self, Parameters(p): Parameters<Stop>) -> Result<String, String> {
         out(ops::run_stop(&self.pool, &p.key, &p.reason, AGENT).await)
