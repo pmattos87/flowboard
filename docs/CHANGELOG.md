@@ -2,6 +2,14 @@
 
 **All notable changes to this project will be documented in this file.**
 
+## [Unreleased]
+
+### Added
+- New trail event `review_started` (`new_value` `{"round": n}`, numbered like `review_round`), logged when a Review round begins. It is the MCP tool `review_start` (`{ key }`) and the CLI command `flowboard-cli run review-start <KEY>`. It refuses a Story that isn't `building` and a stopped Run, and does not check for open Subtasks. No migration. The trail shows it as "Review rN started" (FB-158).
+
+### Fixed
+- The Run graph lights Code review while a Review round runs: Docs is `done` and Code review is `current` from `review_started` until that round's `review_round`, scoped to the current pass. Fix findings is `done` once the next round starts after a failed one, and a stop during a running round counts as a Review stop. Trails without the event render as before (FB-158).
+
 ## [1.10.0] - 2026-10-26
 
 ### Changed
