@@ -349,11 +349,11 @@ describe("SprintPlanningBoard — complete sprint and overdue label (FB-97)", ()
     start_date: "2026-10-01", end_date: end,
   });
 
-  function setup(sprints: unknown[]) {
+  function setup(sprints: unknown[], listTasks: () => Promise<unknown> = () => Promise.resolve([])) {
     useUiStore.setState({ activeProjectId: 1, boardSprintFilter: "all", boardSprintFilterFor: 1 });
     mockInvoke.mockImplementation((cmd) => {
       if (cmd === "list_sprints") return Promise.resolve(sprints);
-      if (cmd === "list_tasks") return Promise.resolve([]);
+      if (cmd === "list_tasks") return listTasks();
       if (cmd === "list_people") return Promise.resolve([]);
       if (cmd === "get_project") return Promise.resolve({ ...fakeProject, ladder: "legacy" });
       return Promise.resolve(null);
@@ -383,6 +383,24 @@ describe("SprintPlanningBoard — complete sprint and overdue label (FB-97)", ()
     fireEvent.click(await screen.findByRole("button", { name: "Complete sprint" }));
     expect(await screen.findByRole("dialog")).toHaveTextContent("Complete Sprint 20");
     expect(screen.getByRole("radio", { name: "Sprint 21" })).toBeChecked();
+  });
+
+  it("keeps completion disabled while the task query is still pending (FB-251)", async () => {
+    setup([sprint(20, "active"), sprint(21, "backlog")], () => new Promise(() => {}));
+    fireEvent.click(await screen.findByRole("button", { name: "Complete sprint" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Loading this sprint's issues…");
+    expect(dialog).not.toHaveTextContent(/Every issue in this sprint is done/);
+    expect(within(dialog).getByRole("button", { name: "Complete sprint" })).toBeDisabled();
+  });
+
+  it("keeps completion disabled when the task query fails (FB-251)", async () => {
+    setup([sprint(20, "active"), sprint(21, "backlog")], () => Promise.reject(new Error("db locked")));
+    fireEvent.click(await screen.findByRole("button", { name: "Complete sprint" }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(dialog).toHaveTextContent(/issues couldn't be loaded/));
+    expect(dialog).not.toHaveTextContent(/Every issue in this sprint is done/);
+    expect(within(dialog).getByRole("button", { name: "Complete sprint" })).toBeDisabled();
   });
 
   it("shows 'Ended 3 days ago' on an active sprint that ended three days ago", async () => {

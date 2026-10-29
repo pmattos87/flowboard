@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
@@ -35,9 +35,10 @@ const source = sprint(20, "active", "2024-03-01");
 
 function renderDialog(
   sprints: Sprint[],
-  tasks: Task[],
+  tasks: Task[] | undefined,
   project: Pick<Project, "key" | "ladder"> = legacy,
   onOpenChange = vi.fn(),
+  tasksError = false,
 ) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
@@ -48,6 +49,7 @@ function renderDialog(
         sprint={source}
         sprints={sprints}
         tasks={tasks}
+        tasksError={tasksError}
         project={project}
       />
     </QueryClientProvider>,
@@ -64,6 +66,36 @@ beforeEach(() => {
 });
 
 describe("CompleteSprintDialog", () => {
+  it("disables Confirm and claims no count while the tasks are still loading (FB-251)", () => {
+    renderDialog([source, sprint(21, "backlog", "2024-04-01")], undefined);
+    expect(screen.getByText("Loading this sprint's issues…")).toBeInTheDocument();
+    expect(screen.queryByText(/Every issue in this sprint is done/)).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Sprint 21" })).toBeChecked();
+    expect(confirmButton()).toBeDisabled();
+  });
+
+  it("disables Confirm and says so when the tasks failed to load (FB-251)", () => {
+    renderDialog([source, sprint(21, "backlog", "2024-04-01")], undefined, legacy, vi.fn(), true);
+    expect(screen.getByText(/issues couldn't be loaded, so it can't be completed yet/)).toBeInTheDocument();
+    expect(screen.queryByText(/Every issue in this sprint is done/)).not.toBeInTheDocument();
+    expect(confirmButton()).toBeDisabled();
+  });
+
+  it("bounds the dialog height and scrolls the body, with the footer outside the scroll area (FB-251)", () => {
+    const many = Array.from({ length: 20 }, (_, i) => sprint(30 + i, "backlog", `2024-04-${String(i + 1).padStart(2, "0")}`));
+    renderDialog([source, ...many], [task(1, 20, "todo")]);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveClass("max-h-[calc(100vh-2rem)]", "flex", "flex-col");
+    const body = screen.getByTestId("complete-sprint-body");
+    expect(body).toHaveClass("overflow-y-auto", "min-h-0", "flex-1");
+    expect(within(body).getAllByRole("radio")).toHaveLength(21);
+    const footer = screen.getByTestId("complete-sprint-footer");
+    expect(body).not.toContainElement(footer);
+    expect(footer).toHaveClass("shrink-0");
+    expect(within(footer).getByRole("button", { name: "Complete sprint" })).toBeInTheDocument();
+    expect(within(footer).getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
+
   it("counts only unfinished issues, defaults to the next sprint by start date and sends it", async () => {
     const user = userEvent.setup();
     const later = sprint(22, "backlog", "2024-05-01");

@@ -241,7 +241,7 @@ export function SprintPlanningBoard() {
   const activeProjectId = useUiStore((s) => s.activeProjectId);
   const boardSprintFilter = useUiStore((s) => s.boardSprintFilter);
 
-  const { data: allTasks } = useTasks(
+  const { data: allTasks, isError: tasksError } = useTasks(
     activeProjectId != null ? { project_id: activeProjectId } : undefined,
   );
   const { data: sprints } = useSprints(activeProjectId ?? undefined);
@@ -508,7 +508,8 @@ export function SprintPlanningBoard() {
           }}
           sprint={completing}
           sprints={sprints ?? []}
-          tasks={tasks}
+          tasks={allTasks}
+          tasksError={tasksError}
           project={project}
         />
       )}
