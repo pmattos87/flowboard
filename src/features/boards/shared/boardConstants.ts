@@ -8,9 +8,11 @@ import {
   ChevronsUp,
   Layers,
   Minus,
+  WandSparkles,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { Project, TaskPriority, TaskStatus, TaskType } from "@/types";
+import type { Project, Task, TaskPriority, TaskStatus, TaskType } from "@/types";
+import { subtaskRole } from "@/lib/subtaskRole";
 
 export type BoardColumn = { status: TaskStatus; label: string; dotClass: string; Icon?: LucideIcon };
 
@@ -108,6 +110,12 @@ export const TYPE_META: Record<TaskType, { Icon: LucideIcon; colorClass: string 
   subtask:  { Icon: CheckSquare, colorClass: "text-blue-400" },
   epic:  { Icon: Layers,      colorClass: "text-purple-400" },
 };
+
+/** A card's type icon, with the Run's Simplify Subtask shown by its role (FB-171). */
+export function typeMetaFor(task: Pick<Task, "type" | "title" | "description">): { Icon: LucideIcon; colorClass: string } {
+  if (subtaskRole(task) === "simplify") return { Icon: WandSparkles, colorClass: "text-fuchsia-400" };
+  return TYPE_META[task.type] ?? TYPE_META.subtask;
+}
 
 export const PRIORITY_META: Record<TaskPriority, { Icon: LucideIcon; colorClass: string }> = {
   critical: { Icon: ChevronsUp,  colorClass: "text-red-500" },
