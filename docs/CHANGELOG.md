@@ -12,6 +12,7 @@
 
 ### Changed
 - A sprint can only be completed with the Complete sprint action: "Completed" is gone from the sprint edit dialog's status choices and `update_sprint` refuses changing a sprint's status to `completed`. An already completed sprint shows "Completed" read-only and can still be edited (name, goal, dates) (FB-97).
+- On the Story page, the Run section (the graph, its legend, Review rounds and Trail) now sits at the top, full width, between the title and the description/sidebar row, so it is above the Details and Links sidebar instead of at the bottom of the page. The Run section's contents and the graph are unchanged (FB-150).
 
 ## [1.10.0] - 2026-10-26
 
