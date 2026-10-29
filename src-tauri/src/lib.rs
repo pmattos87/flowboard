@@ -1,6 +1,8 @@
 mod commands;
 pub mod db;
 pub mod factory;
+#[cfg(test)]
+mod test_support;
 
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
