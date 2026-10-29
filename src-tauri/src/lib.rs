@@ -1,6 +1,8 @@
 mod commands;
 pub mod db;
 pub mod factory;
+#[cfg(test)]
+mod test_support;
 
 use tauri::{Emitter, Manager};
 
