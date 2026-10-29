@@ -735,10 +735,37 @@ pub async fn story_move(pool: &SqlitePool, key: &str, to: &str, actor: Actor) ->
 pub async fn story_set_sprint(pool: &SqlitePool, key: &str, sprint_id: Option<i64>) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let story = load_story(&mut tx, key).await?;
+    set_sprint(&mut tx, &story, sprint_id).await?;
+    let story = load_by_id(&mut tx, story.id).await?;
+    let out = story_json(&mut tx, &story).await?;
+    tx.commit().await.map_err(err)?;
+    Ok(out)
+}
+
+/// `story_set_sprint` for a Story the app names by id, inside the caller's
+/// transaction (FB-97: `complete_sprint` carries Stories over this way, so a
+/// refusal rolls back the whole completion).
+pub async fn app_story_set_sprint(
+    tx: &mut Transaction<'_, Sqlite>,
+    story_id: i64,
+    sprint_id: Option<i64>,
+) -> Result<(), String> {
+    let story = load_by_id(tx, story_id).await?;
+    require_factory(&story)?;
+    if story.kind != "story" || story.parent_id.is_some() {
+        return Err(format!("{} is not a Story", story.key()));
+    }
+    set_sprint(tx, &story, sprint_id).await
+}
+
+/// The one copy of the sprint rule for a loaded Story, inside `tx`: the sprint
+/// must be the Story's project's, and the Story enters or leaves sprints only
+/// at `ready`. Its Subtasks follow.
+async fn set_sprint(tx: &mut Tx<'_>, story: &Row, sprint_id: Option<i64>) -> Result<(), String> {
     if let Some(sid) = sprint_id {
         let sprint_project: Option<i64> = sqlx::query_scalar("SELECT project_id FROM sprints WHERE id = ?")
             .bind(sid)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(err)?;
         if sprint_project != Some(story.project_id) {
@@ -764,13 +791,10 @@ pub async fn story_set_sprint(pool: &SqlitePool, key: &str, sprint_id: Option<i6
     .bind(sprint_id)
     .bind(story.id)
     .bind(story.id)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map_err(err)?;
-    let story = load_by_id(&mut tx, story.id).await?;
-    let out = story_json(&mut tx, &story).await?;
-    tx.commit().await.map_err(err)?;
-    Ok(out)
+    Ok(())
 }
 
 pub async fn story_set_branch(pool: &SqlitePool, key: &str, branch: &str) -> Result<Value, String> {

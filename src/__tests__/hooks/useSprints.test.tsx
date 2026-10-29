@@ -3,7 +3,8 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import React from "react";
-import { useSprints, useSprint, sprintKeys } from "@/hooks/useSprints";
+import { useSprints, useSprint, useCompleteSprint, sprintKeys } from "@/hooks/useSprints";
+import { taskKeys } from "@/hooks/useTasks";
 
 const mockInvoke = vi.mocked(invoke);
 
@@ -68,5 +69,34 @@ describe("useSprint", () => {
     const { result } = renderHook(() => useSprint(1), { wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(mockInvoke).toHaveBeenCalledWith("get_sprint", { id: 1 });
+  });
+});
+
+describe("useCompleteSprint", () => {
+  it("calls complete_sprint and invalidates sprints and tasks", async () => {
+    mockInvoke.mockResolvedValueOnce({ ...fakeSprint, status: "completed" });
+    const { wrapper, qc } = makeWrapper();
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    const { result } = renderHook(() => useCompleteSprint(), { wrapper });
+    await result.current.mutateAsync({ sprintId: 1, target: { kind: "backlog" } });
+    expect(mockInvoke).toHaveBeenCalledWith("complete_sprint", {
+      sprintId: 1,
+      target: { kind: "backlog" },
+    });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: sprintKeys.all });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: taskKeys.all });
+  });
+
+  it("hands the backend refusal text to the caller and invalidates nothing", async () => {
+    const refusal = "a Story enters or leaves a sprint only at ready; FB-4 is building";
+    mockInvoke.mockRejectedValueOnce(refusal);
+    const { wrapper, qc } = makeWrapper();
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    const { result } = renderHook(() => useCompleteSprint(), { wrapper });
+    await expect(
+      result.current.mutateAsync({ sprintId: 1, target: { kind: "backlog" } }),
+    ).rejects.toBe(refusal);
+    await waitFor(() => expect(result.current.error).toBe(refusal));
+    expect(invalidate).not.toHaveBeenCalled();
   });
 });

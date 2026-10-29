@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
+  completeSprint,
   createSprint,
   deleteSprint,
   getSprint,
@@ -9,6 +10,8 @@ import {
   type SprintCreatePayload,
   type SprintUpdatePayload,
 } from "@/lib/commands";
+import type { CompleteSprintTarget, Sprint } from "@/types";
+import { taskKeys } from "./useTasks";
 
 export const sprintKeys = {
   all: ["sprints"] as const,
@@ -56,5 +59,19 @@ export function useDeleteSprint() {
     mutationFn: (id: number) => deleteSprint(id),
     onSuccess: () => { qc.invalidateQueries({ queryKey: sprintKeys.all }); },
     onError: (err) => toast.error(`Failed to delete sprint: ${String(err)}`),
+  });
+}
+
+/** Complete a sprint, carrying its unfinished issues to `target`. Issues move, so tasks are
+ *  invalidated along with sprints. No toast on error: the dialog shows the refusal text,
+ *  which reaches the caller as the mutation's error. */
+export function useCompleteSprint() {
+  const qc = useQueryClient();
+  return useMutation<Sprint, string, { sprintId: number; target: CompleteSprintTarget }>({
+    mutationFn: ({ sprintId, target }) => completeSprint(sprintId, target),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: sprintKeys.all });
+      qc.invalidateQueries({ queryKey: taskKeys.all });
+    },
   });
 }

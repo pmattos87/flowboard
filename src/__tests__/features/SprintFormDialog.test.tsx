@@ -4,10 +4,11 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { SprintFormDialog } from "@/features/sprints/SprintFormDialog";
+import type { Sprint } from "@/types";
 
 const mockInvoke = vi.mocked(invoke);
 
-function renderDialog(projectId: number | null = 1) {
+function renderDialog(projectId: number | null = 1, editing: Sprint | null = null) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
@@ -15,7 +16,7 @@ function renderDialog(projectId: number | null = 1) {
         open={true}
         onOpenChange={vi.fn()}
         projectId={projectId}
-        editing={null}
+        editing={editing}
       />
     </QueryClientProvider>
   );
@@ -102,5 +103,86 @@ describe("SprintFormDialog — date validation", () => {
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith("create_sprint", expect.anything())
     );
+  });
+});
+
+const sprintWith = (status: Sprint["status"]): Sprint => ({
+  id: 7, project_id: 1, name: "Sprint 7", goal: "Ship it",
+  start_date: "2026-10-01", end_date: "2026-10-14", status,
+});
+
+describe("SprintFormDialog — status choices (FB-97)", () => {
+  it("offers no Completed option when creating a sprint", () => {
+    renderDialog();
+    const select = screen.getByLabelText(/status/i);
+    const values = Array.from(select.querySelectorAll("option")).map((o) => o.value);
+    expect(values).toEqual(["backlog", "active"]);
+    expect(screen.queryByRole("option", { name: /completed/i })).not.toBeInTheDocument();
+  });
+
+  it.each(["backlog", "active"] as const)(
+    "offers no Completed option when editing a %s sprint",
+    (status) => {
+      renderDialog(1, sprintWith(status));
+      const select = screen.getByLabelText(/status/i);
+      expect(select).toHaveValue(status);
+      expect(screen.queryByRole("option", { name: /completed/i })).not.toBeInTheDocument();
+    }
+  );
+
+  it("shows Completed read-only on a completed sprint and keeps it on save", async () => {
+    const user = userEvent.setup();
+    mockInvoke.mockResolvedValue(sprintWith("completed"));
+    renderDialog(1, sprintWith("completed"));
+
+    const status = screen.getByLabelText(/status/i);
+    expect(status).toHaveValue("Completed");
+    expect(status).toHaveAttribute("readonly");
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+
+    // Name, goal and dates stay editable.
+    const name = screen.getByLabelText(/name/i);
+    expect(name).not.toHaveAttribute("readonly");
+    await user.clear(name);
+    await user.type(name, "Sprint 7b");
+
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("update_sprint", {
+        id: 7,
+        payload: {
+          name: "Sprint 7b",
+          goal: "Ship it",
+          start_date: "2026-10-01",
+          end_date: "2026-10-14",
+          status: "completed",
+        },
+      })
+    );
+  });
+});
+
+describe("SprintFormDialog — completed sprint saved unchanged (FB-97)", () => {
+  it("sends status completed and nothing else when saving with no edits", async () => {
+    const user = userEvent.setup();
+    mockInvoke.mockResolvedValue(sprintWith("completed"));
+    renderDialog(1, sprintWith("completed"));
+
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith("update_sprint", expect.anything()));
+    const calls = mockInvoke.mock.calls.filter(([cmd]) => cmd === "update_sprint");
+    expect(calls).toHaveLength(1);
+    expect(calls[0][1]).toEqual({
+      id: 7,
+      payload: {
+        name: "Sprint 7",
+        goal: "Ship it",
+        start_date: "2026-10-01",
+        end_date: "2026-10-14",
+        status: "completed",
+      },
+    });
   });
 });
