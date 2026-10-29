@@ -71,6 +71,7 @@ pub fn run() {
             commands::sprints::get_sprint,
             commands::sprints::update_sprint,
             commands::sprints::delete_sprint,
+            commands::sprints::complete_sprint,
             commands::releases::list_releases,
             commands::releases::get_release,
             commands::releases::create_release,
