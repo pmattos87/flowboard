@@ -30,7 +30,7 @@ FlowBoard is a Jira-inspired project management tool built as a native Windows d
 - **Board Views** — User Story Board, Task Board, Discovery Board, Sprint Planning Board
 - **Hierarchy Pipeline** — Project > Sprint > Story > Task; sprint filter, story grouping on Task Board, story-children sprint cascade
 - **Task Management** — Full CRUD with types (Story, Bug, Subtask, Epic), priorities, labels, assignees, story points; user-facing per-project task keys (`P1-1`, `P1-2`, …)
-- **Sprint Management** — Create and manage sprints with goals, dates, and status tracking
+- **Sprint Management** — Create and manage sprints with goals, dates, and status tracking; completing a sprint carries its unfinished issues over to the next sprint, another sprint, or Backlog
 - **Roadmap** — Gantt-style timeline with draggable bars and a today indicator
 - **Reports** — Burndown chart, velocity chart, status distribution, workload per member
 - **Comments & Time Tracking** — Per-task collaboration and time logging

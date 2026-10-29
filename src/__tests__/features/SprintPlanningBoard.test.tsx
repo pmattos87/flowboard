@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { SprintPlanningBoard } from "@/features/boards/SprintPlanningBoard";
@@ -340,5 +340,90 @@ describe("SprintPlanningBoard — sprint completion (FB-119)", () => {
     const text = await screen.findByText("1 / 4 pts · 25%");
     expect(screen.getByTestId("sprint-progress-bar").className).toMatch(/bg-blue-/);
     expect(text.getAttribute("title")).not.toMatch(/user_testing|integrated_tests/);
+  });
+});
+
+describe("SprintPlanningBoard — complete sprint and overdue label (FB-97)", () => {
+  const sprint = (id: number, status: string, end = "2026-10-30") => ({
+    id, project_id: 1, name: `Sprint ${id}`, goal: "", status,
+    start_date: "2026-10-01", end_date: end,
+  });
+
+  function setup(sprints: unknown[], listTasks: () => Promise<unknown> = () => Promise.resolve([])) {
+    useUiStore.setState({ activeProjectId: 1, boardSprintFilter: "all", boardSprintFilterFor: 1 });
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "list_sprints") return Promise.resolve(sprints);
+      if (cmd === "list_tasks") return listTasks();
+      if (cmd === "list_people") return Promise.resolve([]);
+      if (cmd === "get_project") return Promise.resolve({ ...fakeProject, ladder: "legacy" });
+      return Promise.resolve(null);
+    });
+    renderBoard();
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 28, 12, 0, 0));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("shows Complete sprint on active sprint rows only", async () => {
+    setup([sprint(20, "active"), sprint(21, "backlog"), sprint(22, "completed")]);
+    await screen.findByText("Sprint 21", { selector: "span" });
+    const buttons = screen.getAllByRole("button", { name: "Complete sprint" });
+    expect(buttons).toHaveLength(1);
+    const activeRow = screen.getByText("Sprint 20", { selector: "span" }).closest("div.rounded-lg") as HTMLElement;
+    expect(within(activeRow).getByRole("button", { name: "Complete sprint" })).toBeInTheDocument();
+  });
+
+  it("opens the Complete sprint dialog from the row", async () => {
+    setup([sprint(20, "active"), sprint(21, "backlog")]);
+    fireEvent.click(await screen.findByRole("button", { name: "Complete sprint" }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent("Complete Sprint 20");
+    expect(screen.getByRole("radio", { name: "Sprint 21" })).toBeChecked();
+  });
+
+  it("keeps completion disabled while the task query is still pending (FB-251)", async () => {
+    setup([sprint(20, "active"), sprint(21, "backlog")], () => new Promise(() => {}));
+    fireEvent.click(await screen.findByRole("button", { name: "Complete sprint" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Loading this sprint's issues…");
+    expect(dialog).not.toHaveTextContent(/Every issue in this sprint is done/);
+    expect(within(dialog).getByRole("button", { name: "Complete sprint" })).toBeDisabled();
+  });
+
+  it("keeps completion disabled when the task query fails (FB-251)", async () => {
+    setup([sprint(20, "active"), sprint(21, "backlog")], () => Promise.reject(new Error("db locked")));
+    fireEvent.click(await screen.findByRole("button", { name: "Complete sprint" }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(dialog).toHaveTextContent(/issues couldn't be loaded/));
+    expect(dialog).not.toHaveTextContent(/Every issue in this sprint is done/);
+    expect(within(dialog).getByRole("button", { name: "Complete sprint" })).toBeDisabled();
+  });
+
+  it("shows 'Ended 3 days ago' on an active sprint that ended three days ago", async () => {
+    setup([sprint(20, "active", "2026-10-25")]);
+    expect(await screen.findByText("Ended 3 days ago")).toBeInTheDocument();
+  });
+
+  it("uses the singular for an active sprint that ended yesterday (QA)", async () => {
+    setup([sprint(20, "active", "2026-10-27")]);
+    const label = await screen.findByText("Ended 1 day ago");
+    const row = label.closest("div.rounded-lg") as HTMLElement;
+    expect(within(row).getByRole("button", { name: "Complete sprint" })).toBeInTheDocument();
+  });
+
+  it("shows no Ended label for an active sprint ending today or later", async () => {
+    setup([sprint(20, "active", "2026-10-28"), sprint(21, "active", "2026-11-04")]);
+    await screen.findByText("Sprint 21", { selector: "span" });
+    expect(screen.queryByText(/Ended/)).not.toBeInTheDocument();
+  });
+
+  it("shows no Ended label for backlog or completed sprints past their end date", async () => {
+    setup([sprint(20, "backlog", "2026-10-01"), sprint(21, "completed", "2026-10-01")]);
+    await screen.findByText("Sprint 21", { selector: "span" });
+    expect(screen.queryByText(/Ended/)).not.toBeInTheDocument();
   });
 });
