@@ -42,5 +42,6 @@ Out of scope, even when a Subtask mentions them:
 - `docs/SCHEMA.md` is updated in the same change whenever the schema changes.
 - Every new command returns `Result<T, String>`, handles errors gracefully, respects schema constraints, returns correctly typed JSON, and is registered in the `generate_handler!` list in `src-tauri/src/lib.rs`.
 - Nullable foreign keys are `Option<i64>`; task changes touch `updated_at`.
-- `cargo test --manifest-path src-tauri/Cargo.toml` passes, with a test for the new command logic that would fail without the change.
+- Column values and constraints (e.g. `tasks.type`, status enums) come from `docs/SCHEMA.md`, never from old migrations: later migrations change CHECK constraints. New tests build their database and rows with the fixtures in `src-tauri/src/test_support.rs` (`pool()`, `project()`, `factory_project()`, `sprint()`, `task()`).
+- The new command logic has a test that would fail without the change. In a Factory Run, run only the tests for the module you changed (`cargo test --manifest-path src-tauri/Cargo.toml <module>`); QA runs the full suite at Verify.
 - No new dependency in `Cargo.toml` unless the Subtask requires it.

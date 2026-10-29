@@ -371,69 +371,10 @@ pub async fn complete_sprint(
 mod tests {
     use super::{complete_sprint_inner, update_sprint_inner, CompleteTarget, SprintUpdate};
     use crate::factory::ops::{self, Actor, NewStory, NewSubtask};
+    use crate::test_support::{
+        factory_project, pool, project, sprint, task, SprintStatus as S, TaskStatus as T, TaskType as K,
+    };
     use sqlx::SqlitePool;
-
-    async fn pool() -> SqlitePool {
-        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-        sqlx::query("INSERT INTO people (name, email) VALUES ('Pedro', 'p@test'), ('Claude', 'c@test')")
-            .execute(&pool)
-            .await
-            .unwrap();
-        pool
-    }
-
-    async fn project(pool: &SqlitePool, key: &str) -> i64 {
-        sqlx::query_scalar("INSERT INTO projects (name, key, created_at) VALUES (?, ?, '2026-01-01T00:00:00.000Z') RETURNING id")
-            .bind(key)
-            .bind(key)
-            .fetch_one(pool)
-            .await
-            .unwrap()
-    }
-
-    /// A Factory project with its owner and agent roles set.
-    async fn factory_project(pool: &SqlitePool, key: &str) -> i64 {
-        let id = project(pool, key).await;
-        ops::people_set_role(pool, 1, Some("owner")).await.unwrap();
-        ops::people_set_role(pool, 2, Some("agent")).await.unwrap();
-        ops::project_set(pool, key, Some("factory"), None).await.unwrap();
-        id
-    }
-
-    async fn sprint(pool: &SqlitePool, project_id: i64, name: &str, start: &str, status: &str) -> i64 {
-        sqlx::query_scalar(
-            r#"INSERT INTO sprints (project_id, name, goal, start_date, end_date, status)
-               VALUES (?, ?, '', ?, ?, ?) RETURNING id"#,
-        )
-        .bind(project_id)
-        .bind(name)
-        .bind(start)
-        .bind(start)
-        .bind(status)
-        .fetch_one(pool)
-        .await
-        .unwrap()
-    }
-
-    /// A legacy row inserted directly; returns its id. `task_number` is the id.
-    async fn task(pool: &SqlitePool, project_id: i64, sprint: Option<i64>, parent: Option<i64>, kind: &str, status: &str) -> i64 {
-        sqlx::query_scalar(
-            r#"INSERT INTO tasks (project_id, task_number, sprint_id, parent_id, title, type, status, created_at, updated_at)
-               VALUES (?, (SELECT COALESCE(MAX(task_number), 0) + 1 FROM tasks WHERE project_id = ?), ?, ?, 't', ?, ?,
-                       '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')
-               RETURNING id"#,
-        )
-        .bind(project_id)
-        .bind(project_id)
-        .bind(sprint)
-        .bind(parent)
-        .bind(kind)
-        .bind(status)
-        .fetch_one(pool)
-        .await
-        .unwrap()
-    }
 
     async fn row(pool: &SqlitePool, id: i64) -> (Option<i64>, String) {
         sqlx::query_as("SELECT sprint_id, status FROM tasks WHERE id = ?").bind(id).fetch_one(pool).await.unwrap()
@@ -486,16 +427,16 @@ mod tests {
     async fn unfinished_issues_carry_over_with_their_status() {
         let pool = pool().await;
         let p = project(&pool, "LG").await;
-        let a = sprint(&pool, p, "S1", "2026-10-01", "active").await;
-        let b = sprint(&pool, p, "S2", "2026-10-15", "backlog").await;
-        let story = task(&pool, p, Some(a), None, "story", "in_review").await;
-        let open_child = task(&pool, p, Some(a), Some(story), "subtask", "in_progress").await;
-        let done_child = task(&pool, p, Some(a), Some(story), "subtask", "done").await;
-        let open_task = task(&pool, p, Some(a), None, "subtask", "todo").await;
-        let open_bug = task(&pool, p, Some(a), None, "bug", "in_progress").await;
-        let done_story = task(&pool, p, Some(a), None, "story", "done").await;
-        let done_story_child = task(&pool, p, Some(a), Some(done_story), "subtask", "done").await;
-        let canceled_task = task(&pool, p, Some(a), None, "subtask", "canceled").await;
+        let a = sprint(&pool, p, "S1", "2026-10-01", S::Active).await;
+        let b = sprint(&pool, p, "S2", "2026-10-15", S::Backlog).await;
+        let story = task(&pool, p, Some(a), None, K::Story, T::InReview).await;
+        let open_child = task(&pool, p, Some(a), Some(story), K::Subtask, T::InProgress).await;
+        let done_child = task(&pool, p, Some(a), Some(story), K::Subtask, T::Done).await;
+        let open_task = task(&pool, p, Some(a), None, K::Subtask, T::Todo).await;
+        let open_bug = task(&pool, p, Some(a), None, K::Bug, T::InProgress).await;
+        let done_story = task(&pool, p, Some(a), None, K::Story, T::Done).await;
+        let done_story_child = task(&pool, p, Some(a), Some(done_story), K::Subtask, T::Done).await;
+        let canceled_task = task(&pool, p, Some(a), None, K::Subtask, T::Canceled).await;
 
         let s = complete_sprint_inner(&pool, a, to(b)).await.unwrap();
         assert_eq!(s.status, "completed");
@@ -528,8 +469,8 @@ mod tests {
     async fn a_tested_factory_story_and_its_subtasks_carry_over_at_tested() {
         let pool = pool().await;
         let p = factory_project(&pool, "SF").await;
-        let a = sprint(&pool, p, "S1", "2026-10-01", "active").await;
-        let b = sprint(&pool, p, "S2", "2026-10-15", "active").await;
+        let a = sprint(&pool, p, "S1", "2026-10-01", S::Active).await;
+        let b = sprint(&pool, p, "S2", "2026-10-15", S::Active).await;
         let key = ops::story_create(&pool, NewStory { project: "SF", title: "s", description: "", priority: "medium", labels: "" }, Actor::Owner)
             .await
             .unwrap()["key"]
@@ -562,10 +503,10 @@ mod tests {
     async fn backlog_resets_legacy_stories_and_keeps_bug_statuses() {
         let pool = pool().await;
         let p = project(&pool, "LG").await;
-        let a = sprint(&pool, p, "S1", "2026-10-01", "active").await;
-        let story = task(&pool, p, Some(a), None, "story", "in_progress").await;
-        let child = task(&pool, p, Some(a), Some(story), "subtask", "todo").await;
-        let bug = task(&pool, p, Some(a), None, "bug", "in_review").await;
+        let a = sprint(&pool, p, "S1", "2026-10-01", S::Active).await;
+        let story = task(&pool, p, Some(a), None, K::Story, T::InProgress).await;
+        let child = task(&pool, p, Some(a), Some(story), K::Subtask, T::Todo).await;
+        let bug = task(&pool, p, Some(a), None, K::Bug, T::InReview).await;
 
         complete_sprint_inner(&pool, a, CompleteTarget::Backlog).await.unwrap();
         assert_eq!(row(&pool, story).await, (None, "ready_for_development".into()));
@@ -591,8 +532,8 @@ mod tests {
     async fn backlog_leaves_a_ready_for_development_legacy_story_unlogged() {
         let pool = pool().await;
         let p = project(&pool, "LG").await;
-        let a = sprint(&pool, p, "S1", "2026-10-01", "active").await;
-        let story = task(&pool, p, Some(a), None, "story", "ready_for_development").await;
+        let a = sprint(&pool, p, "S1", "2026-10-01", S::Active).await;
+        let story = task(&pool, p, Some(a), None, K::Story, T::ReadyForDevelopment).await;
 
         complete_sprint_inner(&pool, a, CompleteTarget::Backlog).await.unwrap();
         assert_eq!(row(&pool, story).await, (None, "ready_for_development".into()));
@@ -604,7 +545,7 @@ mod tests {
     async fn backlog_takes_ready_factory_stories_and_their_subtasks_out() {
         let pool = pool().await;
         let p = factory_project(&pool, "SF").await;
-        let a = sprint(&pool, p, "S1", "2026-10-01", "active").await;
+        let a = sprint(&pool, p, "S1", "2026-10-01", S::Active).await;
         let key = ops::story_create(&pool, NewStory { project: "SF", title: "s", description: "", priority: "medium", labels: "" }, Actor::Owner)
             .await
             .unwrap()["key"]
@@ -634,7 +575,7 @@ mod tests {
     async fn backlog_is_refused_on_a_factory_project_with_a_story_past_ready() {
         let pool = pool().await;
         let p = factory_project(&pool, "SF").await;
-        let a = sprint(&pool, p, "S1", "2026-10-01", "active").await;
+        let a = sprint(&pool, p, "S1", "2026-10-01", S::Active).await;
         for title in ["ready one", "building one"] {
             let key = ops::story_create(&pool, NewStory { project: "SF", title, description: "", priority: "medium", labels: "" }, Actor::Owner)
                 .await
@@ -662,13 +603,13 @@ mod tests {
     async fn a_new_sprint_target_creates_one_sprint_and_a_refusal_creates_none() {
         let pool = pool().await;
         let p = project(&pool, "LG").await;
-        let a = sprint(&pool, p, "S1", "2026-10-01", "active").await;
-        let open = task(&pool, p, Some(a), None, "subtask", "in_progress").await;
+        let a = sprint(&pool, p, "S1", "2026-10-01", S::Active).await;
+        let open = task(&pool, p, Some(a), None, K::Subtask, T::InProgress).await;
         let new = || CompleteTarget::New { name: "S2".into(), start_date: "2026-10-15".into(), end_date: "2026-10-28".into() };
 
         // Refused (a done Story with an open Subtask): no stray sprint.
-        let done = task(&pool, p, Some(a), None, "story", "done").await;
-        let child = task(&pool, p, Some(a), Some(done), "subtask", "todo").await;
+        let done = task(&pool, p, Some(a), None, K::Story, T::Done).await;
+        let child = task(&pool, p, Some(a), Some(done), K::Subtask, T::Todo).await;
         let before = snapshot(&pool).await;
         complete_sprint_inner(&pool, a, new()).await.unwrap_err();
         assert_eq!(snapshot(&pool).await, before);
@@ -691,12 +632,12 @@ mod tests {
     async fn a_done_story_with_an_open_subtask_refuses_completion_and_names_both() {
         let pool = pool().await;
         let p = project(&pool, "LG").await;
-        let a = sprint(&pool, p, "S1", "2026-10-01", "active").await;
-        let b = sprint(&pool, p, "S2", "2026-10-15", "backlog").await;
-        task(&pool, p, Some(a), None, "subtask", "todo").await; // LG-1
-        let done = task(&pool, p, Some(a), None, "story", "done").await; // LG-2
-        task(&pool, p, Some(a), Some(done), "subtask", "done").await; // LG-3
-        task(&pool, p, Some(a), Some(done), "subtask", "in_progress").await; // LG-4
+        let a = sprint(&pool, p, "S1", "2026-10-01", S::Active).await;
+        let b = sprint(&pool, p, "S2", "2026-10-15", S::Backlog).await;
+        task(&pool, p, Some(a), None, K::Subtask, T::Todo).await; // LG-1
+        let done = task(&pool, p, Some(a), None, K::Story, T::Done).await; // LG-2
+        task(&pool, p, Some(a), Some(done), K::Subtask, T::Done).await; // LG-3
+        task(&pool, p, Some(a), Some(done), K::Subtask, T::InProgress).await; // LG-4
 
         let before = snapshot(&pool).await;
         let err = complete_sprint_inner(&pool, a, to(b)).await.unwrap_err();
@@ -709,12 +650,12 @@ mod tests {
         let pool = pool().await;
         let p = project(&pool, "LG").await;
         let other = project(&pool, "OT").await;
-        let active = sprint(&pool, p, "S1", "2026-10-01", "active").await;
-        let planned = sprint(&pool, p, "S2", "2026-10-15", "backlog").await;
-        let done = sprint(&pool, p, "S0", "2026-09-01", "completed").await;
-        let foreign = sprint(&pool, other, "X1", "2026-10-15", "backlog").await;
-        task(&pool, p, Some(active), None, "subtask", "todo").await;
-        task(&pool, p, Some(planned), None, "subtask", "todo").await;
+        let active = sprint(&pool, p, "S1", "2026-10-01", S::Active).await;
+        let planned = sprint(&pool, p, "S2", "2026-10-15", S::Backlog).await;
+        let done = sprint(&pool, p, "S0", "2026-09-01", S::Completed).await;
+        let foreign = sprint(&pool, other, "X1", "2026-10-15", S::Backlog).await;
+        task(&pool, p, Some(active), None, K::Subtask, T::Todo).await;
+        task(&pool, p, Some(planned), None, K::Subtask, T::Todo).await;
 
         let before = snapshot(&pool).await;
         let cases = [
@@ -739,13 +680,13 @@ mod tests {
     async fn update_sprint_cannot_complete_a_sprint_but_edits_a_completed_one() {
         let pool = pool().await;
         let p = project(&pool, "LG").await;
-        for from in ["active", "backlog"] {
-            let id = sprint(&pool, p, from, "2026-10-01", from).await;
+        for from in [S::Active, S::Backlog] {
+            let id = sprint(&pool, p, from.as_str(), "2026-10-01", from).await;
             let err = update_sprint_inner(&pool, id, status_update(Some("completed"), None)).await.unwrap_err();
             assert!(err.contains("Complete sprint"), "{err}");
-            assert_eq!(sprint_status(&pool, id).await, from);
+            assert_eq!(sprint_status(&pool, id).await, from.as_str());
         }
-        let done = sprint(&pool, p, "S0", "2026-09-01", "completed").await;
+        let done = sprint(&pool, p, "S0", "2026-09-01", S::Completed).await;
         let s = update_sprint_inner(&pool, done, status_update(Some("completed"), Some("renamed"))).await.unwrap();
         assert_eq!((s.name.as_str(), s.status.as_str()), ("renamed", "completed"));
     }
