@@ -56,6 +56,12 @@ export interface Sprint {
   status: SprintStatus;
 }
 
+/** Where `complete_sprint` carries a sprint's unfinished issues (FB-97). */
+export type CompleteSprintTarget =
+  | { kind: "sprint"; sprintId: number }
+  | { kind: "backlog" }
+  | { kind: "new"; name: string; startDate: string; endDate: string };
+
 export interface Task {
   id: number;
   project_id: number;

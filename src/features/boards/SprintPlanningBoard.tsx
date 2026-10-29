@@ -9,7 +9,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { CalendarDays, ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
+import { CalendarDays, CheckCheck, ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useUiStore } from "@/stores/uiStore";
@@ -20,6 +20,8 @@ import { useProject } from "@/hooks/useProjects";
 import { useStoryCardDecor } from "@/features/story/useStoryCardDecor";
 import type { CardDecor } from "./shared/TaskCard";
 import { SprintFormDialog } from "@/features/sprints/SprintFormDialog";
+import { CompleteSprintDialog } from "@/features/sprints/CompleteSprintDialog";
+import { daysOverdue } from "@/lib/sprintCompletion";
 import { RefreshButton } from "@/components/RefreshButton";
 import type { Project, Sprint, SprintStatus, Task, TaskStatus } from "@/types";
 import { cn } from "@/lib/utils";
@@ -65,6 +67,7 @@ function SprintSection({
   onToggle,
   onEdit,
   onDelete,
+  onComplete,
   people,
   projectKey,
   decorate,
@@ -76,6 +79,7 @@ function SprintSection({
   onToggle: () => void;
   onEdit: (sprint: Sprint) => void;
   onDelete: (sprint: Sprint) => void;
+  onComplete: (sprint: Sprint) => void;
   people: ReturnType<typeof usePeople>["data"];
   projectKey: string;
   decorate?: (task: Task) => CardDecor;
@@ -83,6 +87,8 @@ function SprintSection({
   const { setNodeRef, isOver } = useDroppable({ id: sprintDroppableId(row.key) });
   const sprint = row.sprint;
   const peopleList = people ?? [];
+  // FB-97: an active sprint past its end date. An empty end_date gives NaN, which shows nothing.
+  const overdue = sprint?.status === "active" ? daysOverdue(sprint.end_date) : 0;
 
   // FB-119: completion of the row's stories. Canceled points show in the tooltip
   // but are not part of the total.
@@ -153,6 +159,21 @@ function SprintSection({
         )}
         {sprint && (
           <div className="ml-auto flex items-center gap-1 shrink-0">
+            {overdue > 0 && (
+              <span className="text-xs text-amber-400 mr-1">
+                {`Ended ${overdue} ${overdue === 1 ? "day" : "days"} ago`}
+              </span>
+            )}
+            {sprint.status === "active" && (
+              <button
+                type="button"
+                onClick={() => onComplete(sprint)}
+                className="flex items-center gap-1 px-2 py-1 mr-1 rounded text-xs text-gray-300 bg-gray-800 hover:bg-gray-700 hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              >
+                <CheckCheck className="h-3.5 w-3.5" />
+                Complete sprint
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onEdit(sprint)}
@@ -220,7 +241,7 @@ export function SprintPlanningBoard() {
   const activeProjectId = useUiStore((s) => s.activeProjectId);
   const boardSprintFilter = useUiStore((s) => s.boardSprintFilter);
 
-  const { data: allTasks } = useTasks(
+  const { data: allTasks, isError: tasksError } = useTasks(
     activeProjectId != null ? { project_id: activeProjectId } : undefined,
   );
   const { data: sprints } = useSprints(activeProjectId ?? undefined);
@@ -241,6 +262,7 @@ export function SprintPlanningBoard() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Sprint | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [completing, setCompleting] = useState<Sprint | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -449,6 +471,7 @@ export function SprintPlanningBoard() {
               onToggle={() => toggleSection(row.key)}
               onEdit={openEdit}
               onDelete={(s) => setDeletingId(s.id)}
+              onComplete={setCompleting}
               people={people}
               projectKey={projectKey}
               decorate={decorate}
@@ -476,6 +499,20 @@ export function SprintPlanningBoard() {
         projectId={activeProjectId}
         editing={editing}
       />
+
+      {completing && project && (
+        <CompleteSprintDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setCompleting(null);
+          }}
+          sprint={completing}
+          sprints={sprints ?? []}
+          tasks={allTasks}
+          tasksError={tasksError}
+          project={project}
+        />
+      )}
     </div>
   );
 }
