@@ -2,6 +2,15 @@
 
 **All notable changes to this project will be documented in this file.**
 
+## [Unreleased]
+
+### Added
+- "Complete sprint" button on each active sprint's row on the Sprint Planning board. It opens a dialog with the number of unfinished issues (every type, not done and not canceled; on Factory projects Stories at `integrated_tests`, `tested` and `user_testing` count) and where they go: by default the next sprint (the earliest not-completed sprint by start date), or another open sprint, or Backlog, or, when no open sprint exists, a new sprint (name, start date, end date). Issues keep their status when they move to a sprint; the destination sprint's own status is not changed. To Backlog, legacy Stories go back to `ready_for_development` with a `status_changed` activity row, and the option is disabled with the reason shown while a Factory Story is past `ready`. A done Story with an unfinished Subtask blocks completion, and the dialog names them. Done and canceled issues stay in the closed sprint, so velocity is unchanged. The new `complete_sprint` Tauri command (`completeSprint` wrapper, `useCompleteSprint` hook, helpers in `src/lib/sprintCompletion.ts`) moves the issues and completes the sprint in one transaction; a refusal changes nothing and is shown in the dialog. Factory Stories move through the same `set_sprint` in `factory/ops.rs` as `story_set_sprint` (FB-97).
+- An active sprint whose end date is before today shows "Ended N days ago" next to the Complete sprint button on its Sprint Planning board row (FB-97).
+
+### Changed
+- A sprint can only be completed with the Complete sprint action: "Completed" is gone from the sprint edit dialog's status choices and `update_sprint` refuses changing a sprint's status to `completed`. An already completed sprint shows "Completed" read-only and can still be edited (name, goal, dates) (FB-97).
+
 ## [1.10.0] - 2026-10-26
 
 ### Changed
