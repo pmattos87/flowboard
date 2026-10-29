@@ -3,6 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
   ActivityLog,
   Attachment,
+  BackupStatus,
   Comment,
   Person,
   Project,
@@ -244,6 +245,13 @@ export const listActivityLogBySprint = (sprintId: number) =>
   invoke<ActivityLog[]>("list_activity_log_by_sprint", { sprintId });
 export const listAllActivityLog = () =>
   invoke<ActivityLog[]>("list_all_activity_log");
+
+// ─── Backup ────────────────────────────────────────────────
+
+export const getBackupStatus = () => invoke<BackupStatus>("get_backup_status");
+/** Rejects when `path` does not exist or is not a folder. */
+export const setBackupDir = (path: string) =>
+  invoke<void>("set_backup_dir", { path });
 
 // ─── Dev / Staging ─────────────────────────────────────────
 

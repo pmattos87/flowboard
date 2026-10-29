@@ -29,6 +29,7 @@ import {
 } from "@dnd-kit/sortable";
 import { useProjects, useReorderProjects } from "@/hooks/useProjects";
 import { ProjectBadge } from "@/components/ProjectBadge";
+import { BackupWarning } from "@/components/BackupWarning";
 import { useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/types";
@@ -178,6 +179,8 @@ export function Sidebar() {
           </NavLink>
         ))}
       </nav>
+
+      <BackupWarning />
 
       <div className="mt-auto p-2 border-t border-gray-900 space-y-0.5">
         <NavLink to="/settings" className={navClasses}>

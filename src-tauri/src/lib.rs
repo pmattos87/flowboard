@@ -2,6 +2,7 @@ mod commands;
 pub mod db;
 pub mod factory;
 
+use std::sync::Arc;
 use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -14,27 +15,42 @@ pub fn run() {
         .plugin(tauri_plugin_sql::Builder::default().build())
         .setup(|app| {
             let handle = app.handle().clone();
-            tauri::async_runtime::block_on(async move {
-                let pool = db::init_pool(&handle)
+            let pool = tauri::async_runtime::block_on(async move {
+                db::init_pool(&handle)
                     .await
-                    .expect("failed to initialize sqlite pool");
-                handle.manage(pool);
+                    .expect("failed to initialize sqlite pool")
             });
+            app.manage(pool.clone());
 
-            // Live refresh: runs only after init_pool has migrated, off the setup thread.
+            // Live refresh and backups: run only after init_pool has migrated,
+            // off the setup thread. The pool is managed before and regardless of
+            // either, and no backup result reaches this thread.
             match db::db_path(app.handle()) {
                 Ok(path) => {
+                    let backups = Arc::new(commands::backup::Backups::new(
+                        path.with_file_name(db::backup::SETTINGS_FILE),
+                        commands::backup::backups_enabled(&app.config().identifier),
+                    ));
+                    app.manage(Arc::clone(&backups));
+                    let emitter = app.handle().clone();
+                    let backup_signal = commands::backup::start(backups, pool, move || {
+                        emitter
+                            .emit(commands::backup::BACKUP_FINISHED_EVENT, ())
+                            .map_err(|e| e.to_string())
+                    });
+
                     let handle = app.handle().clone();
                     tauri::async_runtime::spawn(async move {
                         db::watch::run(&path, move || {
                             if let Err(e) = handle.emit("db-changed", ()) {
                                 eprintln!("failed to emit db-changed: {e}");
                             }
+                            backup_signal.notify_one();
                         })
                         .await;
                     });
                 }
-                Err(e) => eprintln!("db watcher disabled: {e}"),
+                Err(e) => eprintln!("db watcher and backups disabled: {e}"),
             }
             Ok(())
         })
@@ -84,6 +100,8 @@ pub fn run() {
             commands::activity_log::list_activity_log_by_sprint,
             commands::activity_log::list_all_activity_log,
             commands::dev::seed_demo_data,
+            commands::backup::get_backup_status,
+            commands::backup::set_backup_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

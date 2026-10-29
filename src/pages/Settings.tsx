@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Trash2, Upload } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +15,7 @@ import { seedDemoData } from "@/lib/commands";
 import { ProjectBadge } from "@/components/ProjectBadge";
 import { fileToLogoDataUrl } from "@/lib/image";
 import { cn } from "@/lib/utils";
+import { BackupSettings } from "@/features/backup/BackupSettings";
 
 // Matches the shortcuts registered in AppShell.tsx useKeyboardShortcuts
 const SHORTCUTS = [
@@ -21,12 +23,18 @@ const SHORTCUTS = [
   { key: "/", action: "Focus global search bar" },
 ] as const;
 
-type Tab = "project" | "shortcuts";
+type Tab = "project" | "backup" | "shortcuts";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "project", label: "Project" },
+  { id: "backup", label: "Backup" },
   { id: "shortcuts", label: "Keyboard Shortcuts" },
 ];
+
+/** `/settings?tab=backup` opens on that tab; anything else opens on Project. */
+function tabFromParam(value: string | null): Tab {
+  return TABS.find((t) => t.id === value)?.id ?? "project";
+}
 
 export default function Settings() {
   const activeProjectId = useUiStore((s) => s.activeProjectId);
@@ -35,7 +43,10 @@ export default function Settings() {
   const updateProject = useUpdateProject();
   const deleteProject = useDeleteProject();
 
-  const [activeTab, setActiveTab] = useState<Tab>("project");
+  // The URL is the source of truth for the tab, so a tab click and a link to
+  // `?tab=backup` (the sidebar's backup warning) always agree.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = tabFromParam(searchParams.get("tab"));
   const [name, setName] = useState("");
   const [key, setKey] = useState("");
   const [description, setDescription] = useState("");
@@ -140,7 +151,7 @@ export default function Settings() {
           <button
             key={tab.id}
             type="button"
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => setSearchParams({ tab: tab.id })}
             className={cn(
               "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
               activeTab === tab.id
@@ -345,6 +356,9 @@ export default function Settings() {
           )}
         </>
       )}
+
+      {/* ── Backup tab ── */}
+      {activeTab === "backup" && <BackupSettings />}
 
       {/* ── Keyboard Shortcuts tab ── */}
       {activeTab === "shortcuts" && (

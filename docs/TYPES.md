@@ -17,4 +17,7 @@ export interface Comment  { id: number; task_id: number; author_id: number; body
 export interface TimeLog  { id: number; task_id: number; person_id: number; minutes: number; logged_at: string; note: string; }
 export interface Attachment { id: number; task_id: number; filename: string; filepath: string; size: number; uploaded_at: string; }
 export interface ActivityLog { id: number; task_id: number; person_id: number; action: string; old_value: string; new_value: string; created_at: string; }
+
+/** `get_backup_status` (FB-95). */
+export interface BackupStatus { backup_dir: string | null; last_backup_at: string | null; last_error: string | null; enabled: boolean; }
 ```
