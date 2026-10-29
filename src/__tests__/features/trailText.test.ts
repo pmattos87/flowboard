@@ -35,6 +35,10 @@ describe("trailLine", () => {
     });
   });
 
+  it("describes a Review round starting (FB-158)", () => {
+    expect(trailLine(ev("review_started", { round: 2 })).text).toBe("Review r2 started");
+  });
+
   it("falls back to the action name for unknown kinds", () => {
     expect(trailLine(ev("something_new", "x"))).toEqual({ tone: "info", text: "something new", detail: "x" });
   });

@@ -7,6 +7,7 @@ import {
   updateProject,
   deleteProject,
   listSprints,
+  completeSprint,
   listTasks,
   createTask,
   updateTask,
@@ -64,6 +65,33 @@ describe("sprint commands", () => {
     mockInvoke.mockResolvedValueOnce([]);
     await listSprints(2);
     expect(mockInvoke).toHaveBeenCalledWith("list_sprints", { projectId: 2 });
+  });
+
+  it("completeSprint sends a sprint target as { kind, sprintId }", async () => {
+    mockInvoke.mockResolvedValueOnce({ id: 3 });
+    await completeSprint(3, { kind: "sprint", sprintId: 7 });
+    expect(mockInvoke).toHaveBeenCalledWith("complete_sprint", {
+      sprintId: 3,
+      target: { kind: "sprint", sprintId: 7 },
+    });
+  });
+
+  it("completeSprint sends the backlog target as { kind } alone", async () => {
+    mockInvoke.mockResolvedValueOnce({ id: 3 });
+    await completeSprint(3, { kind: "backlog" });
+    expect(mockInvoke).toHaveBeenCalledWith("complete_sprint", {
+      sprintId: 3,
+      target: { kind: "backlog" },
+    });
+  });
+
+  it("completeSprint sends a new-sprint target with camelCase dates", async () => {
+    mockInvoke.mockResolvedValueOnce({ id: 3 });
+    await completeSprint(3, { kind: "new", name: "S2", startDate: "2026-11-01", endDate: "2026-11-14" });
+    expect(mockInvoke).toHaveBeenCalledWith("complete_sprint", {
+      sprintId: 3,
+      target: { kind: "new", name: "S2", startDate: "2026-11-01", endDate: "2026-11-14" },
+    });
   });
 });
 

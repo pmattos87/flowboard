@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { MarkdownDescription } from "@/components/MarkdownDescription";
 import { TaskFields, useTaskDraft } from "@/components/TaskFields";
-import { AttachmentsSection, CommentsSection, TYPE_BADGE } from "@/components/TaskDetailPanel";
+import { AttachmentsSection, CommentsSection, typeBadgeFor } from "@/components/TaskDetailPanel";
 import { useProjects } from "@/hooks/useProjects";
 import { usePeople } from "@/hooks/usePeople";
 import { useTasks } from "@/hooks/useTasks";
@@ -165,7 +165,7 @@ export function StoryPage() {
   if (error) return <p className="text-sm text-red-400">Failed to load {key}: {String(error)}</p>;
   if (!project || !task || !story) return <p className="text-sm text-gray-500">Loading…</p>;
 
-  const typeBadge = TYPE_BADGE[task.type];
+  const typeBadge = typeBadgeFor(task);
   const statusLabel =
     statusOptionsForType(task.type, "factory").find((o) => o.value === task.status)?.label ?? task.status;
 
@@ -205,6 +205,10 @@ export function StoryPage() {
         className="w-full mt-2 mb-6 bg-transparent text-2xl font-semibold text-white focus:outline-none border-b border-transparent focus:border-gray-700 pb-1 transition-colors"
       />
 
+      <div className="mb-6">
+        <StoryRun story={task} storyKey={story.key} project={project} />
+      </div>
+
       <div className="flex gap-6 items-start">
         <div className="flex-1 min-w-0 space-y-6">
           <section className={CARD}>
@@ -238,8 +242,6 @@ export function StoryPage() {
           </section>
         </aside>
       </div>
-
-      <StoryRun story={task} storyKey={story.key} project={project} />
     </div>
   );
 }

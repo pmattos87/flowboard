@@ -1,7 +1,8 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { Bot, Clock, GitBranch, LayoutGrid, Maximize2, Search, Send, Sparkles, Zap } from "lucide-react";
+import { Bot, Bug, CheckSquare, Clock, GitBranch, LayoutGrid, Maximize2, Search, Send, Sparkles, WandSparkles, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { SubtaskRole } from "@/lib/subtaskRole";
 import type { NodeKind, NodeState, RunGraph, RunNode, SubtaskNode } from "./runGraph";
 
 // The Run node graph on the Story page (SF-62), styled after
@@ -22,6 +23,8 @@ const SUB_LINE = 16;
 const SUB_INNER = SW - 24 - 2;
 /** Gap between the key and the title (gap-1.5), and the key's per-character width (10px mono is 6px; rounded up). */
 const SUB_KEY_GAP = 6, SUB_KEY_CHAR = 6.2;
+/** The role icon before the key (h-3, 12px) and its gap-1.5 (FB-171). */
+const SUB_ICON = 12 + 6;
 /** Title font size, and worst-case glyph widths in em for its sans-serif font, by character class. */
 const SUB_FONT = 12;
 const EM_WIDE = 0.96, EM_UPPER = 0.78, EM_NARROW = 0.4, EM_PLAIN = 0.62, EM_UNKNOWN = 1;
@@ -41,7 +44,7 @@ function glyphEm(c: string): number {
  * width fits the room left beside the key.
  */
 function subtaskHeight(title: string, key: string): number {
-  const room = SUB_INNER - key.length * SUB_KEY_CHAR - SUB_KEY_GAP;
+  const room = SUB_INNER - SUB_ICON - key.length * SUB_KEY_CHAR - SUB_KEY_GAP;
   const width = [...title].reduce((sum, c) => sum + glyphEm(c) * SUB_FONT, 0);
   return width > room ? SH + SUB_LINE : SH;
 }
@@ -55,6 +58,13 @@ const KIND: Record<NodeKind, { Icon: LucideIcon; cls: string; label: string }> =
   git:       { Icon: GitBranch,  cls: "text-gray-400",   label: "GIT" },
   review:    { Icon: Search,     cls: "text-indigo-400", label: "REVIEW" },
   skill:     { Icon: Send,       cls: "text-green-400",  label: "SKILL" },
+};
+
+/** A Subtask's role on its card and in the legend (FB-171). */
+const ROLE: Record<SubtaskRole, { Icon: LucideIcon; cls: string; label: string }> = {
+  subtask:  { Icon: CheckSquare,  cls: "text-blue-400",    label: "Subtask from the plan" },
+  simplify: { Icon: WandSparkles, cls: "text-fuchsia-400", label: "Simplify" },
+  bug:      { Icon: Bug,          cls: "text-red-400",     label: "Bug Subtask" },
 };
 
 export interface Box { x: number; y: number; w: number; h: number; state: NodeState }
@@ -108,6 +118,10 @@ function NodeBox({ node, x, y }: { node: RunNode; x: number; y: number }) {
 
 function SubtaskBox({ node, x, y, h }: { node: SubtaskNode; x: number; y: number; h: number }) {
   const who = [node.info?.agent, node.info?.model].filter(Boolean).join(" · ");
+  const { Icon, cls } = ROLE[node.role];
+  // Simplify names no agent; a bug is prefixed BUG; a plan Subtask keeps its teal agent line.
+  const line =
+    node.role === "simplify" ? "SIMPLIFY" : node.role === "bug" ? `BUG · ${who || "not handed out"}` : who || "not handed out";
   return (
     <div
       className={cn("absolute rounded-lg border bg-[#11141b] px-3 py-1.5", frame(node.state))}
@@ -117,11 +131,12 @@ function SubtaskBox({ node, x, y, h }: { node: SubtaskNode; x: number; y: number
     >
       <Badge state={node.state} />
       <div className="flex items-start gap-1.5">
+        <Icon className={cn("h-3 w-3 shrink-0 mt-0.5", cls)} aria-hidden="true" data-role={node.role} />
         <span className="text-[10px] font-mono text-gray-500 shrink-0 leading-[15px]">{node.key}</span>
         <span className="text-[12px] leading-tight text-white line-clamp-2 min-w-0" title={node.title}>{node.title}</span>
       </div>
       <div className="flex items-center gap-1.5 mt-1 min-w-0">
-        <span className="text-[10px] font-semibold text-teal-400 uppercase truncate">{who || "not handed out"}</span>
+        <span className={cn("text-[10px] font-semibold uppercase truncate", node.role === "subtask" ? "text-teal-400" : cls)}>{line}</span>
         <span className="flex gap-0.5 shrink-0">
           {(node.info?.rounds ?? []).map((r, i) => (
             <span
@@ -416,7 +431,11 @@ function FitFrame({ width, height, children }: { width: number; height: number; 
 
 export function RunLegend() {
   return (
-    <div className="flex gap-3 text-[11px] text-gray-500">
+    <div className="flex flex-wrap items-center gap-3 text-[11px] text-gray-500">
+      {Object.values(ROLE).map(({ Icon, cls, label }) => (
+        <span key={label} className="flex items-center gap-1"><Icon className={cn("h-3 w-3", cls)} aria-hidden="true" /> {label}</span>
+      ))}
+      <span className="h-3 w-px bg-gray-700" aria-hidden="true" />
       <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> done</span>
       <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-blue-500" /> current</span>
       <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-red-500" /> stopped</span>

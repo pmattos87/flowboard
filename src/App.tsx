@@ -15,6 +15,7 @@ import ReportsPage from "@/features/reports/ReportsPage";
 import ReleasesPage from "@/features/releases/ReleasesPage";
 import { StoryPage } from "@/features/story/StoryPage";
 import { ActiveRunsPage } from "@/features/story/ActiveRunsPage";
+import { useBackupFinishedSync } from "@/hooks/useBackup";
 import { useDbChangeSync } from "@/hooks/useDbChangeSync";
 import About from "@/pages/About";
 import Inbox from "@/pages/Inbox";
@@ -23,6 +24,7 @@ import Settings from "@/pages/Settings";
 
 function App() {
   useDbChangeSync();
+  useBackupFinishedSync();
 
   return (
     <HashRouter>

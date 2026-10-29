@@ -55,6 +55,13 @@ Important Rules
   where `type = 'story'`, the same SQL transaction also updates `sprint_id` for
   all rows where `parent_id` equals the story's id. Atomic — both updates apply
   or neither.
+- Sprint completion (FB-97): `complete_sprint(sprint_id, target)` is the only way a sprint becomes
+  `completed`; `update_sprint` refuses that status change. In one transaction it moves every
+  unfinished row (not `done`/`canceled`) to the target (an open sprint of the same project,
+  Backlog, or a sprint it creates) and sets the sprint `completed`; any refusal rolls back
+  everything. Moves to a sprint keep status; to Backlog, legacy Stories reset to
+  `ready_for_development` (with a `status_changed` activity row) and Factory Stories must be
+  `ready`. Factory Stories move through the same tx-taking `set_sprint` as `story_set_sprint`.
 -------------------------
 Software Factory (migration `010_factory_foundation.sql`, SF-2)
 
@@ -92,7 +99,7 @@ task_prs         (id, task_id, url, target, state, created_at, updated_at)
 - Assignee is set by the move: `building` → agent, `user_testing` → primary contact,
   `done`/`canceled` → NULL, everything else → owner.
 - Run trail = `activity_log` rows on the Story with actions `stage_entered`,
-  `subtask_status_changed`, `subtask_handoff`, `verify_round`, `review_round`,
+  `subtask_status_changed`, `subtask_handoff`, `verify_round`, `review_started`, `review_round`,
   `run_stopped`, `run_restarted`, `pr_opened`, `pr_merged`, `release_picked`,
   `release_removed`, `bug_subtask_filed` (details as JSON in `new_value`).
 - The app backs up the database (`flowboard.db.pre-migration-<unix secs>.bak`) before

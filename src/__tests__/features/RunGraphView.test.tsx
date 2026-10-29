@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { RunGraphView, edgeStyle, layoutRunGraph } from "@/features/story/RunGraphView";
+import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
+import { RunGraphView, RunLegend, edgeStyle, layoutRunGraph } from "@/features/story/RunGraphView";
 import { runGraph } from "@/features/story/runGraph";
 import type { Task, TrailEvent } from "@/types";
 
@@ -736,5 +736,84 @@ describe("RunGraphView loop edges", () => {
     expect(style(pathOf(c2, "findings"))).toEqual([DIM, "6 5"]);
     expect(style(fixLoopPath(c2))).toEqual([DIM, "6 5"]);
     expect(style(pathOf(c2, "bug found → bug Subtask, Story holds"))).toEqual([DIM, "6 5"]);
+  });
+});
+
+describe("RunGraphView Subtask roles (FB-171)", () => {
+  const render3 = (trail: TrailEvent[]) => {
+    const graph = runGraph({
+      story: task({ run_stopped: false }),
+      subtasks: [
+        task({ id: 2, task_number: 2, parent_id: 1, type: "subtask", status: "done", title: "Template layout" }),
+        task({ id: 3, task_number: 3, parent_id: 1, type: "subtask", status: "todo", title: "Simplify" }),
+        task({ id: 4, task_number: 4, parent_id: 1, type: "bug", status: "todo", title: "Review findings" }),
+      ],
+      trail: [ev("stage_entered", "building"), ...trail],
+      projectKey: "FB",
+      clientProject: false,
+    });
+    return render(<RunGraphView graph={graph} />).container;
+  };
+  const card = (c: HTMLElement, id: string) => c.querySelector(`[data-node="${id}"]`) as HTMLElement;
+
+  it("puts the role icon in the role colour before the key on every card", () => {
+    const c = render3([]);
+    for (const [id, key, cls] of [["sub-2", "FB-2", "text-blue-400"], ["sub-3", "FB-3", "text-fuchsia-400"], ["sub-4", "FB-4", "text-red-400"]]) {
+      const keyEl = within(card(c, id)).getByText(key);
+      const icon = keyEl.previousElementSibling as SVGElement;
+      expect(icon.tagName.toLowerCase()).toBe("svg");
+      expect(icon.getAttribute("class")).toContain(cls);
+    }
+    cleanup();
+  });
+
+  it("colours the agent line by role: SIMPLIFY, BUG · agent · model, teal for a plan Subtask", () => {
+    const c = render3([
+      ev("subtask_handoff", { subtask: "FB-2", agent: "frontend-design", model: "opus" }),
+      ev("subtask_handoff", { subtask: "FB-4", agent: "implementer", model: "opus" }),
+    ]);
+    const simplify = within(card(c, "sub-3")).getByText("SIMPLIFY");
+    expect(simplify.className).toContain("text-fuchsia-400");
+    const bug = within(card(c, "sub-4")).getByText("BUG · implementer · opus");
+    expect(bug.className).toContain("text-red-400");
+    expect(bug.className).toContain("uppercase");
+    const plan = within(card(c, "sub-2")).getByText("frontend-design · opus");
+    expect(plan.className).toContain("text-teal-400");
+    cleanup();
+  });
+
+  it("reads BUG · not handed out for a bug not yet handed out", () => {
+    const c = render3([]);
+    expect(within(card(c, "sub-4")).getByText("BUG · not handed out").className).toContain("text-red-400");
+    expect(card(c, "sub-4").style.width).toBe("196px");
+    cleanup();
+  });
+
+  it("counts the role icon when sizing a title beside its key", () => {
+    // 11 W's at the worst-case 0.96em are ~127px: inside the ~139px beside "FB-2"
+    // without the 18px icon allowance, past the ~121px left with it.
+    const layout = layoutRunGraph(
+      runGraph({
+        story: task({}),
+        subtasks: [task({ id: 2, task_number: 2, parent_id: 1, type: "subtask", status: "todo", title: "WWWWWWWWWWW" })],
+        trail: [ev("stage_entered", "building")],
+        projectKey: "FB",
+        clientProject: false,
+      }),
+    );
+    expect(layout.nodes.find((p) => p.id === "sub-2")!.box.h).toBe(66);
+  });
+});
+
+describe("RunLegend roles (FB-171)", () => {
+  it("lists the three roles, each beside its icon in its colour", () => {
+    render(<RunLegend />);
+    for (const [label, cls] of [["Subtask from the plan", "text-blue-400"], ["Simplify", "text-fuchsia-400"], ["Bug Subtask", "text-red-400"]]) {
+      const entry = screen.getByText(label);
+      const icon = entry.querySelector("svg");
+      expect(icon, label).not.toBeNull();
+      expect(icon!.getAttribute("class")).toContain(cls);
+    }
+    cleanup();
   });
 });

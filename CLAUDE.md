@@ -198,6 +198,7 @@ These are the Factory Specialists; each file's `## Scope` and `## Definition of 
   - All React Query hooks
   - Zustand stores
   - Individual UI components (especially boards and modals)
+  - Environment: `*.test.ts` runs under Node, `*.test.tsx` under jsdom (`test.projects` in `vite.config.ts`). A test that needs the DOM must be named `.tsx`.
 - **Integration Tests**
   - Full create → update → delete flows
   - Drag & drop simulation (where possible)
@@ -229,7 +230,7 @@ These are the Factory Specialists; each file's `## Scope` and `## Definition of 
 3. React Query cache invalidated after every mutation.
 4. No TypeScript errors (`tsc --noEmit` passes).
 5. Feature matches the visual reference in this document or its specific handoff prompt.
-6. **Automated test suite passes:** `npx vitest run` exits with zero failures. New behavior must be covered by a test in `src/__tests__/`.
+6. **Automated test suite passes:** New behavior must be covered by a test in `src/__tests__/` (or a Rust test for backend logic). QA runs the full Gates at Verify (`npx vitest run` and `cargo test --manifest-path src-tauri/Cargo.toml` with zero failures). A builder in a Factory Run runs only the tests covering its change (`cargo test <module>`, `npx vitest run <files>`, plus `npx tsc --noEmit` when TypeScript changed). Work outside a Factory Run still runs the full `npx vitest run` and `cargo test`.
 7. **Git Verification:** Code compiles, tests pass, and changes are committed to the local feature/phase branch using proper semantic commit prefixes. Never leave unstaged changes upon task completion.
 8. **Lessons log:** If this task required a `git reset`, a constraint violation was caught in review, or a doc gap forced a guess — append one row to `LESSONS.md` before committing. If nothing went wrong, skip it.
 

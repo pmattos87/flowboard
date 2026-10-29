@@ -24,6 +24,7 @@
     - Reports
     - People
     - Inbox
+  - Backup warning card under the nav (non-dismissible; shown when there is no backup or the last one is over 3 days old, and always in the staging build), linking to `/settings?tab=backup`
   - Settings pinned at bottom
 
 - **Top Bar** (`bg-gray-900`, height 48px):
@@ -50,6 +51,8 @@
 | Bug    | Red    |
 | Subtask | Blue  |
 | Epic   | Purple |
+
+A Run's Simplify Subtask (a `subtask` titled `Simplify`, or whose description starts with `agent: simplify`) is a display role, not a type: it shows a wand icon in fuchsia on Kanban cards, in the Run graph and in the "Simplify" type badge. The rule lives in `src/lib/subtaskRole.ts`.
 
 ## Priority Icons
 - Critical → red chevron

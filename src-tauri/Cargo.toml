@@ -1,6 +1,6 @@
 [package]
 name = "flowboard"
-version = "1.10.0"
+version = "1.11.0"
 description = "FlowBoard — local-first project management"
 authors = ["Pedro"]
 edition = "2021"
@@ -30,3 +30,12 @@ schemars = "1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "sync"] }
+
+# Faster dev/test compiles (FB-253): line tables only for this crate (panic
+# backtraces keep file:line), no debug info for dependencies. `cargo test` and
+# `tauri dev` use this profile; `[profile.release]` is not affected.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

@@ -3,12 +3,14 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
   ActivityLog,
   Attachment,
+  BackupStatus,
   Comment,
   Person,
   Project,
   ReleaseDetail,
   ReleasePickResult,
   ActiveRun,
+  CompleteSprintTarget,
   StoryView,
   TrailEvent,
   ReleaseSummary,
@@ -98,6 +100,10 @@ export const getSprint = (id: number) => invoke<Sprint>("get_sprint", { id });
 export const updateSprint = (id: number, payload: SprintUpdatePayload) =>
   invoke<Sprint>("update_sprint", { id, payload });
 export const deleteSprint = (id: number) => invoke<void>("delete_sprint", { id });
+/** Move the sprint's unfinished issues to `target` and mark it completed, all or nothing.
+ *  Rejects with the backend's refusal text. */
+export const completeSprint = (sprintId: number, target: CompleteSprintTarget) =>
+  invoke<Sprint>("complete_sprint", { sprintId, target });
 
 // ─── Releases (Factory projects) ───────────────────────────
 
@@ -244,6 +250,13 @@ export const listActivityLogBySprint = (sprintId: number) =>
   invoke<ActivityLog[]>("list_activity_log_by_sprint", { sprintId });
 export const listAllActivityLog = () =>
   invoke<ActivityLog[]>("list_all_activity_log");
+
+// ─── Backup ────────────────────────────────────────────────
+
+export const getBackupStatus = () => invoke<BackupStatus>("get_backup_status");
+/** Rejects when `path` does not exist or is not a folder. */
+export const setBackupDir = (path: string) =>
+  invoke<void>("set_backup_dir", { path });
 
 // ─── Dev / Staging ─────────────────────────────────────────
 
