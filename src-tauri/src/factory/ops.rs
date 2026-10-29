@@ -920,6 +920,23 @@ pub async fn review_record(
     Ok(out)
 }
 
+/// Mark the start of a Review round, so the Run graph can tell Review from
+/// Docs before the round's verdict. Rounds are numbered like `review_record`
+/// numbers them. Open Subtasks are not checked, so a manual Review still works.
+pub async fn review_start(pool: &SqlitePool, key: &str, actor: Actor) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let story = load_story(&mut tx, key).await?;
+    require_building(&story, "Starting a Review")?;
+    if story.run_stopped != 0 {
+        return Err(format!("{}'s Run is stopped", story.key()));
+    }
+    let round = count_events(&mut tx, story.id, "review_round", None).await? + 1;
+    log(&mut tx, story.id, actor, "review_started", "", &json!({ "round": round }).to_string()).await?;
+    let out = story_json(&mut tx, &story).await?;
+    tx.commit().await.map_err(err)?;
+    Ok(out)
+}
+
 pub async fn run_stop(pool: &SqlitePool, key: &str, reason: &str, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let story = load_story(&mut tx, key).await?;
