@@ -14,6 +14,7 @@ import {
   backlogBlockReason,
   isUnfinished,
   nextSprint,
+  openSprintsFor,
   openSubtasksUnderDoneStories,
 } from "@/lib/sprintCompletion";
 import { cn } from "@/lib/utils";
@@ -42,13 +43,7 @@ const optionClass = (disabled: boolean) =>
 export function CompleteSprintDialog({ open, onOpenChange, sprint, sprints, tasks, project }: Props) {
   const completeSprint = useCompleteSprint();
 
-  const openSprints = useMemo(
-    () =>
-      sprints
-        .filter((s) => s.id !== sprint.id && s.project_id === sprint.project_id && s.status !== "completed")
-        .sort((a, b) => a.start_date.localeCompare(b.start_date) || a.id - b.id),
-    [sprints, sprint],
-  );
+  const openSprints = useMemo(() => openSprintsFor(sprints, sprint), [sprints, sprint]);
   // Mounted per opening (the board renders it only while a sprint is being completed),
   // so the initial state is the reset state.
   const [choice, setChoice] = useState<Choice>(() => nextSprint(sprints, sprint)?.id ?? "new");

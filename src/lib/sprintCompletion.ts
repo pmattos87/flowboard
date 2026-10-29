@@ -6,15 +6,18 @@ export function isUnfinished(status: TaskStatus): boolean {
 }
 
 /**
- * The sprint `complete_sprint` carries issues into by default: the project's earliest
- * not-completed sprint other than `source`, by `start_date`. null when none is left.
+ * The sprints `complete_sprint` can carry issues into: the project's not-completed sprints
+ * other than `source`, earliest `start_date` first.
  */
+export function openSprintsFor(sprints: ReadonlyArray<Sprint>, source: Sprint): Sprint[] {
+  return sprints
+    .filter((s) => s.id !== source.id && s.project_id === source.project_id && s.status !== "completed")
+    .sort((a, b) => a.start_date.localeCompare(b.start_date) || a.id - b.id);
+}
+
+/** The default destination: the earliest of `openSprintsFor`, or null when none is left. */
 export function nextSprint(sprints: ReadonlyArray<Sprint>, source: Sprint): Sprint | null {
-  const open = sprints.filter(
-    (s) => s.id !== source.id && s.project_id === source.project_id && s.status !== "completed",
-  );
-  open.sort((a, b) => a.start_date.localeCompare(b.start_date) || a.id - b.id);
-  return open[0] ?? null;
+  return openSprintsFor(sprints, source)[0] ?? null;
 }
 
 function localDay(iso: string): number {

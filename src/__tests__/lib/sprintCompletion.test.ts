@@ -4,6 +4,7 @@ import {
   daysOverdue,
   isUnfinished,
   nextSprint,
+  openSprintsFor,
   openSubtasksUnderDoneStories,
 } from "@/lib/sprintCompletion";
 import type { Sprint, SprintStatus, Task, TaskStatus, TaskType } from "@/types";
@@ -54,6 +55,38 @@ describe("nextSprint", () => {
   it("returns null when no sprint is left", () => {
     expect(nextSprint([source, sprint(2, "2026-11-01", "completed")], source)).toBeNull();
     expect(nextSprint([], source)).toBeNull();
+  });
+});
+
+describe("openSprintsFor", () => {
+  const source = sprint(1, "2026-10-01", "active");
+
+  it("lists the project's not-completed sprints other than the source, earliest start_date first, ties by id", () => {
+    const sprints = [
+      sprint(6, "2026-11-15"),
+      source,
+      sprint(2, "2026-09-01", "completed"),
+      sprint(5, "2026-10-15"),
+      sprint(3, "2026-10-15", "active"),
+      sprint(7, "2026-10-02", "backlog", 2),
+    ];
+    expect(openSprintsFor(sprints, source).map((s) => s.id)).toEqual([3, 5, 6]);
+  });
+
+  it("does not reorder the input array", () => {
+    const sprints = [sprint(4, "2026-12-01"), source, sprint(3, "2026-11-01")];
+    openSprintsFor(sprints, source);
+    expect(sprints.map((s) => s.id)).toEqual([4, 1, 3]);
+  });
+
+  it("is empty when no sprint is left", () => {
+    expect(openSprintsFor([source], source)).toEqual([]);
+  });
+
+  it("starts with nextSprint", () => {
+    const sprints = [source, sprint(9, "2026-10-20"), sprint(8, "2026-10-20")];
+    expect(openSprintsFor(sprints, source)[0]).toBe(nextSprint(sprints, source));
+    expect(nextSprint(sprints, source)?.id).toBe(8);
   });
 });
 
