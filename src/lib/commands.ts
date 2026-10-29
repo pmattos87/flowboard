@@ -9,6 +9,7 @@ import type {
   ReleaseDetail,
   ReleasePickResult,
   ActiveRun,
+  CompleteSprintTarget,
   StoryView,
   TrailEvent,
   ReleaseSummary,
@@ -98,6 +99,10 @@ export const getSprint = (id: number) => invoke<Sprint>("get_sprint", { id });
 export const updateSprint = (id: number, payload: SprintUpdatePayload) =>
   invoke<Sprint>("update_sprint", { id, payload });
 export const deleteSprint = (id: number) => invoke<void>("delete_sprint", { id });
+/** Move the sprint's unfinished issues to `target` and mark it completed, all or nothing.
+ *  Rejects with the backend's refusal text. */
+export const completeSprint = (sprintId: number, target: CompleteSprintTarget) =>
+  invoke<Sprint>("complete_sprint", { sprintId, target });
 
 // ─── Releases (Factory projects) ───────────────────────────
 
