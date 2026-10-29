@@ -16,6 +16,7 @@
   },
   "release": {
     "versionFiles": ["package.json", "package-lock.json", "src-tauri/tauri.conf.json", "src-tauri/Cargo.toml"],
+    "changelog": "docs/CHANGELOG.md",
     "assets": {
       "build": ["npm ci", "npx tauri build"],
       "files": ["src-tauri/target/release/bundle/nsis/*-setup.exe"]
