@@ -198,6 +198,7 @@ These are the Factory Specialists; each file's `## Scope` and `## Definition of 
   - All React Query hooks
   - Zustand stores
   - Individual UI components (especially boards and modals)
+  - Environment: `*.test.ts` runs under Node, `*.test.tsx` under jsdom (`test.projects` in `vite.config.ts`). A test that needs the DOM must be named `.tsx`.
 - **Integration Tests**
   - Full create → update → delete flows
   - Drag & drop simulation (where possible)
