@@ -939,3 +939,160 @@ async fn release_show_gives_each_picked_storys_type() {
         .collect();
     assert_eq!(types, vec![(feature.as_str(), "story"), (fix.as_str(), "bug")]);
 }
+
+// ─── Epics (FB-224) ─────────────────────────────────────────────────────────
+
+/// A Factory project SF with an open epic created through `ops::epic_create`;
+/// returns the pool, the project id and the epic's key.
+async fn epic_fixture() -> (SqlitePool, i64, String) {
+    let pool = ts::pool().await;
+    let p = ts::factory_project(&pool, "SF").await;
+    let epic = ops::epic_create(
+        &pool,
+        ops::NewEpic { project: "SF", title: "hosted web app", description: "", priority: "medium", labels: "" },
+        Actor::Agent,
+    )
+    .await
+    .unwrap();
+    (pool, p, epic["key"].as_str().unwrap().to_string())
+}
+
+/// The stored type, status, parent, sprint and points of the task `key` on SF.
+async fn stored(pool: &SqlitePool, key: &str) -> (String, String, Option<i64>, Option<i64>, i64) {
+    let n: i64 = key.rsplit_once('-').unwrap().1.parse().unwrap();
+    sqlx::query_as(
+        r#"SELECT type, status, parent_id, sprint_id, story_points FROM tasks
+            WHERE task_number = ? AND project_id = (SELECT id FROM projects WHERE key = 'SF')"#,
+    )
+    .bind(n)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn epic_create_opens_an_epic_at_todo_with_no_sprint_or_points() {
+    let (pool, _, key) = epic_fixture().await;
+    assert_eq!(stored(&pool, &key).await, ("epic".into(), "todo".into(), None, None, 0));
+}
+
+#[tokio::test]
+async fn epic_create_is_refused_on_a_legacy_project() {
+    let pool = ts::pool().await;
+    ts::project(&pool, "LG").await;
+    ops::people_set_role(&pool, ts::OWNER, Some("owner")).await.unwrap();
+    ops::people_set_role(&pool, ts::AGENT, Some("agent")).await.unwrap();
+    let err = ops::epic_create(
+        &pool,
+        ops::NewEpic { project: "LG", title: "x", description: "", priority: "medium", labels: "" },
+        Actor::Agent,
+    )
+    .await
+    .unwrap_err();
+    assert!(err.contains("legacy project"), "{err}");
+}
+
+#[tokio::test]
+async fn epic_move_closes_or_cancels_an_open_epic_and_nothing_else() {
+    for to in ["done", "canceled"] {
+        let (pool, _, key) = epic_fixture().await;
+        for refused in ["backlog", "refining", "ready", "building", "tested", "in_progress", "todo"] {
+            let err = ops::epic_move(&pool, &key, refused, Actor::Owner).await.unwrap_err();
+            assert!(err.contains(&key) && err.contains(&format!("from todo to {refused}")), "todo -> {refused}: {err}");
+            assert_eq!(stored(&pool, &key).await.1, "todo", "a refused move changes nothing");
+        }
+        let moved = ops::epic_move(&pool, &key, to, Actor::Owner).await.unwrap();
+        assert_eq!(moved["status"], to);
+        assert_eq!(stored(&pool, &key).await.1, to);
+
+        // Closed is final: no reopen, no switch between done and canceled.
+        for refused in ["todo", "done", "canceled", "backlog"] {
+            let err = ops::epic_move(&pool, &key, refused, Actor::Owner).await.unwrap_err();
+            assert!(err.contains(&key) && err.contains(&format!("from {to} to {refused}")), "{to} -> {refused}: {err}");
+            assert_eq!(stored(&pool, &key).await.1, to);
+        }
+    }
+}
+
+#[tokio::test]
+async fn epic_move_logs_the_change_on_the_epic() {
+    let (pool, _, key) = epic_fixture().await;
+    ops::epic_move(&pool, &key, "done", Actor::Owner).await.unwrap();
+    let n: i64 = key.rsplit_once('-').unwrap().1.parse().unwrap();
+    let events: Vec<(String, String, String)> = sqlx::query_as(
+        r#"SELECT a.action, a.old_value, a.new_value FROM activity_log a JOIN tasks t ON t.id = a.task_id
+            WHERE t.task_number = ? ORDER BY a.id"#,
+    )
+    .bind(n)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![("created".into(), "".into(), "todo".into()), ("status_changed".into(), "todo".into(), "done".into())]
+    );
+}
+
+#[tokio::test]
+async fn epic_move_refuses_a_story() {
+    let (pool, p, _) = epic_fixture().await;
+    let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+    let err = ops::epic_move(&pool, &key_of(&pool, story).await, "done", Actor::Owner).await.unwrap_err();
+    assert!(err.contains("is not an epic"), "{err}");
+}
+
+#[tokio::test]
+async fn story_operations_refuse_an_epic() {
+    let (pool, _, key) = epic_fixture().await;
+    ops::release_create(&pool, "SF", "1.0.0").await.unwrap();
+    let errs = [
+        ops::story_move(&pool, &key, "refining", Actor::Owner).await.unwrap_err(),
+        ops::story_show(&pool, &key).await.unwrap_err(),
+        ops::release_pick(&pool, "1.0.0", &key, Actor::Owner).await.unwrap_err(),
+    ];
+    for err in errs {
+        assert!(err.contains("is not a Story"), "{err}");
+    }
+    assert_eq!(stored(&pool, &key).await.1, "todo");
+}
+
+#[tokio::test]
+async fn subtask_create_refuses_an_epic_as_its_story() {
+    let (pool, _, key) = epic_fixture().await;
+    let err = ops::subtask_create(
+        &pool,
+        NewSubtask { story: &key, title: "s", description: "", bug: false, story_points: 1, risk: false },
+        Actor::Agent,
+    )
+    .await
+    .unwrap_err();
+    assert!(err.contains("is not a Story"), "{err}");
+}
+
+#[tokio::test]
+async fn the_app_moves_a_factory_epic_through_epic_move() {
+    let (pool, _, key) = epic_fixture().await;
+    let n: i64 = key.rsplit_once('-').unwrap().1.parse().unwrap();
+    let id: i64 = sqlx::query_scalar("SELECT id FROM tasks WHERE task_number = ?").bind(n).fetch_one(&pool).await.unwrap();
+    let err = ops::app_move(&pool, id, Some("building"), None).await.unwrap_err();
+    assert!(err.contains(&key) && err.contains("from todo to building"), "{err}");
+    assert!(ops::app_move(&pool, id, Some("canceled"), None).await.unwrap());
+    assert_eq!(stored(&pool, &key).await.1, "canceled");
+}
+
+#[tokio::test]
+async fn epic_move_refuses_a_legacy_epic_and_an_unknown_target() {
+    let pool = ts::pool().await;
+    let lg = ts::project(&pool, "LG").await;
+    let legacy = ts::task(&pool, lg, None, None, TaskType::Epic, TaskStatus::Todo).await;
+    let legacy_key = key_of(&pool, legacy).await;
+    let err = ops::epic_move(&pool, &legacy_key, "done", Actor::Owner).await.unwrap_err();
+    assert!(err.contains("legacy project"), "{err}");
+    let status: String = sqlx::query_scalar("SELECT status FROM tasks WHERE id = ?").bind(legacy).fetch_one(&pool).await.unwrap();
+    assert_eq!(status, "todo", "a legacy epic is left alone");
+
+    let (pool, _, key) = epic_fixture().await;
+    let err = ops::epic_move(&pool, &key, "bogus", Actor::Owner).await.unwrap_err();
+    assert!(err.contains(&key) && err.contains("from todo to bogus") && err.contains("not an epic status"), "{err}");
+    assert_eq!(stored(&pool, &key).await.1, "todo");
+}

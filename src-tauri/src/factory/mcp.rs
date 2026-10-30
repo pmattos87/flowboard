@@ -3,7 +3,7 @@
 //! project ladder/kind, contacts) stay CLI-only, so an agent cannot switch a
 //! project's ladder.
 
-use super::ops::{self, Actor, NewStory, NewSubtask, StoryEdit};
+use super::ops::{self, Actor, NewEpic, NewStory, NewSubtask, StoryEdit};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
@@ -54,6 +54,19 @@ pub struct StoryEditArgs {
     pub description: Option<String>,
     pub priority: Option<String>,
     pub labels: Option<String>,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct EpicCreate {
+    pub project: String,
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    /// low | medium | high | critical (default medium)
+    pub priority: Option<String>,
+    /// Comma-separated labels
+    #[serde(default)]
+    pub labels: String,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -321,6 +334,23 @@ impl FlowboardMcp {
         out(ops::subtask_verify(&self.pool, &p.key, p.passed, &p.reason, AGENT).await)
     }
 
+    #[tool(description = "Create an epic (a goal grouping several Stories) on a Factory project; it starts open at todo,                           with no sprint and no points")]
+    async fn epic_create(&self, Parameters(p): Parameters<EpicCreate>) -> Result<String, String> {
+        let e = NewEpic {
+            project: &p.project,
+            title: &p.title,
+            description: &p.description,
+            priority: p.priority.as_deref().unwrap_or("medium"),
+            labels: &p.labels,
+        };
+        out(ops::epic_create(&self.pool, e, AGENT).await)
+    }
+
+    #[tool(description = "Close an open epic (todo -> done) or cancel it (todo -> canceled). Any other move,                           reopening included, is refused with the reason.")]
+    async fn epic_move(&self, Parameters(p): Parameters<Move>) -> Result<String, String> {
+        out(ops::epic_move(&self.pool, &p.key, &p.to, AGENT).await)
+    }
+
     #[tool(description = "Show a project's ladder, kind and client contacts")]
     async fn project_show(&self, Parameters(p): Parameters<Project>) -> Result<String, String> {
         out(ops::project_show(&self.pool, &p.project).await)
@@ -386,7 +416,15 @@ pub async fn serve(pool: SqlitePool) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::StoryCreate;
+    use super::{FlowboardMcp, StoryCreate};
+
+    #[test]
+    fn the_router_serves_the_epic_tools() {
+        let router = FlowboardMcp::tool_router();
+        for tool in ["epic_create", "epic_move"] {
+            assert!(router.has_route(tool), "{tool} is not in the MCP tool router");
+        }
+    }
 
     #[test]
     fn story_create_takes_an_optional_bug_flag() {

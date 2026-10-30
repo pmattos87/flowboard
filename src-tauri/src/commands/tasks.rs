@@ -113,6 +113,7 @@ pub async fn create_task_inner(
         kind,
         payload.status.as_deref(),
         payload.sprint_id,
+        payload.story_points,
     )
     .await?
     {
@@ -1419,5 +1420,157 @@ mod tests {
         let p = ts::project(&pool, "LG").await;
         let bug = ts::task(&pool, p, None, None, TaskType::Bug, TaskStatus::Todo).await;
         assert_eq!(retype(&pool, bug, "subtask").await.unwrap().r#type, "subtask");
+    }
+
+    // ─── Epics on a Factory project (FB-224) ───────────────────────────────
+
+    /// A Factory project SF with an active sprint, built from the shared fixtures.
+    async fn epic_factory() -> Factory {
+        use crate::test_support::{self as ts, SprintStatus};
+        let pool = ts::pool().await;
+        let project_id = ts::factory_project(&pool, "SF").await;
+        let sprint_id = ts::sprint(&pool, project_id, "S1", "2026-10-01", SprintStatus::Active).await;
+        Factory { pool, project_id, pedro: ts::OWNER, agent: ts::AGENT, sprint_id }
+    }
+
+    /// A top-level `epic` create payload.
+    fn new_epic(project_id: i64, sprint_id: Option<i64>, status: Option<&str>, story_points: Option<i64>) -> TaskCreate {
+        TaskCreate {
+            project_id,
+            sprint_id,
+            parent_id: None,
+            title: "an initiative".into(),
+            description: None,
+            r#type: Some("epic".into()),
+            status: status.map(Into::into),
+            priority: None,
+            assignee_id: None,
+            story_points,
+            due_date: None,
+            labels: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_factory_epic_is_created_open_with_no_sprint_or_points() {
+        let f = epic_factory().await;
+        let epic = create_task_inner(&f.pool, new_epic(f.project_id, None, None, None)).await.unwrap();
+        assert_eq!(
+            (epic.r#type.as_str(), epic.status.as_str(), epic.parent_id, epic.sprint_id, epic.story_points),
+            ("epic", "todo", None, None, 0)
+        );
+        let epic = create_task_inner(&f.pool, new_epic(f.project_id, None, Some("todo"), Some(0))).await.unwrap();
+        assert_eq!(epic.status, "todo");
+    }
+
+    #[tokio::test]
+    async fn a_factory_epic_is_refused_with_a_sprint_another_status_or_points() {
+        let f = epic_factory().await;
+        let count = |pool: SqlitePool| async move {
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tasks").fetch_one(&pool).await.unwrap()
+        };
+        let err = create_task_inner(&f.pool, new_epic(f.project_id, Some(f.sprint_id), None, None)).await.unwrap_err();
+        assert!(err.contains("epic takes no sprint"), "{err}");
+        for status in ["backlog", "done", "canceled", "building"] {
+            let err = create_task_inner(&f.pool, new_epic(f.project_id, None, Some(status), None)).await.unwrap_err();
+            assert!(err.contains(&format!("epic starts in todo, not {status}")), "{err}");
+        }
+        let err = create_task_inner(&f.pool, new_epic(f.project_id, None, None, Some(5))).await.unwrap_err();
+        assert!(err.contains("epic has no points"), "{err}");
+        assert_eq!(count(f.pool.clone()).await, 0, "nothing was created");
+    }
+
+    #[tokio::test]
+    async fn a_factory_epic_closes_or_cancels_from_todo_and_nothing_else() {
+        for to in ["done", "canceled"] {
+            let f = epic_factory().await;
+            let epic = create_in(&f, "epic", None, None).await.unwrap();
+            for refused in ["backlog", "refining", "ready", "building", "in_progress"] {
+                let err = set_status(&f, epic.id, refused).await.unwrap_err();
+                assert!(err.contains("SF-1") && err.contains(&format!("from todo to {refused}")), "todo -> {refused}: {err}");
+                assert_eq!(get_task_inner(&f.pool, epic.id).await.unwrap().status, "todo");
+            }
+            assert_eq!(set_status(&f, epic.id, to).await.unwrap().status, to);
+            for refused in ["todo", "done", "canceled", "backlog"] {
+                if refused == to {
+                    // Echoing the current status is not a move.
+                    assert_eq!(set_status(&f, epic.id, refused).await.unwrap().status, to);
+                    continue;
+                }
+                let err = set_status(&f, epic.id, refused).await.unwrap_err();
+                assert!(err.contains("SF-1") && err.contains(&format!("from {to} to {refused}")), "{to} -> {refused}: {err}");
+                assert_eq!(get_task_inner(&f.pool, epic.id).await.unwrap().status, to);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_factory_epic_takes_no_sprint_points_or_subtasks() {
+        let f = epic_factory().await;
+        let epic = create_in(&f, "epic", None, None).await.unwrap();
+
+        let err = update_task_inner(&f.pool, epic.id, TaskUpdate { sprint_id: Some(Some(f.sprint_id)), ..empty_update() })
+            .await
+            .unwrap_err();
+        assert!(err.contains("epics take no sprint"), "{err}");
+        assert_eq!(get_task_inner(&f.pool, epic.id).await.unwrap().sprint_id, None);
+
+        let err = set_points(&f, epic.id, 5).await.unwrap_err();
+        assert!(err.contains("is an epic; it has no points"), "{err}");
+        assert_eq!(get_task_inner(&f.pool, epic.id).await.unwrap().story_points, 0);
+        set_points(&f, epic.id, 0).await.expect("echoing the current points is not an edit");
+
+        for kind in ["subtask", "bug"] {
+            let err = create_in(&f, kind, Some(epic.id), None).await.unwrap_err();
+            assert!(err.contains("is an epic; it takes no Subtasks"), "{kind}: {err}");
+        }
+        let children: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE parent_id = ?")
+            .bind(epic.id)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
+        assert_eq!(children, 0);
+    }
+
+    #[tokio::test]
+    async fn a_factory_epic_keeps_its_type_and_takes_no_parent() {
+        let f = epic_factory().await;
+        let epic = create_in(&f, "epic", None, None).await.unwrap();
+        let story = create_in(&f, "story", None, None).await.unwrap();
+
+        for (id, t) in [(epic.id, "story"), (story.id, "epic")] {
+            let err = retype(&f.pool, id, t).await.unwrap_err();
+            assert!(err.contains("cannot become or stop being an epic"), "{err}");
+        }
+        let err = reparent(&f.pool, epic.id, Some(story.id)).await.unwrap_err();
+        assert!(err.contains("an epic takes no parent"), "{err}");
+        let row = get_task_inner(&f.pool, epic.id).await.unwrap();
+        assert_eq!((row.r#type.as_str(), row.parent_id), ("epic", None));
+        assert_eq!(get_task_inner(&f.pool, story.id).await.unwrap().r#type, "story");
+    }
+
+    #[tokio::test]
+    async fn a_legacy_epic_is_created_and_moved_freely() {
+        use crate::test_support::{self as ts, SprintStatus};
+        let pool = ts::pool().await;
+        let project_id = ts::project(&pool, "LG").await;
+        let sprint_id = ts::sprint(&pool, project_id, "S1", "2026-10-01", SprintStatus::Active).await;
+
+        let epic = create_task_inner(&pool, new_epic(project_id, Some(sprint_id), Some("in_progress"), Some(8))).await.unwrap();
+        assert_eq!((epic.status.as_str(), epic.sprint_id, epic.story_points), ("in_progress", Some(sprint_id), 8));
+        for status in ["done", "todo", "in_review"] {
+            let moved = update_task_inner(&pool, epic.id, TaskUpdate { status: Some(status.into()), ..empty_update() })
+                .await
+                .unwrap();
+            assert_eq!(moved.status, status);
+        }
+        let moved = update_task_inner(
+            &pool,
+            epic.id,
+            TaskUpdate { sprint_id: Some(None), story_points: Some(3), ..empty_update() },
+        )
+        .await
+        .unwrap();
+        assert_eq!((moved.sprint_id, moved.story_points), (None, 3));
     }
 }

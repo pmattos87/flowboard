@@ -6,7 +6,7 @@
 //! `{"error": "..."}` on stderr and exits with code 1.
 
 use clap::{Parser, Subcommand, ValueEnum};
-use flowboard_lib::factory::ops::{self, Actor, NewStory, NewSubtask, StoryEdit};
+use flowboard_lib::factory::ops::{self, Actor, NewEpic, NewStory, NewSubtask, StoryEdit};
 use flowboard_lib::factory::mcp;
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
@@ -54,6 +54,9 @@ enum Cmd {
     /// Factory Stories
     #[command(subcommand)]
     Story(StoryCmd),
+    /// Epics: goals that group several Stories (never built)
+    #[command(subcommand)]
+    Epic(EpicCmd),
     /// Record a Review round on a building Story
     Review {
         key: String,
@@ -162,6 +165,23 @@ enum StoryCmd {
         #[arg(long)]
         remove: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum EpicCmd {
+    /// Create an open epic (todo, no sprint, no points)
+    Create {
+        project: String,
+        title: String,
+        #[arg(long, default_value = "")]
+        description: String,
+        #[arg(long, default_value = "medium")]
+        priority: String,
+        #[arg(long, default_value = "")]
+        labels: String,
+    },
+    /// Close (done) or cancel (canceled) an open epic
+    Move { key: String, to: String },
 }
 
 #[derive(Subcommand)]
@@ -318,6 +338,17 @@ async fn run(cli: Cli, pool: SqlitePool) -> Result<Value, String> {
                 }
             }
         },
+        Cmd::Epic(EpicCmd::Create { project, title, description, priority, labels }) => {
+            let e = NewEpic {
+                project: &project,
+                title: &title,
+                description: &description,
+                priority: &priority,
+                labels: &labels,
+            };
+            ops::epic_create(p, e, actor).await
+        }
+        Cmd::Epic(EpicCmd::Move { key, to }) => ops::epic_move(p, &key, &to, actor).await,
         Cmd::Review { key, verdict, commit, findings } => {
             ops::review_record(p, &key, &verdict, &commit, findings.as_deref(), actor).await
         }
@@ -388,7 +419,16 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::{Cli, Cmd, StoryCmd};
-    use clap::Parser;
+    use clap::{CommandFactory, Parser};
+
+    #[test]
+    fn epic_help_lists_create_and_move() {
+        let help = Cli::command().find_subcommand_mut("epic").expect("an epic subcommand").render_help().to_string();
+        for sub in ["create", "move"] {
+            assert!(help.lines().any(|l| l.trim_start().starts_with(sub)), "`epic --help` lacks {sub}:
+{help}");
+        }
+    }
 
     fn story_create_bug(args: &[&str]) -> bool {
         match Cli::try_parse_from(args).unwrap().cmd {
