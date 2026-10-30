@@ -3,7 +3,7 @@ import { sprintCompletion } from "@/lib/sprintProgress";
 import type { TaskStatus, TaskType } from "@/types";
 
 const item = (status: TaskStatus, story_points: number, type: TaskType = "story") => ({
-  type, status, story_points,
+  type, parent_id: null, status, story_points,
 });
 
 describe("sprintCompletion", () => {

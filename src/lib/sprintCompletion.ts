@@ -1,4 +1,5 @@
 import type { Project, Sprint, Task, TaskStatus } from "@/types";
+import { isStoryLevel } from "@/lib/storyLevel";
 
 /** Unfinished = not `done` and not `canceled`, on both ladders (what `complete_sprint` moves). */
 export function isUnfinished(status: TaskStatus): boolean {
@@ -50,8 +51,7 @@ export function backlogBlockReason(
   const blocking = tasks.filter(
     (t) =>
       t.sprint_id === sprintId &&
-      t.type === "story" &&
-      t.parent_id === null &&
+      isStoryLevel(t, project.ladder) &&
       isUnfinished(t.status) &&
       t.status !== "ready",
   );
@@ -68,16 +68,18 @@ export interface DoneStoryWithOpenSubtasks {
 /**
  * Done Stories in `sprintId` that still have unfinished child rows, each with those
  * children's keys. Children are looked up across all of `tasks`, wherever their sprint,
- * as the backend does. Empty when completion is not blocked.
+ * as the backend does. Empty when completion is not blocked. On a Factory project a
+ * top-level bug is a Story too (FB-52).
  */
 export function openSubtasksUnderDoneStories(
   projectKey: string,
   tasks: ReadonlyArray<Row>,
   sprintId: number,
+  ladder: Project["ladder"] = "legacy",
 ): DoneStoryWithOpenSubtasks[] {
   const byNumber = (a: Row, b: Row) => a.task_number - b.task_number;
   return tasks
-    .filter((s) => s.sprint_id === sprintId && s.type === "story" && s.status === "done")
+    .filter((s) => s.sprint_id === sprintId && isStoryLevel(s, ladder) && s.status === "done")
     .sort(byNumber)
     .map((s) => ({
       story: keyOf(projectKey, s),

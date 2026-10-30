@@ -13,6 +13,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { Project, Task, TaskPriority, TaskStatus, TaskType } from "@/types";
 import { subtaskRole } from "@/lib/subtaskRole";
+import { isStoryLevel } from "@/lib/storyLevel";
 
 export type BoardColumn = { status: TaskStatus; label: string; dotClass: string; Icon?: LucideIcon };
 
@@ -95,11 +96,13 @@ const FACTORY_STORY_STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
 
 const FACTORY_SUBTASK_STATUS_OPTIONS = DEV_STATUS_OPTIONS.filter((o) => o.value !== "in_review");
 
+// FB-52: takes the parent too, since on a Factory project a top-level bug is a
+// Story (Story ladder) and a bug with a parent is a Subtask (Subtask ladder).
 export function statusOptionsForType(
-  type: TaskType,
+  task: Pick<Task, "type" | "parent_id">,
   ladder: Project["ladder"] = "legacy",
 ): { value: TaskStatus; label: string }[] {
-  const story = type === "story" || type === "epic";
+  const story = task.type === "epic" || isStoryLevel(task, ladder);
   if (ladder === "factory") return story ? FACTORY_STORY_STATUS_OPTIONS : FACTORY_SUBTASK_STATUS_OPTIONS;
   return story ? STORY_STATUS_OPTIONS : DEV_STATUS_OPTIONS;
 }

@@ -32,7 +32,7 @@ const storyTask = {
 
 function storyView(over: Partial<StoryView> = {}): StoryView {
   return {
-    key: "FB-12", title: "Export contract", status: "building", priority: "high", labels: "",
+    key: "FB-12", title: "Export contract", type: "story", status: "building", priority: "high", labels: "",
     assignee: "Pedro", sprint_id: 3, feature_branch: "feat/FB-12-export",
     review: { verdict: null, commit: null, findings_url: null },
     release: null,

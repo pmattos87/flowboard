@@ -125,6 +125,9 @@ enum StoryCmd {
         priority: String,
         #[arg(long, default_value = "")]
         labels: String,
+        /// File a bug Story (a fix) instead of a feature Story
+        #[arg(long)]
+        bug: bool,
     },
     Show { key: String },
     /// The Story's Run trail
@@ -268,13 +271,14 @@ async fn run(cli: Cli, pool: SqlitePool) -> Result<Value, String> {
             ops::contact_remove(p, &project, person_id).await
         }
         Cmd::Story(s) => match s {
-            StoryCmd::Create { project, title, description, priority, labels } => {
+            StoryCmd::Create { project, title, description, priority, labels, bug } => {
                 let s = NewStory {
                     project: &project,
                     title: &title,
                     description: &description,
                     priority: &priority,
                     labels: &labels,
+                    bug,
                 };
                 ops::story_create(p, s, actor).await
             }
@@ -378,5 +382,24 @@ async fn main() {
             eprintln!("{}", json!({ "error": e }));
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cli, Cmd, StoryCmd};
+    use clap::Parser;
+
+    fn story_create_bug(args: &[&str]) -> bool {
+        match Cli::try_parse_from(args).unwrap().cmd {
+            Cmd::Story(StoryCmd::Create { bug, .. }) => bug,
+            _ => panic!("not story create"),
+        }
+    }
+
+    #[test]
+    fn story_create_parses_the_bug_flag() {
+        assert!(story_create_bug(&["flowboard-cli", "story", "create", "SF", "a fix", "--bug"]));
+        assert!(!story_create_bug(&["flowboard-cli", "story", "create", "SF", "a feature"]));
     }
 }

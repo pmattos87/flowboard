@@ -7,6 +7,7 @@ import { RefreshButton } from "@/components/RefreshButton";
 import { KanbanBoard } from "./shared/KanbanBoard";
 import { COLUMNS, FACTORY_STORY_COLUMNS } from "./shared/boardConstants";
 import { useStoryCardDecor } from "@/features/story/useStoryCardDecor";
+import { isStoryLevel } from "@/lib/storyLevel";
 import { SprintFilterSelect } from "./shared/SprintFilterSelect";
 import { matchesSprintFilter, sprintFilterLabel } from "./shared/sprintFilter";
 
@@ -32,7 +33,7 @@ export function UserStoryBoard() {
   // here too listed the same story twice under two different column names
   // (Discovery BACKLOG vs. this board's TO DO).
   const tasks = (allTasks ?? [])
-    .filter((t) => t.type === "story")
+    .filter((t) => isStoryLevel(t, project?.ladder))
     .filter((t) => t.sprint_id !== null)
     .filter((t) => matchesSprintFilter(t, boardSprintFilter));
 
