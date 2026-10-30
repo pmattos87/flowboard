@@ -11,7 +11,7 @@ import {
 } from "@dnd-kit/core";
 import { ChevronDown, ChevronRight, Plus } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { Person, Task, TaskStatus } from "@/types";
+import type { Person, Project, Task, TaskStatus } from "@/types";
 import { useUiStore } from "@/stores/uiStore";
 import { useUpdateTask } from "@/hooks/useTasks";
 import type { TaskUpdatePayload } from "@/lib/commands";
@@ -33,6 +33,8 @@ interface TaskBoardGroupedKanbanProps {
   projectKey: string;
   /** Column set to render. Defaults to the shared 5-status workflow columns. */
   columns?: BoardColumn[];
+  /** Decides which rows are Stories (FB-52). Defaults to legacy. */
+  ladder?: Project["ladder"];
 }
 
 // Tint the story type icon by the story's own status so it's visible at a glance
@@ -313,6 +315,7 @@ export function TaskBoardGroupedKanban({
   people,
   projectKey,
   columns = COLUMNS,
+  ladder = "legacy",
 }: TaskBoardGroupedKanbanProps) {
   const activeProjectId = useUiStore((s) => s.activeProjectId);
   const boardSprintFilter = useUiStore((s) => s.boardSprintFilter);
@@ -379,8 +382,8 @@ export function TaskBoardGroupedKanban({
   }, [tasks]);
 
   const rows = useMemo(
-    () => buildTaskBoardRows(effectiveTasks, boardSprintFilter),
-    [effectiveTasks, boardSprintFilter],
+    () => buildTaskBoardRows(effectiveTasks, boardSprintFilter, ladder),
+    [effectiveTasks, boardSprintFilter, ladder],
   );
 
   const sensors = useSensors(

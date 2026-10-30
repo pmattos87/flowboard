@@ -1,4 +1,5 @@
-import type { Task, TaskStatus } from "@/types";
+import type { Project, Task, TaskStatus } from "@/types";
+import { isStoryLevel } from "@/lib/storyLevel";
 
 export interface SprintCompletion {
   /** Story points in `done` (the only done status, on both ladders). */
@@ -12,18 +13,19 @@ export interface SprintCompletion {
 }
 
 /**
- * Completion of a sprint row. Counts stories only (`type === "story"`), so bugs and
+ * Completion of a sprint row. Counts Stories only (`isStoryLevel`), so bug Subtasks and
  * subtasks never double-count points; the helper filters itself, callers may pass a row's
- * tasks as they are.
+ * tasks as they are. On a Factory project a top-level bug is a Story and counts (FB-52).
  */
 export function sprintCompletion(
-  tasks: ReadonlyArray<Pick<Task, "type" | "status" | "story_points">>,
+  tasks: ReadonlyArray<Pick<Task, "type" | "parent_id" | "status" | "story_points">>,
+  ladder: Project["ladder"] = "legacy",
 ): SprintCompletion {
   const byStatus: SprintCompletion["byStatus"] = {};
   let donePoints = 0;
   let totalPoints = 0;
   for (const t of tasks) {
-    if (t.type !== "story") continue;
+    if (!isStoryLevel(t, ladder)) continue;
     byStatus[t.status] = (byStatus[t.status] ?? 0) + t.story_points;
     if (t.status === "canceled") continue;
     totalPoints += t.story_points;

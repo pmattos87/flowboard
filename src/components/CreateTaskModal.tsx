@@ -91,7 +91,7 @@ export function CreateTaskModal() {
 
   // The form starts at `todo`; on a Factory project a Story starts in backlog
   // instead (SF-31), so fall back to the first status the ladder offers.
-  const statusOptions = statusOptionsForType(form.type, project?.ladder);
+  const statusOptions = statusOptionsForType(form, project?.ladder);
   const status = statusOptions.some((o) => o.value === form.status)
     ? form.status
     : statusOptions[0].value;

@@ -162,7 +162,7 @@ export function TaskFields({ task, state }: { task: Task; state: TaskDraftState 
             }}
             className={SELECT_CLS}
           >
-            {statusOptionsForType(draft.type, project?.ladder).map((o) => (
+            {statusOptionsForType(draft, project?.ladder).map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>

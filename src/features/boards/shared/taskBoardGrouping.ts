@@ -1,7 +1,8 @@
-import type { Task, TaskStatus } from "@/types";
+import type { Project, Task, TaskStatus } from "@/types";
 import type { SprintFilter } from "@/stores/uiStore";
 import { matchesSprintFilter } from "./sprintFilter";
 import { sortByPriority } from "./boardConstants";
+import { isStoryLevel } from "@/lib/storyLevel";
 
 export type StoryGroupKey = number | "unparented";
 
@@ -19,21 +20,26 @@ export interface TaskBoardRow {
  * for tasks/bugs with `parent_id === null` that also match the filter.
  *
  * Stories are first-class rows — included even when they have zero children.
+ * On a Factory project a top-level bug is a Story row too (FB-52), not an
+ * unparented child.
  * The `Unparented` row is omitted entirely when empty.
  */
 export function buildTaskBoardRows(
   tasks: Task[],
   filter: SprintFilter,
+  ladder: Project["ladder"] = "legacy",
 ): TaskBoardRow[] {
   // Highest priority first; ascending id breaks ties (stable sort over id-sorted input).
   const stories = sortByPriority(
     tasks
-      .filter((t) => t.type === "story")
+      .filter((t) => isStoryLevel(t, ladder))
       .filter((t) => matchesSprintFilter(t, filter))
       .sort((a, b) => a.id - b.id),
   );
 
-  const children = tasks.filter((t) => t.type === "subtask" || t.type === "bug");
+  const children = tasks.filter(
+    (t) => (t.type === "subtask" || t.type === "bug") && !isStoryLevel(t, ladder),
+  );
 
   const rows: TaskBoardRow[] = stories.map((story) => ({
     key: story.id,
