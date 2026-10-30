@@ -99,7 +99,7 @@ task_prs         (id, task_id, url, target, state, created_at, updated_at)
 - Assignee is set by the move: `building` → agent, `user_testing` → primary contact,
   `done`/`canceled` → NULL, everything else → owner.
 - Run trail = `activity_log` rows on the Story with actions `stage_entered`,
-  `subtask_status_changed`, `subtask_handoff`, `verify_round`, `review_started`, `review_round`,
+  `subtask_status_changed`, `subtask_handoff`, `verify_started`, `verify_round`, `review_started`, `review_round`,
   `run_stopped`, `run_restarted`, `pr_opened`, `pr_merged`, `release_picked`,
   `release_removed`, `bug_subtask_filed` (details as JSON in `new_value`).
 - The app backs up the database (`flowboard.db.pre-migration-<unix secs>.bak`) before
