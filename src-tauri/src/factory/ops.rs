@@ -1011,6 +1011,27 @@ pub async fn review_start(pool: &SqlitePool, key: &str, actor: Actor) -> Result<
     Ok(out)
 }
 
+/// Mark the start of a Verify round on a Subtask, so the Run graph can light
+/// Verify while QA runs. Rounds are numbered per Subtask, like `subtask_verify`
+/// numbers them. Refuses, in order: a Story that isn't building, a stopped Run,
+/// a Subtask that isn't in_progress.
+pub async fn verify_start(pool: &SqlitePool, key: &str, actor: Actor) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let (sub, story) = load_subtask(&mut tx, key).await?;
+    require_building(&story, "Starting a Verify")?;
+    if story.run_stopped != 0 {
+        return Err(format!("{}'s Run is stopped", story.key()));
+    }
+    if sub.status != "in_progress" {
+        return Err(format!("{} is {}, not in_progress", sub.key(), sub.status));
+    }
+    let round = count_events(&mut tx, story.id, "verify_round", Some(&sub.key())).await? + 1;
+    let event = json!({ "subtask": sub.key(), "round": round });
+    log(&mut tx, story.id, actor, "verify_started", "", &event.to_string()).await?;
+    tx.commit().await.map_err(err)?;
+    Ok(event)
+}
+
 pub async fn run_stop(pool: &SqlitePool, key: &str, reason: &str, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let story = load_story(&mut tx, key).await?;

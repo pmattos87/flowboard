@@ -158,6 +158,9 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
   // stopped), or during a Review round in flight (a manual Review may leave
   // Subtasks open), is Review-side: it waits at the Review lane's gate.
   const reviewSide = stopped && !buildStopped && (open.length === 0 || reviewInFlight);
+  const verifyInFlight =
+    lastIndex("verify_started") >
+    Math.max(lastIndex("subtask_handoff"), lastIndex("verify_round"), lastIndex("review_started"));
   const buildFinished = passIntegrated || reviewRounds.length > 0 || (building && open.length === 0 && subtasks.length > 0);
 
   const orchestrator: RunNode = {
@@ -172,8 +175,9 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
     title: "Verify",
     kind: "agent",
     caption: "QA · tsc · tests",
-    // The Subtasks show where the Build is; Verify only shows its outcome.
-    state: buildStopped ? "stopped" : pick(buildFinished, false),
+    // The Subtasks show where the Build is; Verify shows its outcome, and is
+    // current while this pass's latest verify_started is its latest step (FB-277).
+    state: buildStopped ? "stopped" : pick(buildFinished, verifyInFlight && !stopped),
   };
   // Each gate counts its own past stops. A past stop is Review-side when its
   // reason names Review, or when the last Review round / Verify round / bug

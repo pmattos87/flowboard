@@ -74,6 +74,17 @@ async fn cli_run_review_start_reaches_the_op() {
 }
 
 #[tokio::test]
+async fn cli_run_verify_start_reaches_the_op() {
+    let db = seeded_db("verify-start").await;
+    setup(&db);
+    ok(&db, &["--as", "owner", "story", "create", "TF", "Verify start"]);
+    ok(&db, &["subtask", "create", "TF-1", "Slice"]);
+    let (code, _, stderr) = cli(&db, &["run", "verify-start", "TF-2"]);
+    assert_eq!(code, 1);
+    assert!(stderr["error"].as_str().unwrap().contains("Starting a Verify"), "{stderr}");
+}
+
+#[tokio::test]
 async fn cli_lists_releases_and_changes_a_planned_version() {
     let db = seeded_db("releases").await;
     setup(&db);
@@ -162,7 +173,7 @@ async fn mcp_serves_tools_and_returns_refusals_as_errors() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    for n in ["story_move", "subtask_verify", "review_record", "review_start", "release_pick", "release_list", "release_set_version"] {
+    for n in ["story_move", "subtask_verify", "review_record", "review_start", "verify_start", "release_pick", "release_list", "release_set_version"] {
         assert!(names.contains(&n), "missing tool {n}: {names:?}");
     }
     assert!(!names.contains(&"project_set"), "ladder changes must stay CLI-only");
