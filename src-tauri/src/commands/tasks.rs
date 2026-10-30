@@ -257,6 +257,7 @@ pub async fn update_task_inner(
     // operations (SF-31); the rest of the payload is applied below as usual.
     let before = get_task_inner(pool, id).await?;
     factory::ops::app_check_points(pool, id, payload.story_points).await?;
+    factory::ops::app_check_parent(pool, id, payload.parent_id).await?;
     if factory::ops::app_move(pool, id, payload.status.as_deref(), payload.sprint_id).await? {
         payload.status = None;
         payload.sprint_id = None;
@@ -1268,5 +1269,50 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(story.story_points, 13);
+    }
+
+    async fn reparent(pool: &SqlitePool, id: i64, parent: Option<i64>) -> Result<super::Task, String> {
+        update_task_inner(pool, id, TaskUpdate { parent_id: Some(parent), ..empty_update() }).await
+    }
+
+    #[tokio::test]
+    async fn a_factory_parent_edit_cannot_cross_story_and_subtask_level() {
+        use crate::test_support::{self as ts, TaskStatus, TaskType};
+        let pool = ts::pool().await;
+        let p = ts::factory_project(&pool, "SF").await;
+        let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+        let bug_story = ts::task(&pool, p, None, None, TaskType::Bug, TaskStatus::Backlog).await;
+        let bug_sub = ts::task(&pool, p, None, Some(story), TaskType::Bug, TaskStatus::Todo).await;
+
+        let err = reparent(&pool, bug_story, Some(story)).await.unwrap_err();
+        assert!(err.contains("between Story level and Subtask level"), "{err}");
+        assert_eq!(get_task_inner(&pool, bug_story).await.unwrap().parent_id, None);
+
+        let err = reparent(&pool, bug_sub, None).await.unwrap_err();
+        assert!(err.contains("between Story level and Subtask level"), "{err}");
+        assert_eq!(get_task_inner(&pool, bug_sub).await.unwrap().parent_id, Some(story));
+
+        // Moving a bug Subtask to another Story keeps it a Subtask.
+        let moved = reparent(&pool, bug_sub, Some(bug_story)).await.unwrap();
+        assert_eq!(moved.parent_id, Some(bug_story));
+    }
+
+    #[tokio::test]
+    async fn a_legacy_bug_may_gain_and_lose_a_parent() {
+        use crate::test_support::{self as ts, TaskStatus, TaskType};
+        let pool = ts::pool().await;
+        let p = ts::project(&pool, "LG").await;
+        let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Todo).await;
+        let bug = ts::task(&pool, p, None, None, TaskType::Bug, TaskStatus::Todo).await;
+
+        assert_eq!(reparent(&pool, bug, Some(story)).await.unwrap().parent_id, Some(story));
+        assert_eq!(reparent(&pool, bug, None).await.unwrap().parent_id, None);
+    }
+
+    #[tokio::test]
+    async fn a_factory_top_level_bug_is_created_on_the_story_ladder() {
+        let f = factory_project().await;
+        let bug = create_in(&f, "bug", None, None).await.unwrap();
+        assert_eq!((bug.status.as_str(), bug.parent_id, bug.sprint_id), ("backlog", None, None));
     }
 }

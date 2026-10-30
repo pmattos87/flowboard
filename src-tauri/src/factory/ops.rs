@@ -111,17 +111,30 @@ fn require_factory(row: &Row) -> Result<(), String> {
     Ok(())
 }
 
-/// A Factory Story: a top-level `story` row on a Factory project.
+/// The one rule for "is a Story" (FB-52): on a Factory project, a top-level
+/// `story` (a feature) or a top-level `bug` (a fix) climbs the Story ladder. A
+/// `bug` with a parent is a bug Subtask. The caller checks the ladder: on a
+/// legacy project a top-level bug is just a bug.
+fn is_story_level(kind: &str, parent_id: Option<i64>) -> bool {
+    parent_id.is_none() && matches!(kind, "story" | "bug")
+}
+
+/// [`is_story_level`] as a SQL condition on the `tasks` row aliased `t`.
+fn story_level_sql(t: &str) -> String {
+    format!("({t}.parent_id IS NULL AND {t}.type IN ('story','bug'))")
+}
+
+/// A Factory Story: a Story-level row on a Factory project.
 async fn load_story(tx: &mut Tx<'_>, key: &str) -> Result<Row, String> {
     let row = load(tx, key).await?;
     require_factory(&row)?;
-    if row.kind != "story" || row.parent_id.is_some() {
+    if !is_story_level(&row.kind, row.parent_id) {
         return Err(format!("{key} is not a Story"));
     }
     Ok(row)
 }
 
-/// A Factory Subtask: a `task` or `bug` row whose parent is a Story.
+/// A Factory Subtask: a `subtask` or `bug` row whose parent is a Story.
 async fn load_subtask(tx: &mut Tx<'_>, key: &str) -> Result<(Row, Row), String> {
     let row = load(tx, key).await?;
     require_factory(&row)?;
@@ -129,7 +142,7 @@ async fn load_subtask(tx: &mut Tx<'_>, key: &str) -> Result<(Row, Row), String> 
         Some(p) if matches!(row.kind.as_str(), "subtask" | "bug") => load_by_id(tx, p).await?,
         _ => return Err(format!("{key} is not a Subtask")),
     };
-    if parent.kind != "story" {
+    if !is_story_level(&parent.kind, parent.parent_id) {
         return Err(format!("{key} is not a Subtask of a Story"));
     }
     Ok((row, parent))
@@ -365,7 +378,7 @@ pub async fn active_runs(pool: &SqlitePool) -> Result<Value, String> {
         waiting_on_bugs: i64,
         stage_entered_at: String,
     }
-    let rows = sqlx::query_as::<_, Active>(
+    let rows = sqlx::query_as::<_, Active>(&format!(
         r#"SELECT p.key || '-' || t.task_number AS key, p.name AS project, t.title, t.status,
                   a.name AS assignee, a.factory_role AS assignee_role, t.run_stopped,
                   (SELECT COUNT(*) FROM tasks b WHERE b.parent_id = t.id AND b.type = 'bug'
@@ -376,11 +389,12 @@ pub async fn active_runs(pool: &SqlitePool) -> Result<Value, String> {
              FROM tasks t
              JOIN projects p ON p.id = t.project_id
              LEFT JOIN people a ON a.id = t.assignee_id
-            WHERE p.ladder = 'factory' AND t.type = 'story' AND t.parent_id IS NULL
+            WHERE p.ladder = 'factory' AND {}
               AND t.sprint_id IS NOT NULL
               AND t.status IN ('ready','building','integrated_tests','tested','user_testing')
             ORDER BY t.run_stopped DESC, stage_entered_at, p.key, t.task_number"#,
-    )
+        story_level_sql("t"),
+    ))
     .fetch_all(pool)
     .await
     .map_err(err)?;
@@ -475,7 +489,7 @@ pub async fn project_show(pool: &SqlitePool, key: &str) -> Result<Value, String>
 }
 
 /// Open items of a project that don't fit the Factory ladder: anything but a
-/// top-level `story` in a Story status, or a `task`/`bug` under a story in a
+/// Story-level row in a Story status, or a `subtask`/`bug` under one in a
 /// Subtask status. Returns their keys.
 async fn unmapped_items(tx: &mut Tx<'_>, project_id: i64, key: &str) -> Result<Vec<String>, String> {
     let quoted = |statuses: &[&str]| statuses.iter().map(|s| format!("'{s}'")).collect::<Vec<_>>().join(",");
@@ -483,11 +497,13 @@ async fn unmapped_items(tx: &mut Tx<'_>, project_id: i64, key: &str) -> Result<V
     let numbers: Vec<i64> = sqlx::query_scalar(&format!(
         r#"SELECT t.task_number FROM tasks t LEFT JOIN tasks parent ON parent.id = t.parent_id
             WHERE t.project_id = ? AND t.status NOT IN ('done','canceled')
-              AND NOT (t.parent_id IS NULL AND t.type = 'story' AND t.status IN ({}))
-              AND NOT (t.parent_id IS NOT NULL AND t.type IN ('subtask','bug') AND parent.type = 'story'
+              AND NOT ({} AND t.status IN ({}))
+              AND NOT (t.parent_id IS NOT NULL AND t.type IN ('subtask','bug') AND {}
                        AND t.status IN ({}))
             ORDER BY t.task_number"#,
+        story_level_sql("t"),
         open(ladder::STORY_STATUSES),
+        story_level_sql("parent"),
         open(ladder::SUBTASK_STATUSES),
     ))
     .bind(project_id)
@@ -752,7 +768,7 @@ pub async fn app_story_set_sprint(
 ) -> Result<(), String> {
     let story = load_by_id(tx, story_id).await?;
     require_factory(&story)?;
-    if story.kind != "story" || story.parent_id.is_some() {
+    if !is_story_level(&story.kind, story.parent_id) {
         return Err(format!("{} is not a Story", story.key()));
     }
     set_sprint(tx, &story, sprint_id).await
@@ -1148,9 +1164,9 @@ pub async fn app_move(
         return Ok(true);
     }
     let key = row.key();
-    let is_story = row.kind == "story" && parent.is_none();
+    let is_story = is_story_level(&row.kind, row.parent_id);
     let is_subtask = matches!(row.kind.as_str(), "subtask" | "bug")
-        && parent.as_ref().is_some_and(|p| p.kind == "story");
+        && parent.as_ref().is_some_and(|p| is_story_level(&p.kind, p.parent_id));
     if is_story {
         if status.is_some() && sprint_id.is_some() {
             return Err("on a Factory project, change a Story's sprint and its status separately".into());
@@ -1181,9 +1197,30 @@ pub async fn app_check_points(pool: &SqlitePool, id: i64, points: Option<i64>) -
     let mut tx = pool.begin().await.map_err(err)?;
     let row = load_by_id(&mut tx, id).await?;
     tx.rollback().await.map_err(err)?;
-    if row.ladder == "factory" && row.kind == "story" && points != row.story_points {
+    if row.ladder == "factory" && is_story_level(&row.kind, row.parent_id) && points != row.story_points {
         return Err(format!(
             "{}'s points are the sum of its Subtasks' points; change a Subtask's points instead",
+            row.key()
+        ));
+    }
+    Ok(())
+}
+
+/// Refuse the app's parent edit on a Factory project when it would move the
+/// task between Story level and Subtask level (a bug Story given a parent, a
+/// bug Subtask losing its): the two climb different ladders. `parent_id` is the
+/// payload's three-state field; absent changes nothing.
+pub async fn app_check_parent(pool: &SqlitePool, id: i64, parent_id: Option<Option<i64>>) -> Result<(), String> {
+    let Some(new_parent) = parent_id else { return Ok(()) };
+    let mut tx = pool.begin().await.map_err(err)?;
+    let row = load_by_id(&mut tx, id).await?;
+    tx.rollback().await.map_err(err)?;
+    if row.ladder != "factory" || new_parent == row.parent_id {
+        return Ok(());
+    }
+    if is_story_level(&row.kind, row.parent_id) != is_story_level(&row.kind, new_parent) {
+        return Err(format!(
+            "on a Factory project, {} cannot move between Story level and Subtask level; create a new item instead",
             row.key()
         ));
     }
@@ -1199,7 +1236,8 @@ pub async fn app_sync_points(tx: &mut Transaction<'_, Sqlite>, id: i64, old_pare
         return Ok(());
     }
     for story_id in [Some(row.id), row.parent_id, old_parent].into_iter().flatten() {
-        if load_by_id(tx, story_id).await?.kind == "story" {
+        let candidate = load_by_id(tx, story_id).await?;
+        if is_story_level(&candidate.kind, candidate.parent_id) {
             sync_points(tx, story_id).await?;
         }
     }
@@ -1228,8 +1266,8 @@ pub async fn app_create_status(
     }
     match parent_id {
         None => {
-            if kind != "story" {
-                return Err("on a Factory project, a task or bug belongs to a Story; create it from the Story".into());
+            if !is_story_level(kind, None) {
+                return Err(format!("on a Factory project, a {kind} belongs to a Story; create it from the Story"));
             }
             let status = status.unwrap_or("backlog");
             if !matches!(status, "backlog" | "refining") {
@@ -1242,7 +1280,7 @@ pub async fn app_create_status(
         }
         Some(p) => {
             let story = load_by_id(&mut tx, p).await?;
-            if story.kind != "story" || !matches!(kind, "subtask" | "bug") {
+            if !is_story_level(&story.kind, story.parent_id) || !matches!(kind, "subtask" | "bug") {
                 return Err("on a Factory project, only subtasks and bugs go under a Story".into());
             }
             if matches!(story.status.as_str(), "done" | "canceled") {
