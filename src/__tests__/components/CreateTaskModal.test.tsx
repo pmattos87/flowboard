@@ -376,3 +376,80 @@ describe("CreateTaskModal — bug Stories (FB-52)", () => {
     expect(screen.queryByRole("button", { name: "Bug" })).not.toBeInTheDocument();
   });
 });
+
+// FB-224: on a Factory project the create-story modal also creates an epic,
+// which opens at `todo` with no sprint and no points.
+describe("CreateTaskModal — Factory epics (FB-224)", () => {
+  beforeEach(() => {
+    useUiStore.setState({
+      createTaskModalOpen: true,
+      activeProjectId: 1,
+      createTaskPrefill: { type: "story", lockType: true },
+    });
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "get_project") return Promise.resolve({ id: 1, name: "P", key: "P", ladder: "factory" });
+      if (cmd === "create_task") return Promise.resolve(null);
+      return Promise.resolve([]);
+    });
+  });
+
+  it("creates an epic at todo with no sprint and renders no sprint or points input", async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    await user.click(await screen.findByRole("button", { name: "Epic" }));
+    expect(screen.getByRole("button", { name: "Epic" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByLabelText(/sprint/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/points/i)).not.toBeInTheDocument();
+    expect((screen.getByLabelText(/status/i) as HTMLSelectElement).value).toBe("todo");
+
+    await user.type(screen.getByLabelText(/title/i), "Hosted web app");
+    await user.click(screen.getByRole("button", { name: /create epic/i }));
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith(
+        "create_task",
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            type: "epic",
+            status: "todo",
+            parent_id: null,
+            story_points: 0,
+            title: "Hosted web app",
+          }),
+        }),
+      ),
+    );
+    const call = mockInvoke.mock.calls.find(([cmd]) => cmd === "create_task");
+    const payload = (call?.[1] as { payload: Record<string, unknown> }).payload;
+    expect(payload).not.toHaveProperty("sprint_id");
+  });
+
+  it("drops a prefilled sprint when Epic is chosen and is not blocked by the sprint gate", async () => {
+    useUiStore.setState({ createTaskPrefill: { type: "story", lockType: true, sprint_id: 5 } });
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "get_project") return Promise.resolve({ id: 1, name: "P", key: "P", ladder: "factory" });
+      if (cmd === "list_sprints")
+        return Promise.resolve([{ id: 5, project_id: 1, name: "Sprint 5", goal: "", start_date: null, end_date: null, status: "active" }]);
+      if (cmd === "create_task") return Promise.resolve(null);
+      return Promise.resolve([]);
+    });
+    const user = userEvent.setup();
+    renderModal();
+
+    await user.click(await screen.findByRole("button", { name: "Epic" }));
+    await user.type(screen.getByLabelText(/title/i), "Epic from sprint view");
+    await user.click(screen.getByRole("button", { name: /create epic/i }));
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith(
+        "create_task",
+        expect.objectContaining({ payload: expect.objectContaining({ type: "epic", status: "todo" }) }),
+      ),
+    );
+    const call = mockInvoke.mock.calls.find(([cmd]) => cmd === "create_task");
+    const payload = (call?.[1] as { payload: Record<string, unknown> }).payload;
+    expect(payload).not.toHaveProperty("sprint_id");
+    expect(mockToast.warning).not.toHaveBeenCalled();
+  });
+});

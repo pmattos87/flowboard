@@ -3,6 +3,9 @@ import type { TaskStatus, TaskType } from "@/types";
 
 export type SprintFilter = "all" | "backlog" | number;
 
+/** How the Factory Discovery board groups its cards (FB-224). Session-only, never persisted. */
+export type DiscoveryGrouping = "none" | "epic";
+
 export interface CreateTaskPrefill {
   parent_id?: number | null;
   sprint_id?: number | null;
@@ -39,6 +42,10 @@ interface UiState {
   // later manual choice when SprintFilterSelect remounts (e.g. switching boards).
   boardSprintFilterFor: number | null;
   ensureDefaultSprintFilter: (projectId: number, activeSprintId: number | null) => void;
+
+  discoveryGrouping: DiscoveryGrouping;
+  setDiscoveryGrouping: (g: DiscoveryGrouping) => void;
+  toggleDiscoveryGrouping: () => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -85,4 +92,9 @@ export const useUiStore = create<UiState>((set) => ({
             boardSprintFilterFor: projectId,
           }
     ),
+
+  discoveryGrouping: "none",
+  setDiscoveryGrouping: (g) => set({ discoveryGrouping: g }),
+  toggleDiscoveryGrouping: () =>
+    set((state) => ({ discoveryGrouping: state.discoveryGrouping === "none" ? "epic" : "none" })),
 }));

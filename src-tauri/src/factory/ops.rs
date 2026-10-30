@@ -54,6 +54,7 @@ struct Row {
     run_stopped: i64,
     risk: i64,
     release_id: Option<i64>,
+    epic_id: Option<i64>,
     project_key: String,
     ladder: String,
     project_kind: String,
@@ -69,7 +70,7 @@ const ROW_SQL: &str = r#"SELECT t.id, t.project_id, t.task_number, t.parent_id, 
        t.title, t.description, t.type, t.status, t.priority, t.assignee_id,
        t.story_points, t.labels, t.feature_branch, t.review_verdict,
        t.reviewed_commit, t.findings_url, t.run_stopped, t.risk, t.release_id,
-       p.key AS project_key, p.ladder, p.kind AS project_kind
+       t.epic_id, p.key AS project_key, p.ladder, p.kind AS project_kind
   FROM tasks t JOIN projects p ON p.id = t.project_id"#;
 
 fn parse_key(key: &str) -> Result<(String, i64), String> {
@@ -122,6 +123,23 @@ fn is_story_level(kind: &str, parent_id: Option<i64>) -> bool {
 /// [`is_story_level`] as a SQL condition on the `tasks` row aliased `t`.
 pub(crate) fn story_level_sql(t: &str) -> String {
     format!("({t}.parent_id IS NULL AND {t}.type IN ('story','bug'))")
+}
+
+/// An epic (FB-224): a top-level `epic`. It groups Stories by goal and is never
+/// built, so it climbs no Story ladder; its own lifecycle is
+/// [`ladder::check_epic_move`].
+fn is_epic(kind: &str, parent_id: Option<i64>) -> bool {
+    parent_id.is_none() && kind == "epic"
+}
+
+/// A Factory epic: an [`is_epic`] row on a Factory project.
+async fn load_epic(tx: &mut Tx<'_>, key: &str) -> Result<Row, String> {
+    let row = load(tx, key).await?;
+    require_factory(&row)?;
+    if !is_epic(&row.kind, row.parent_id) {
+        return Err(format!("{key} is not an epic"));
+    }
+    Ok(row)
 }
 
 /// A Factory Story: a Story-level row on a Factory project.
@@ -300,6 +318,17 @@ async fn story_json(tx: &mut Tx<'_>, story: &Row) -> Result<Value, String> {
             .map_err(err)?,
         None => None,
     };
+    let epic: Option<(String, String, String)> = match story.epic_id {
+        Some(id) => sqlx::query_as(
+            r#"SELECT p.key || '-' || t.task_number, t.title, t.status FROM tasks t
+                 JOIN projects p ON p.id = t.project_id WHERE t.id = ?"#,
+        )
+        .bind(id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(err)?,
+        None => None,
+    };
     let waiting_on_bugs = open_subtasks(tx, story.id, true).await?;
     Ok(json!({
         "key": story.key(),
@@ -317,6 +346,7 @@ async fn story_json(tx: &mut Tx<'_>, story: &Row) -> Result<Value, String> {
             "findings_url": story.findings_url,
         },
         "release": release.map(|(version, state)| json!({ "version": version, "state": state })),
+        "epic": epic.map(|(key, title, status)| json!({ "key": key, "title": title, "status": status })),
         "flags": { "stopped": story.run_stopped != 0, "waiting_on_bugs": waiting_on_bugs },
         "prs": prs.into_iter().map(|(url, target, state)| json!({ "url": url, "target": target, "state": state })).collect::<Vec<_>>(),
         "depends_on": depends_on,
@@ -490,22 +520,31 @@ pub async fn project_show(pool: &SqlitePool, key: &str) -> Result<Value, String>
 }
 
 /// Open items of a project that don't fit the Factory ladder: anything but a
-/// Story-level row in a Story status, or a `subtask`/`bug` under one in a
-/// Subtask status. Returns their keys.
+/// Story-level row in a Story status, a `subtask`/`bug` under one in a
+/// Subtask status, or a top-level `epic` in an epic status with no sprint and
+/// no points (FB-224: the Factory guards refuse clearing either afterwards).
+/// An epic of any status holding a sprint, points or a parent is unmapped too.
+/// Returns their keys.
 async fn unmapped_items(tx: &mut Tx<'_>, project_id: i64, key: &str) -> Result<Vec<String>, String> {
     let quoted = |statuses: &[&str]| statuses.iter().map(|s| format!("'{s}'")).collect::<Vec<_>>().join(",");
     let open = |statuses: &[&str]| quoted(&statuses.iter().copied().filter(|s| !matches!(*s, "done" | "canceled")).collect::<Vec<_>>());
     let numbers: Vec<i64> = sqlx::query_scalar(&format!(
         r#"SELECT t.task_number FROM tasks t LEFT JOIN tasks parent ON parent.id = t.parent_id
-            WHERE t.project_id = ? AND t.status NOT IN ('done','canceled')
-              AND NOT ({} AND t.status IN ({}))
-              AND NOT (t.parent_id IS NOT NULL AND t.type IN ('subtask','bug') AND {}
-                       AND t.status IN ({}))
+            WHERE t.project_id = ?
+              AND ((t.status NOT IN ('done','canceled')
+                    AND NOT ({} AND t.status IN ({}))
+                    AND NOT (t.parent_id IS NOT NULL AND t.type IN ('subtask','bug') AND {}
+                             AND t.status IN ({}))
+                    AND NOT (t.parent_id IS NULL AND t.type = 'epic' AND t.status IN ({})
+                             AND t.sprint_id IS NULL AND t.story_points = 0))
+                   OR (t.type = 'epic'
+                       AND (t.parent_id IS NOT NULL OR t.sprint_id IS NOT NULL OR t.story_points != 0)))
             ORDER BY t.task_number"#,
         story_level_sql("t"),
         open(ladder::STORY_STATUSES),
         story_level_sql("parent"),
         open(ladder::SUBTASK_STATUSES),
+        open(ladder::EPIC_STATUSES),
     ))
     .bind(project_id)
     .fetch_all(&mut **tx)
@@ -680,6 +719,9 @@ pub struct StoryEdit<'a> {
     pub description: Option<&'a str>,
     pub priority: Option<&'a str>,
     pub labels: Option<&'a str>,
+    /// The Story's epic (FB-224): `None` leaves it, `Some(None)` clears it,
+    /// `Some(Some(key))` puts the Story in that epic.
+    pub epic: Option<Option<&'a str>>,
 }
 
 pub async fn story_edit(pool: &SqlitePool, key: &str, e: StoryEdit<'_>) -> Result<Value, String> {
@@ -689,14 +731,26 @@ pub async fn story_edit(pool: &SqlitePool, key: &str, e: StoryEdit<'_>) -> Resul
     if !matches!(priority, "low" | "medium" | "high" | "critical") {
         return Err(format!("'{priority}' is not a priority (low, medium, high, critical)"));
     }
+    let epic_id = match e.epic {
+        None => story.epic_id,
+        Some(epic_key) => {
+            let epic = match epic_key {
+                Some(k) => Some(load(&mut tx, k).await?),
+                None => None,
+            };
+            check_epic_link(&story, epic.as_ref())?;
+            epic.map(|e| e.id)
+        }
+    };
     sqlx::query(
-        r#"UPDATE tasks SET title = ?, description = ?, priority = ?, labels = ?,
+        r#"UPDATE tasks SET title = ?, description = ?, priority = ?, labels = ?, epic_id = ?,
                   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?"#,
     )
     .bind(e.title.unwrap_or(&story.title))
     .bind(e.description.unwrap_or(&story.description))
     .bind(priority)
     .bind(e.labels.unwrap_or(&story.labels))
+    .bind(epic_id)
     .bind(story.id)
     .execute(&mut *tx)
     .await
@@ -1139,7 +1193,165 @@ pub async fn subtask_verify(pool: &SqlitePool, key: &str, passed: bool, reason: 
     Ok(event)
 }
 
+// ─── Epics (FB-224) ─────────────────────────────────────────────────────────
+
+pub struct NewEpic<'a> {
+    pub project: &'a str,
+    pub title: &'a str,
+    pub description: &'a str,
+    pub priority: &'a str,
+    pub labels: &'a str,
+}
+
+fn epic_json(epic: &Row) -> Value {
+    json!({
+        "key": epic.key(),
+        "title": epic.title,
+        "type": epic.kind,
+        "status": epic.status,
+        "priority": epic.priority,
+        "labels": epic.labels,
+        "description": epic.description,
+    })
+}
+
+/// Create an open epic: `todo`, outside sprints, no points, nobody assigned
+/// (an epic is never built; its progress comes from its Stories).
+pub async fn epic_create(pool: &SqlitePool, e: NewEpic<'_>, actor: Actor) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let (pid, ladder, _) = project_id(&mut tx, e.project).await?;
+    if ladder != "factory" {
+        return Err(format!("{} is a legacy project; the Factory does not write to it", e.project));
+    }
+    let id = insert_task(&mut tx, pid, None, None, "epic", "todo", e.title, e.description, e.priority, None, 0, false, e.labels).await?;
+    log(&mut tx, id, actor, "created", "", "todo").await?;
+    let out = epic_json(&load_by_id(&mut tx, id).await?);
+    tx.commit().await.map_err(err)?;
+    Ok(out)
+}
+
+/// Move a loaded epic inside `tx` along its lifecycle and log the change. A
+/// refusal names the epic and the move.
+async fn move_epic(tx: &mut Tx<'_>, epic: &Row, to: &str, actor: Actor) -> Result<(), String> {
+    ladder::check_epic_move(&epic.status, to).map_err(|e| format!("{}: {e}", epic.key()))?;
+    sqlx::query("UPDATE tasks SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?")
+        .bind(to)
+        .bind(epic.id)
+        .execute(&mut **tx)
+        .await
+        .map_err(err)?;
+    log(tx, epic.id, actor, "status_changed", &epic.status, to).await
+}
+
+/// Close (`done`) or cancel an open epic.
+pub async fn epic_move(pool: &SqlitePool, key: &str, to: &str, actor: Actor) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let epic = load_epic(&mut tx, key).await?;
+    move_epic(&mut tx, &epic, to, actor).await?;
+    let out = epic_json(&load_by_id(&mut tx, epic.id).await?);
+    tx.commit().await.map_err(err)?;
+    Ok(out)
+}
+
+/// The membership rule (FB-224) for putting `task` in `epic`, or taking it out
+/// (`None`). Only a Factory Story that is not done or canceled changes epic (a
+/// done or canceled Story's epic is frozen, so past progress stays stable), and
+/// it joins only an open epic of its own project. Taking it out is otherwise
+/// always allowed, even from a closed epic. Keeping the current epic is not a
+/// change and passes.
+fn check_epic_link(task: &Row, epic: Option<&Row>) -> Result<(), String> {
+    if epic.map(|e| e.id) == task.epic_id {
+        return Ok(());
+    }
+    require_factory(task)?;
+    let key = task.key();
+    if is_epic(&task.kind, task.parent_id) {
+        return Err(format!("{key} is an epic; only a Story joins an epic"));
+    }
+    if !is_story_level(&task.kind, task.parent_id) {
+        return Err(format!("{key} is not a Story; only a Story joins an epic"));
+    }
+    if matches!(task.status.as_str(), "done" | "canceled") {
+        return Err(format!("{key} is {}; a done or canceled Story keeps its epic", task.status));
+    }
+    let Some(epic) = epic else { return Ok(()) };
+    if !is_epic(&epic.kind, epic.parent_id) {
+        return Err(format!("{} is not an epic", epic.key()));
+    }
+    if epic.project_id != task.project_id {
+        return Err(format!(
+            "{} belongs to another project; {key} joins an epic of its own project only",
+            epic.key()
+        ));
+    }
+    if epic.status != "todo" {
+        return Err(format!("{} is {}; a closed epic takes no new Stories", epic.key(), epic.status));
+    }
+    Ok(())
+}
+
 // ─── The app's edits ────────────────────────────────────────────────────────
+
+/// Refuse the app's epic edit on task `id` when [`check_epic_link`] does, and
+/// return the edit the caller should write: `None` when the payload's
+/// three-state `epic_id` is absent or echoes the row's current epic (an echo
+/// is not an epic edit, so the write keeps whatever epic is stored then). This
+/// read is only a fail-fast: the caller must repeat the check with
+/// [`app_check_epic_in`] inside its write transaction.
+///
+/// On a Factory project an epic change must come alone: `status` and
+/// `sprint_id` (the payload's fields, an echo of the current value is not a
+/// change) go through [`app_move`], which commits on its own, so a combined
+/// edit refused after that move would leave the move behind (FB-224). When
+/// this returns an epic change, the caller drops those echoes too, so nothing
+/// commits before the write that re-checks the epic.
+pub async fn app_check_epic(
+    pool: &SqlitePool,
+    id: i64,
+    epic_id: Option<Option<i64>>,
+    status: Option<&str>,
+    sprint_id: Option<Option<i64>>,
+) -> Result<Option<Option<i64>>, String> {
+    if epic_id.is_none() {
+        return Ok(None);
+    }
+    let mut tx = pool.begin().await.map_err(err)?;
+    let row = load_by_id(&mut tx, id).await?;
+    let out = if epic_id == Some(row.epic_id) {
+        Ok(None)
+    } else if row.ladder == "factory"
+        && (status.is_some_and(|s| s != row.status) || sprint_id.is_some_and(|s| s != row.sprint_id))
+    {
+        Err(format!(
+            "on a Factory project, change {}'s epic separately from its status and sprint",
+            row.key()
+        ))
+    } else {
+        app_check_epic_in(&mut tx, id, epic_id).await.map(|()| epic_id)
+    };
+    tx.rollback().await.map_err(err)?;
+    out
+}
+
+/// [`app_check_epic`] inside the caller's transaction, so the rule is judged on
+/// the rows as they are when the caller writes `epic_id` (FB-224: a concurrent
+/// close of the epic or cancel of the Story cannot slip between check and write).
+pub async fn app_check_epic_in(tx: &mut Tx<'_>, id: i64, epic_id: Option<Option<i64>>) -> Result<(), String> {
+    let Some(epic_id) = epic_id else { return Ok(()) };
+    let row = load_by_id(tx, id).await?;
+    let epic = match epic_id {
+        Some(e) => Some(
+            sqlx::query_as::<_, Row>(&format!("{ROW_SQL} WHERE t.id = ?"))
+                .bind(e)
+                .fetch_optional(&mut **tx)
+                .await
+                .map_err(err)?
+                .ok_or_else(|| format!("task {e} not found"))?,
+        ),
+        None => None,
+    };
+    check_epic_link(&row, epic.as_ref())
+}
 
 /// Apply the app's status and sprint edits on a task. On a Factory project a
 /// Story's status and sprint, and a Subtask's status, go through the same
@@ -1188,20 +1400,34 @@ pub async fn app_move(
         if let Some(to) = status {
             subtask_move(pool, &key, to, Actor::Owner).await?;
         }
+    } else if is_epic(&row.kind, row.parent_id) {
+        if sprint_id.is_some() {
+            return Err(format!("{key} is an epic; epics take no sprint (their Stories do)"));
+        }
+        if let Some(to) = status {
+            epic_move(pool, &key, to, Actor::Owner).await?;
+        }
     } else {
         return Err(format!("{key} is neither a Story nor a Subtask, so it has no place on the Factory ladder"));
     }
     Ok(true)
 }
 
-/// Refuse the app's points edit on a Factory Story: its points are the sum of
-/// its Subtasks'. Any other task's points may be edited.
+/// Refuse the app's points edit on a Factory Story (its points are the sum of
+/// its Subtasks') and on a Factory epic (it has none). Any other task's points
+/// may be edited.
 pub async fn app_check_points(pool: &SqlitePool, id: i64, points: Option<i64>) -> Result<(), String> {
     let Some(points) = points else { return Ok(()) };
     let mut tx = pool.begin().await.map_err(err)?;
     let row = load_by_id(&mut tx, id).await?;
     tx.rollback().await.map_err(err)?;
-    if row.ladder == "factory" && is_story_level(&row.kind, row.parent_id) && points != row.story_points {
+    if row.ladder != "factory" || points == row.story_points {
+        return Ok(());
+    }
+    if is_epic(&row.kind, row.parent_id) {
+        return Err(format!("{} is an epic; it has no points (its progress comes from its Stories)", row.key()));
+    }
+    if is_story_level(&row.kind, row.parent_id) {
         return Err(format!(
             "{}'s points are the sum of its Subtasks' points; change a Subtask's points instead",
             row.key()
@@ -1215,7 +1441,9 @@ pub async fn app_check_points(pool: &SqlitePool, id: i64, points: Option<i64>) -
 /// `subtask`, a bug Subtask losing its parent or set to `story`): the two climb
 /// different ladders, and a `story` with a parent climbs neither. A top-level
 /// `story` <-> `bug` change stays a Story, a `subtask` <-> `bug` change under a
-/// parent stays a Subtask. `parent_id` is the payload's three-state field and
+/// parent stays a Subtask. An epic stays a top-level epic, and nothing becomes
+/// one from a Story or a Subtask (FB-224): it would keep a status its lifecycle
+/// has no move out of. `parent_id` is the payload's three-state field and
 /// `kind` its type; absent changes nothing.
 pub async fn app_check_level(
     pool: &SqlitePool,
@@ -1232,9 +1460,11 @@ pub async fn app_check_level(
     if row.ladder != "factory" {
         return Ok(());
     }
-    // Story level, Subtask level, or neither (`None`).
+    // Epic, Story level, Subtask level, or neither (`None`).
     let level = |kind: &str, parent: Option<i64>| {
-        if is_story_level(kind, parent) {
+        if is_epic(kind, parent) {
+            Some("epic")
+        } else if is_story_level(kind, parent) {
             Some("story")
         } else if parent.is_some() && matches!(kind, "subtask" | "bug") {
             Some("subtask")
@@ -1243,11 +1473,33 @@ pub async fn app_check_level(
         }
     };
     let old = level(&row.kind, row.parent_id);
-    if old.is_some() && old != level(kind.unwrap_or(&row.kind), parent_id.unwrap_or(row.parent_id)) {
+    let new = level(kind.unwrap_or(&row.kind), parent_id.unwrap_or(row.parent_id));
+    if old.is_some() && old != new && (old == Some("epic") || new == Some("epic")) {
+        return Err(format!(
+            "on a Factory project, {} cannot become or stop being an epic, and an epic takes no parent; create a new item instead",
+            row.key()
+        ));
+    }
+    if old.is_some() && old != new {
         return Err(format!(
             "on a Factory project, {} cannot move between Story level and Subtask level; create a new item instead",
             row.key()
         ));
+    }
+    // A Subtask's new parent must be a Story: under an epic or another Subtask
+    // it would sit on no ladder (FB-224).
+    if let (Some("subtask"), Some(Some(p))) = (new, parent_id) {
+        if Some(p) != row.parent_id {
+            let mut tx = pool.begin().await.map_err(err)?;
+            let parent = load_by_id(&mut tx, p).await?;
+            tx.rollback().await.map_err(err)?;
+            if !is_story_level(&parent.kind, parent.parent_id) {
+                return Err(format!(
+                    "on a Factory project, a Subtask goes under a Story; {} is not a Story",
+                    parent.key()
+                ));
+            }
+        }
     }
     Ok(())
 }
@@ -1270,8 +1522,9 @@ pub async fn app_sync_points(tx: &mut Transaction<'_, Sqlite>, id: i64, old_pare
 }
 
 /// The status and sprint the app may create a task with. On a Factory project
-/// a Story starts in backlog or refining, outside sprints; a Subtask starts in
-/// todo, in its Story's sprint. `None` on a legacy project.
+/// a Story starts in backlog or refining, outside sprints; an epic starts in
+/// todo, outside sprints, with no points; a Subtask starts in todo, in its
+/// Story's sprint. `None` on a legacy project.
 pub async fn app_create_status(
     pool: &SqlitePool,
     project_id: i64,
@@ -1279,6 +1532,7 @@ pub async fn app_create_status(
     kind: &str,
     status: Option<&str>,
     sprint_id: Option<i64>,
+    story_points: Option<i64>,
 ) -> Result<Option<(String, Option<i64>)>, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let ladder: String = sqlx::query_scalar("SELECT ladder FROM projects WHERE id = ?")
@@ -1290,6 +1544,19 @@ pub async fn app_create_status(
         return Ok(None);
     }
     match parent_id {
+        None if is_epic(kind, None) => {
+            let status = status.unwrap_or("todo");
+            if status != "todo" {
+                return Err(format!("a new epic starts in todo, not {status}"));
+            }
+            if sprint_id.is_some() {
+                return Err("an epic takes no sprint (its Stories do)".into());
+            }
+            if story_points.is_some_and(|p| p != 0) {
+                return Err("an epic has no points (its progress comes from its Stories)".into());
+            }
+            Ok(Some((status.to_string(), None)))
+        }
         None => {
             if !is_story_level(kind, None) {
                 return Err(format!("on a Factory project, a {kind} belongs to a Story; create it from the Story"));
@@ -1305,6 +1572,9 @@ pub async fn app_create_status(
         }
         Some(p) => {
             let story = load_by_id(&mut tx, p).await?;
+            if is_epic(&story.kind, story.parent_id) {
+                return Err(format!("{} is an epic; it takes no Subtasks (put Stories in it instead)", story.key()));
+            }
             if !is_story_level(&story.kind, story.parent_id) || !matches!(kind, "subtask" | "bug") {
                 return Err("on a Factory project, only subtasks and bugs go under a Story".into());
             }

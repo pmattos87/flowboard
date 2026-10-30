@@ -48,7 +48,7 @@ const story = (
   created_at: "2024-01-01T00:00:00.000Z",
   updated_at: "2024-01-01T00:00:00.000Z",
   labels: "",
-  feature_branch: null, review_verdict: null, reviewed_commit: null, findings_url: null, run_stopped: false, risk: false, release_id: null,
+  feature_branch: null, review_verdict: null, reviewed_commit: null, findings_url: null, run_stopped: false, risk: false, release_id: null, epic_id: null,
   task_number: id,
 });
 

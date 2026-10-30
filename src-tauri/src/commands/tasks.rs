@@ -32,6 +32,8 @@ pub struct Task {
     pub run_stopped: bool,
     pub risk: bool,
     pub release_id: Option<i64>,
+    /// The Story's epic (migration 013, FB-224); set only on a Factory Story.
+    pub epic_id: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -69,6 +71,9 @@ pub struct TaskUpdate {
     #[serde(default, deserialize_with = "deserialize_optional_field")]
     pub due_date: Option<Option<String>>,
     pub labels: Option<String>,
+    /// The Story's epic: absent leaves it, `null` clears it (FB-224).
+    #[serde(default, deserialize_with = "deserialize_optional_field")]
+    pub epic_id: Option<Option<i64>>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -113,6 +118,7 @@ pub async fn create_task_inner(
         kind,
         payload.status.as_deref(),
         payload.sprint_id,
+        payload.story_points,
     )
     .await?
     {
@@ -258,6 +264,15 @@ pub async fn update_task_inner(
     let before = get_task_inner(pool, id).await?;
     factory::ops::app_check_points(pool, id, payload.story_points).await?;
     factory::ops::app_check_level(pool, id, payload.parent_id, payload.r#type.as_deref()).await?;
+    payload.epic_id =
+        factory::ops::app_check_epic(pool, id, payload.epic_id, payload.status.as_deref(), payload.sprint_id).await?;
+    if payload.epic_id.is_some() {
+        // An actual epic change passed the check, so any status or sprint in
+        // the payload echoes the row: drop them, so `app_move` commits nothing
+        // that the epic re-check below could then refuse (FB-224).
+        payload.status = None;
+        payload.sprint_id = None;
+    }
     if factory::ops::app_move(pool, id, payload.status.as_deref(), payload.sprint_id).await? {
         payload.status = None;
         payload.sprint_id = None;
@@ -281,6 +296,10 @@ pub async fn update_task_inner(
     let new_story_points = payload.story_points.unwrap_or(current.story_points);
     let new_due_date = payload.due_date.unwrap_or(current.due_date.clone());
     let new_labels = payload.labels.unwrap_or(current.labels.clone());
+    // Absent `epic_id` leaves the column out of the write (see the UPDATE), so a
+    // concurrent membership change since `current` was read is kept (FB-224).
+    let write_epic = payload.epic_id.is_some();
+    let new_epic_id = payload.epic_id.flatten();
 
     let status_changed = new_status != current.status;
 
@@ -293,7 +312,12 @@ pub async fn update_task_inner(
         None
     };
 
-    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    // IMMEDIATE takes the write lock up front, so no other writer can commit
+    // between the check below and the UPDATE. The earlier check read outside
+    // this transaction; judge the membership rule again on the rows as they are
+    // when `epic_id` is written (FB-224).
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.map_err(|e| e.to_string())?;
+    factory::ops::app_check_epic_in(&mut tx, id, payload.epic_id).await?;
 
     sqlx::query(
         r#"UPDATE tasks SET
@@ -308,6 +332,7 @@ pub async fn update_task_inner(
             story_points = ?,
             due_date     = ?,
             labels       = ?,
+            epic_id      = CASE WHEN ? THEN ? ELSE epic_id END,
             updated_at   = strftime('%Y-%m-%dT%H:%M:%fZ','now')
            WHERE id = ?"#,
     )
@@ -322,6 +347,8 @@ pub async fn update_task_inner(
     .bind(new_story_points)
     .bind(&new_due_date)
     .bind(&new_labels)
+    .bind(write_epic)
+    .bind(new_epic_id)
     .bind(id)
     .execute(&mut *tx)
     .await
@@ -461,6 +488,7 @@ mod tests {
             story_points: None,
             due_date: None,
             labels: None,
+            epic_id: None,
         }
     }
 
@@ -1419,5 +1447,450 @@ mod tests {
         let p = ts::project(&pool, "LG").await;
         let bug = ts::task(&pool, p, None, None, TaskType::Bug, TaskStatus::Todo).await;
         assert_eq!(retype(&pool, bug, "subtask").await.unwrap().r#type, "subtask");
+    }
+
+    // ─── Epics on a Factory project (FB-224) ───────────────────────────────
+
+    /// A Factory project SF with an active sprint, built from the shared fixtures.
+    async fn epic_factory() -> Factory {
+        use crate::test_support::{self as ts, SprintStatus};
+        let pool = ts::pool().await;
+        let project_id = ts::factory_project(&pool, "SF").await;
+        let sprint_id = ts::sprint(&pool, project_id, "S1", "2026-10-01", SprintStatus::Active).await;
+        Factory { pool, project_id, pedro: ts::OWNER, agent: ts::AGENT, sprint_id }
+    }
+
+    /// A top-level `epic` create payload.
+    fn new_epic(project_id: i64, sprint_id: Option<i64>, status: Option<&str>, story_points: Option<i64>) -> TaskCreate {
+        TaskCreate {
+            project_id,
+            sprint_id,
+            parent_id: None,
+            title: "an initiative".into(),
+            description: None,
+            r#type: Some("epic".into()),
+            status: status.map(Into::into),
+            priority: None,
+            assignee_id: None,
+            story_points,
+            due_date: None,
+            labels: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_factory_epic_is_created_open_with_no_sprint_or_points() {
+        let f = epic_factory().await;
+        let epic = create_task_inner(&f.pool, new_epic(f.project_id, None, None, None)).await.unwrap();
+        assert_eq!(
+            (epic.r#type.as_str(), epic.status.as_str(), epic.parent_id, epic.sprint_id, epic.story_points),
+            ("epic", "todo", None, None, 0)
+        );
+        let epic = create_task_inner(&f.pool, new_epic(f.project_id, None, Some("todo"), Some(0))).await.unwrap();
+        assert_eq!(epic.status, "todo");
+    }
+
+    #[tokio::test]
+    async fn a_factory_epic_is_refused_with_a_sprint_another_status_or_points() {
+        let f = epic_factory().await;
+        let count = |pool: SqlitePool| async move {
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tasks").fetch_one(&pool).await.unwrap()
+        };
+        let err = create_task_inner(&f.pool, new_epic(f.project_id, Some(f.sprint_id), None, None)).await.unwrap_err();
+        assert!(err.contains("epic takes no sprint"), "{err}");
+        for status in ["backlog", "done", "canceled", "building"] {
+            let err = create_task_inner(&f.pool, new_epic(f.project_id, None, Some(status), None)).await.unwrap_err();
+            assert!(err.contains(&format!("epic starts in todo, not {status}")), "{err}");
+        }
+        let err = create_task_inner(&f.pool, new_epic(f.project_id, None, None, Some(5))).await.unwrap_err();
+        assert!(err.contains("epic has no points"), "{err}");
+        assert_eq!(count(f.pool.clone()).await, 0, "nothing was created");
+    }
+
+    #[tokio::test]
+    async fn a_factory_epic_closes_or_cancels_from_todo_and_nothing_else() {
+        for to in ["done", "canceled"] {
+            let f = epic_factory().await;
+            let epic = create_in(&f, "epic", None, None).await.unwrap();
+            for refused in ["backlog", "refining", "ready", "building", "in_progress"] {
+                let err = set_status(&f, epic.id, refused).await.unwrap_err();
+                assert!(err.contains("SF-1") && err.contains(&format!("from todo to {refused}")), "todo -> {refused}: {err}");
+                assert_eq!(get_task_inner(&f.pool, epic.id).await.unwrap().status, "todo");
+            }
+            assert_eq!(set_status(&f, epic.id, to).await.unwrap().status, to);
+            for refused in ["todo", "done", "canceled", "backlog"] {
+                if refused == to {
+                    // Echoing the current status is not a move.
+                    assert_eq!(set_status(&f, epic.id, refused).await.unwrap().status, to);
+                    continue;
+                }
+                let err = set_status(&f, epic.id, refused).await.unwrap_err();
+                assert!(err.contains("SF-1") && err.contains(&format!("from {to} to {refused}")), "{to} -> {refused}: {err}");
+                assert_eq!(get_task_inner(&f.pool, epic.id).await.unwrap().status, to);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_factory_epic_takes_no_sprint_points_or_subtasks() {
+        let f = epic_factory().await;
+        let epic = create_in(&f, "epic", None, None).await.unwrap();
+
+        let err = update_task_inner(&f.pool, epic.id, TaskUpdate { sprint_id: Some(Some(f.sprint_id)), ..empty_update() })
+            .await
+            .unwrap_err();
+        assert!(err.contains("epics take no sprint"), "{err}");
+        assert_eq!(get_task_inner(&f.pool, epic.id).await.unwrap().sprint_id, None);
+
+        let err = set_points(&f, epic.id, 5).await.unwrap_err();
+        assert!(err.contains("is an epic; it has no points"), "{err}");
+        assert_eq!(get_task_inner(&f.pool, epic.id).await.unwrap().story_points, 0);
+        set_points(&f, epic.id, 0).await.expect("echoing the current points is not an edit");
+
+        for kind in ["subtask", "bug"] {
+            let err = create_in(&f, kind, Some(epic.id), None).await.unwrap_err();
+            assert!(err.contains("is an epic; it takes no Subtasks"), "{kind}: {err}");
+        }
+        let children: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE parent_id = ?")
+            .bind(epic.id)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
+        assert_eq!(children, 0);
+    }
+
+    #[tokio::test]
+    async fn a_factory_epic_keeps_its_type_and_takes_no_parent() {
+        let f = epic_factory().await;
+        let epic = create_in(&f, "epic", None, None).await.unwrap();
+        let story = create_in(&f, "story", None, None).await.unwrap();
+
+        for (id, t) in [(epic.id, "story"), (story.id, "epic")] {
+            let err = retype(&f.pool, id, t).await.unwrap_err();
+            assert!(err.contains("cannot become or stop being an epic"), "{err}");
+        }
+        let err = reparent(&f.pool, epic.id, Some(story.id)).await.unwrap_err();
+        assert!(err.contains("an epic takes no parent"), "{err}");
+        let row = get_task_inner(&f.pool, epic.id).await.unwrap();
+        assert_eq!((row.r#type.as_str(), row.parent_id), ("epic", None));
+        assert_eq!(get_task_inner(&f.pool, story.id).await.unwrap().r#type, "story");
+    }
+
+    #[tokio::test]
+    async fn a_legacy_epic_is_created_and_moved_freely() {
+        use crate::test_support::{self as ts, SprintStatus};
+        let pool = ts::pool().await;
+        let project_id = ts::project(&pool, "LG").await;
+        let sprint_id = ts::sprint(&pool, project_id, "S1", "2026-10-01", SprintStatus::Active).await;
+
+        let epic = create_task_inner(&pool, new_epic(project_id, Some(sprint_id), Some("in_progress"), Some(8))).await.unwrap();
+        assert_eq!((epic.status.as_str(), epic.sprint_id, epic.story_points), ("in_progress", Some(sprint_id), 8));
+        for status in ["done", "todo", "in_review"] {
+            let moved = update_task_inner(&pool, epic.id, TaskUpdate { status: Some(status.into()), ..empty_update() })
+                .await
+                .unwrap();
+            assert_eq!(moved.status, status);
+        }
+        let moved = update_task_inner(
+            &pool,
+            epic.id,
+            TaskUpdate { sprint_id: Some(None), story_points: Some(3), ..empty_update() },
+        )
+        .await
+        .unwrap();
+        assert_eq!((moved.sprint_id, moved.story_points), (None, 3));
+    }
+
+    // ─── A Story's epic (FB-224) ────────────────────────────────────────────
+
+    async fn set_epic(pool: &SqlitePool, id: i64, epic: Option<i64>) -> Result<super::Task, String> {
+        update_task_inner(pool, id, TaskUpdate { epic_id: Some(epic), ..empty_update() }).await
+    }
+
+    async fn link(pool: &SqlitePool, id: i64, epic: i64) {
+        sqlx::query("UPDATE tasks SET epic_id = ? WHERE id = ?").bind(epic).bind(id).execute(pool).await.unwrap();
+    }
+
+    #[test]
+    fn epic_id_deserializes_in_three_states() {
+        let u: TaskUpdate = serde_json::from_str("{}").unwrap();
+        assert_eq!(u.epic_id, None);
+        let u: TaskUpdate = serde_json::from_str(r#"{"epic_id": null}"#).unwrap();
+        assert_eq!(u.epic_id, Some(None));
+        let u: TaskUpdate = serde_json::from_str(r#"{"epic_id": 4}"#).unwrap();
+        assert_eq!(u.epic_id, Some(Some(4)));
+    }
+
+    #[tokio::test]
+    async fn a_story_and_a_bug_story_join_an_open_epic_and_leave_it_in_the_app() {
+        use crate::test_support::{self as ts, TaskStatus, TaskType};
+        let pool = ts::pool().await;
+        let p = ts::factory_project(&pool, "SF").await;
+        let epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Refining).await;
+        let bug_story = ts::task(&pool, p, None, None, TaskType::Bug, TaskStatus::Backlog).await;
+        for id in [story, bug_story] {
+            let before = get_task_inner(&pool, id).await.unwrap().updated_at;
+            let row = set_epic(&pool, id, Some(epic)).await.unwrap();
+            assert_eq!(row.epic_id, Some(epic));
+            assert_ne!(row.updated_at, before, "an epic change touches updated_at");
+            assert_eq!(set_epic(&pool, id, None).await.unwrap().epic_id, None);
+        }
+    }
+
+    #[tokio::test]
+    async fn an_absent_epic_id_keeps_the_link_and_null_clears_it() {
+        use crate::test_support::{self as ts, TaskStatus, TaskType};
+        let pool = ts::pool().await;
+        let p = ts::factory_project(&pool, "SF").await;
+        let epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Refining).await;
+        set_epic(&pool, story, Some(epic)).await.unwrap();
+
+        let payload: TaskUpdate = serde_json::from_str(r#"{"title": "renamed"}"#).unwrap();
+        let row = update_task_inner(&pool, story, payload).await.unwrap();
+        assert_eq!((row.title.as_str(), row.epic_id), ("renamed", Some(epic)), "absent keeps the epic");
+
+        let payload: TaskUpdate = serde_json::from_str(r#"{"epic_id": null}"#).unwrap();
+        assert_eq!(update_task_inner(&pool, story, payload).await.unwrap().epic_id, None, "null clears it");
+    }
+
+    #[tokio::test]
+    async fn the_app_refuses_an_epic_change_that_breaks_membership_and_changes_nothing() {
+        use crate::test_support::{self as ts, TaskStatus, TaskType};
+        let pool = ts::pool().await;
+        let p = ts::factory_project(&pool, "SF").await;
+        let other = ts::factory_project(&pool, "OT").await;
+        let lg = ts::project(&pool, "LG").await;
+        let open = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let done_epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Done).await;
+        let canceled_epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Canceled).await;
+        let foreign = ts::task(&pool, other, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Ready).await;
+        let not_epic = ts::task(&pool, p, None, None, TaskType::Bug, TaskStatus::Backlog).await;
+        let sub = ts::task(&pool, p, None, Some(story), TaskType::Subtask, TaskStatus::Todo).await;
+        let bug_sub = ts::task(&pool, p, None, Some(story), TaskType::Bug, TaskStatus::Todo).await;
+        let done_story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Done).await;
+        let canceled_story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Canceled).await;
+        let legacy_story = ts::task(&pool, lg, None, None, TaskType::Story, TaskStatus::Todo).await;
+        let legacy_epic = ts::task(&pool, lg, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        link(&pool, done_story, open).await;
+        link(&pool, canceled_story, open).await;
+
+        let cases = [
+            (story, Some(foreign), "belongs to another project"),
+            (story, Some(legacy_epic), "belongs to another project"),
+            (story, Some(done_epic), "a closed epic takes no new Stories"),
+            (story, Some(canceled_epic), "a closed epic takes no new Stories"),
+            (story, Some(not_epic), "is not an epic"),
+            (story, Some(9999), "task 9999 not found"),
+            (done_story, None, "is done; a done or canceled Story keeps its epic"),
+            (done_story, Some(foreign), "keeps its epic"),
+            (canceled_story, None, "is canceled; a done or canceled Story keeps its epic"),
+            (sub, Some(open), "is not a Story; only a Story joins an epic"),
+            (bug_sub, Some(open), "is not a Story; only a Story joins an epic"),
+            (open, Some(open), "is an epic; only a Story joins an epic"),
+            (done_epic, Some(open), "is an epic; only a Story joins an epic"),
+            (legacy_story, Some(legacy_epic), "legacy project"),
+        ];
+        for (id, epic, needle) in cases {
+            let before = get_task_inner(&pool, id).await.unwrap();
+            let err = set_epic(&pool, id, epic).await.unwrap_err();
+            assert!(err.contains(needle), "{needle}: {err}");
+            let after = get_task_inner(&pool, id).await.unwrap();
+            assert_eq!((after.epic_id, after.updated_at), (before.epic_id, before.updated_at), "{needle}: nothing changes");
+        }
+        // Echoing a done Story's epic, or a legacy task's NULL, is not a change.
+        assert_eq!(set_epic(&pool, done_story, Some(open)).await.unwrap().epic_id, Some(open));
+        assert_eq!(set_epic(&pool, legacy_story, None).await.unwrap().epic_id, None);
+    }
+
+    /// Run `payload` on `id` while another connection holds the write lock,
+    /// and have that connection run `sql` and commit once the edit has done its
+    /// early reads and is waiting to write: a concurrent MCP/CLI call landing
+    /// between the edit's read and its write.
+    async fn edit_under_concurrent_write(
+        pool: &SqlitePool,
+        id: i64,
+        payload: TaskUpdate,
+        sql: &str,
+    ) -> Result<super::Task, String> {
+        let mut other = pool.acquire().await.unwrap();
+        sqlx::query("BEGIN IMMEDIATE").execute(&mut *other).await.unwrap();
+        let edit = tokio::spawn({
+            let pool = pool.clone();
+            async move { update_task_inner(&pool, id, payload).await }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert!(!edit.is_finished(), "the edit waits for the other writer");
+        sqlx::query(sql).execute(&mut *other).await.unwrap();
+        sqlx::query("COMMIT").execute(&mut *other).await.unwrap();
+        edit.await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn an_epic_closed_after_the_early_check_still_refuses_the_edit() {
+        use crate::test_support::{self as ts, TaskStatus, TaskType};
+        let pool = ts::file_pool("epic-closed-after-check").await;
+        let p = ts::factory_project(&pool, "SF").await;
+        let epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+        let trail = count_activity(&pool, story).await;
+
+        // The epic is open at the early check and closed by another writer
+        // before the edit's write transaction starts.
+        let payload = TaskUpdate { epic_id: Some(Some(epic)), title: Some("renamed".into()), ..empty_update() };
+        let close = format!("UPDATE tasks SET status = 'done' WHERE id = {epic}");
+        let err = edit_under_concurrent_write(&pool, story, payload, &close).await.unwrap_err();
+        assert!(err.contains("a closed epic takes no new Stories"), "{err}");
+        let row = get_task_inner(&pool, story).await.unwrap();
+        assert_eq!(
+            (row.epic_id, row.title.as_str(), row.status.as_str()),
+            (None, "t", "backlog"),
+            "the refused edit wrote nothing"
+        );
+        assert_eq!(count_activity(&pool, story).await, trail, "no status trail");
+    }
+
+    #[tokio::test]
+    async fn an_edit_without_epic_id_keeps_a_membership_changed_since_its_read() {
+        use crate::test_support::{self as ts, TaskStatus, TaskType};
+        let pool = ts::file_pool("edit-keeps-new-epic").await;
+        let p = ts::factory_project(&pool, "SF").await;
+        let old_epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let new_epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+        link(&pool, story, old_epic).await;
+
+        // A picker or MCP edit moves the Story to another epic after the title
+        // edit has read the row.
+        let payload = TaskUpdate { title: Some("renamed".into()), ..empty_update() };
+        let move_epic = format!("UPDATE tasks SET epic_id = {new_epic} WHERE id = {story}");
+        let row = edit_under_concurrent_write(&pool, story, payload, &move_epic).await.unwrap();
+        assert_eq!((row.epic_id, row.title.as_str()), (Some(new_epic), "renamed"));
+    }
+
+    #[tokio::test]
+    async fn a_factory_edit_changing_epic_and_status_together_is_refused_before_any_change() {
+        use crate::test_support::{self as ts, TaskStatus, TaskType};
+        let pool = ts::pool().await;
+        let p = ts::factory_project(&pool, "SF").await;
+        let epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let sprint = ts::sprint(&pool, p, "S1", "2026-01-01", ts::SprintStatus::Active).await;
+        let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+        let trail = count_activity(&pool, story).await;
+
+        for payload in [
+            TaskUpdate { status: Some("canceled".into()), epic_id: Some(Some(epic)), ..empty_update() },
+            TaskUpdate { sprint_id: Some(Some(sprint)), epic_id: Some(Some(epic)), ..empty_update() },
+        ] {
+            let err = update_task_inner(&pool, story, payload).await.unwrap_err();
+            assert!(err.contains("change SF-") && err.contains("separately from its status and sprint"), "{err}");
+            let row = get_task_inner(&pool, story).await.unwrap();
+            assert_eq!((row.status.as_str(), row.epic_id, row.sprint_id), ("backlog", None, None));
+            assert_eq!(count_activity(&pool, story).await, trail, "no status trail");
+        }
+
+        // An echo of the current status is not a change: the epic edit goes through.
+        let payload = TaskUpdate { status: Some("backlog".into()), epic_id: Some(Some(epic)), ..empty_update() };
+        assert_eq!(update_task_inner(&pool, story, payload).await.unwrap().epic_id, Some(epic));
+
+        // Nor is an echo of the current epic: the status move goes through.
+        let payload = TaskUpdate { status: Some("refining".into()), epic_id: Some(Some(epic)), ..empty_update() };
+        let row = update_task_inner(&pool, story, payload).await.unwrap();
+        assert_eq!((row.status.as_str(), row.epic_id), ("refining", Some(epic)));
+    }
+
+    #[tokio::test]
+    async fn a_status_move_echoing_the_epic_keeps_a_membership_changed_after_the_guard() {
+        use crate::test_support::{self as ts, TaskStatus, TaskType};
+        let pool = ts::pool().await;
+        let p = ts::factory_project(&pool, "SF").await;
+        let epic_a = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let epic_b = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+        link(&pool, story, epic_a).await;
+        let trail = count_activity(&pool, story).await;
+
+        // Another writer moves the Story to epic B after the epic guard has read
+        // it in A: the trigger fires inside the cancel `app_move` commits, so the
+        // change lands between the guard and the edit's final write, with no
+        // timing involved.
+        sqlx::query(&format!(
+            "CREATE TRIGGER move_to_b AFTER UPDATE OF status ON tasks
+             WHEN NEW.id = {story} AND NEW.status = 'canceled'
+             BEGIN UPDATE tasks SET epic_id = {epic_b} WHERE id = {story}; END"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // `epic_id` echoes A as the guard read it: not an epic edit, so the
+        // cancel applies in full and the Story keeps the epic stored at write
+        // time, instead of committing the cancel and then being refused.
+        let payload = TaskUpdate { status: Some("canceled".into()), epic_id: Some(Some(epic_a)), ..empty_update() };
+        let row = update_task_inner(&pool, story, payload).await.unwrap();
+        assert_eq!((row.status.as_str(), row.epic_id), ("canceled", Some(epic_b)));
+        assert_eq!(count_activity(&pool, story).await, trail + 1, "one status trail entry for the cancel");
+    }
+
+    #[tokio::test]
+    async fn an_epic_change_echoing_the_status_is_refused_whole_when_the_story_is_canceled_after_the_guard() {
+        use crate::test_support::{self as ts, TaskStatus, TaskType};
+        let pool = ts::file_pool("epic-change-status-echo-canceled").await;
+        let p = ts::factory_project(&pool, "SF").await;
+        let epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+        let trail = count_activity(&pool, story).await;
+
+        // The guard reads the Story in backlog (the payload's status echoes it);
+        // another writer cancels it before the edit writes. The epic change is
+        // refused at the write, and the edit commits nothing of its own.
+        let payload = TaskUpdate { status: Some("backlog".into()), epic_id: Some(Some(epic)), ..empty_update() };
+        let cancel = format!("UPDATE tasks SET status = 'canceled' WHERE id = {story}");
+        let err = edit_under_concurrent_write(&pool, story, payload, &cancel).await.unwrap_err();
+        assert!(err.contains("keeps its epic"), "{err}");
+        let row = get_task_inner(&pool, story).await.unwrap();
+        assert_eq!((row.status.as_str(), row.epic_id), ("canceled", None), "the other writer's cancel stands, no epic");
+        assert_eq!(count_activity(&pool, story).await, trail, "the refused edit wrote no trail");
+    }
+
+    #[tokio::test]
+    async fn deleting_an_epic_leaves_its_stories_with_no_epic() {
+        use crate::test_support::{self as ts, TaskStatus, TaskType};
+        let pool = ts::pool().await;
+        let p = ts::factory_project(&pool, "SF").await;
+        let epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Refining).await;
+        set_epic(&pool, story, Some(epic)).await.unwrap();
+
+        // The app has no delete_task command any more (tasks are canceled), so
+        // the row is deleted directly, with foreign keys on as at runtime.
+        sqlx::query("DELETE FROM tasks WHERE id = ?").bind(epic).execute(&pool).await.unwrap();
+        let row = get_task_inner(&pool, story).await.unwrap();
+        assert_eq!((row.epic_id, row.status.as_str()), (None, "refining"));
+    }
+
+    #[tokio::test]
+    async fn a_factory_subtask_cannot_move_under_a_parent_that_is_not_a_story() {
+        use crate::test_support::{self as ts, TaskStatus, TaskType};
+        let pool = ts::pool().await;
+        let p = ts::factory_project(&pool, "SF").await;
+        let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+        let other_story = ts::task(&pool, p, None, None, TaskType::Bug, TaskStatus::Backlog).await;
+        let epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let sub = ts::task(&pool, p, None, Some(story), TaskType::Subtask, TaskStatus::Todo).await;
+        let bug_sub = ts::task(&pool, p, None, Some(story), TaskType::Bug, TaskStatus::Todo).await;
+
+        for (id, sibling) in [(sub, bug_sub), (bug_sub, sub)] {
+            for parent in [epic, sibling] {
+                let err = reparent(&pool, id, Some(parent)).await.unwrap_err();
+                assert!(err.contains("a Subtask goes under a Story") && err.contains("is not a Story"), "{err}");
+                assert_eq!(get_task_inner(&pool, id).await.unwrap().parent_id, Some(story));
+            }
+        }
+        for id in [sub, bug_sub] {
+            assert_eq!(reparent(&pool, id, Some(other_story)).await.unwrap().parent_id, Some(other_story));
+        }
     }
 }

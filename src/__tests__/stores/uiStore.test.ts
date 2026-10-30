@@ -11,6 +11,7 @@ beforeEach(() => {
     selectedSprintId: null,
     boardSprintFilter: "all",
     boardSprintFilterFor: null,
+    discoveryGrouping: "none",
   });
 });
 
@@ -141,5 +142,28 @@ describe("uiStore", () => {
     useUiStore.getState().setCreateTaskModalOpen(false);
     expect(useUiStore.getState().createTaskPrefill).toBeNull();
     expect(useUiStore.getState().createTaskModalOpen).toBe(false);
+  });
+});
+
+describe("uiStore discoveryGrouping (FB-224)", () => {
+  it("defaults to no grouping", () => {
+    expect(useUiStore.getInitialState().discoveryGrouping).toBe("none");
+  });
+
+  it("toggles between none and epic", () => {
+    useUiStore.getState().toggleDiscoveryGrouping();
+    expect(useUiStore.getState().discoveryGrouping).toBe("epic");
+    useUiStore.getState().toggleDiscoveryGrouping();
+    expect(useUiStore.getState().discoveryGrouping).toBe("none");
+  });
+
+  it("setDiscoveryGrouping sets the mode", () => {
+    useUiStore.getState().setDiscoveryGrouping("epic");
+    expect(useUiStore.getState().discoveryGrouping).toBe("epic");
+  });
+
+  it("is session-only: the store has no persist middleware", () => {
+    // zustand's persist middleware adds a `persist` API to the store hook.
+    expect("persist" in useUiStore).toBe(false);
   });
 });

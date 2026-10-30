@@ -53,7 +53,7 @@ const STORY_STATUS_COLOR: Record<TaskStatus, string> = {
   user_testing: "text-yellow-400",
 };
 
-function ProgressBar({ done, total }: { done: number; total: number }) {
+export function ProgressBar({ done, total }: { done: number; total: number }) {
   const pct = total === 0 ? 0 : Math.round((done / total) * 100);
   return (
     <div className="flex items-center gap-2">

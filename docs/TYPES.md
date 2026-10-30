@@ -20,7 +20,7 @@ export interface Person   { id: number; name: string; email: string; avatar_colo
 export interface Sprint   { id: number; project_id: number; name: string; goal: string; start_date: string; end_date: string; status: SprintStatus; }
 // complete_sprint target (FB-97); exactly one of:
 export type CompleteSprintTarget = { kind: 'sprint'; sprintId: number } | { kind: 'backlog' } | { kind: 'new'; name: string; startDate: string; endDate: string };
-export interface Task     { id: number; project_id: number; sprint_id: number | null; parent_id: number | null; title: string; description: string; type: TaskType; status: TaskStatus; priority: TaskPriority; assignee_id: number | null; story_points: number; due_date: string | null; created_at: string; updated_at: string; labels: string; }
+export interface Task     { id: number; project_id: number; sprint_id: number | null; parent_id: number | null; title: string; description: string; type: TaskType; status: TaskStatus; priority: TaskPriority; assignee_id: number | null; story_points: number; due_date: string | null; created_at: string; updated_at: string; labels: string; epic_id: number | null; }
 export interface Comment  { id: number; task_id: number; author_id: number; body: string; created_at: string; updated_at: string | null; }
 export interface TimeLog  { id: number; task_id: number; person_id: number; minutes: number; logged_at: string; note: string; }
 export interface Attachment { id: number; task_id: number; filename: string; filepath: string; size: number; uploaded_at: string; }

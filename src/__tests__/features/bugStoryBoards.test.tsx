@@ -27,7 +27,7 @@ function task(over: Partial<Task>): Task {
     title: "", description: "", type: "bug", status: "backlog", priority: "medium",
     assignee_id: null, story_points: 0, due_date: null, created_at: "", updated_at: "",
     labels: "", feature_branch: null, review_verdict: null, reviewed_commit: null,
-    findings_url: null, run_stopped: false, risk: false, release_id: null,
+    findings_url: null, run_stopped: false, risk: false, release_id: null, epic_id: null,
     ...over,
   };
 }
@@ -167,7 +167,7 @@ describe("StoryPage with a bug Story", () => {
       key: "FB-9", title: "Crash on save", type: "bug", status: "building", priority: "medium", labels: "",
       assignee: "Pedro", sprint_id: 7, feature_branch: null,
       review: { verdict: null, commit: null, findings_url: null },
-      release: null, flags: { stopped: false, waiting_on_bugs: 0 },
+      release: null, epic: null, flags: { stopped: false, waiting_on_bugs: 0 },
       prs: [], depends_on: [], subtasks: [], description: "",
     };
     setup("factory", [task({ id: 3, task_number: 9, title: "Crash on save", status: "building", sprint_id: 7 })], view);

@@ -14,6 +14,12 @@ export function storyPagePath(project: Project | undefined, task: Task): string 
   return `/story/${project.key}-${task.task_number}`;
 }
 
+/** The epic page path of a Factory epic (FB-224), or null when it opens in the slide-over. */
+export function epicPagePath(project: Project | undefined, task: Task): string | null {
+  if (project?.ladder !== "factory" || task.type !== "epic") return null;
+  return `/epic/${project.key}-${task.task_number}`;
+}
+
 /** Open bug Subtasks of a Story: the "waiting on N bugs" flag. */
 export function openBugCount(story: Task, allTasks: Task[]): number {
   return allTasks.filter(
@@ -29,7 +35,7 @@ export function useStoryCardDecor(
   const navigate = useNavigate();
   if (project?.ladder !== "factory") return undefined;
   return (task) => {
-    const path = storyPagePath(project, task);
+    const path = storyPagePath(project, task) ?? epicPagePath(project, task);
     if (!path) return {};
     const bugs = openBugCount(task, allTasks ?? []);
     return {

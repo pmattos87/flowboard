@@ -29,6 +29,7 @@ Important Rules
   - `tasks.sprint_id`   → ON DELETE SET NULL (task survives sprint deletion)
   - `tasks.parent_id`   → ON DELETE SET NULL (sub-tasks survive parent deletion)
   - `tasks.assignee_id` → ON DELETE SET NULL (task survives assignee deletion)
+  - `tasks.epic_id`     → ON DELETE SET NULL (a Story survives its epic's deletion; migration 013)
 - All other foreign keys are NOT NULL with ON DELETE CASCADE:
   - `sprints.project_id`, `tasks.project_id`, `comments.task_id`, `comments.author_id`,
     `time_logs.task_id`, `time_logs.person_id`, `attachments.task_id`,
@@ -76,6 +77,7 @@ tasks         + status values 'backlog','ready','building','integrated_tests','t
               + feature_branch, review_verdict ('passed'|'failed'|NULL), reviewed_commit,
                 findings_url, run_stopped (0/1), risk (0/1),
                 release_id → releases(id) ON DELETE SET NULL
+tasks         + epic_id → tasks(id) ON DELETE SET NULL   -- migration 013_epic_link.sql (FB-224)
 releases         (id, project_id, version, state, created_at, released_at)
                  -- state: 'planned' | 'user_testing' | 'released' | 'canceled'; UNIQUE(project_id, version)
 project_contacts (project_id, person_id, is_primary)   -- client contacts; one primary per project
@@ -98,6 +100,17 @@ task_prs         (id, task_id, url, target, state, created_at, updated_at)
   level; `story` <-> `bug` on a top-level row is allowed. On a legacy project a top-level `bug`
   is not a Story: it keeps dev statuses and is unparented. The predicate is `is_story_level` /
   `story_level_sql` in `factory/ops.rs`. "Waiting on bugs" counts only `bug` children.
+- Epics (FB-224): a top-level `epic` on a Factory project groups Stories by goal and is never
+  built. Its lifecycle is `todo` (open) → `done` or `canceled`, never reopened; it takes no
+  sprint, no points and no Subtasks. A Story (feature or bug Story) is linked to its epic with
+  `tasks.epic_id`, never `parent_id` (a Story with a parent stops being a Story). The link is
+  set with `update_task` (`epic_id`; `null` clears it, absent leaves it) or `story_edit`
+  (`epic`), and only on a Factory Story that is not `done`/`canceled` (their epic is frozen),
+  into an open (`todo`) epic of the same project; taking a Story out is otherwise always
+  allowed. Legacy projects never set it. Migration `013_epic_link.sql` adds the column with
+  `ALTER TABLE ADD COLUMN` (no rebuild); existing rows read NULL. A Factory Subtask's parent
+  must be a Story, and switching a project to the Factory ladder counts an epic at `todo`
+  (or closed) as mapped.
 - A Factory Story's `story_points` is the sum of its non-bug, non-canceled Subtasks' points,
   kept by every write path (CLI, MCP and app); the app refuses a direct edit. `refining → ready`
   is refused while it is 0. Migration `012_story_points_backfill.sql` filled it in once for

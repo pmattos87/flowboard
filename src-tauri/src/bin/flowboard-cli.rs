@@ -6,7 +6,7 @@
 //! `{"error": "..."}` on stderr and exits with code 1.
 
 use clap::{Parser, Subcommand, ValueEnum};
-use flowboard_lib::factory::ops::{self, Actor, NewStory, NewSubtask, StoryEdit};
+use flowboard_lib::factory::ops::{self, Actor, NewEpic, NewStory, NewSubtask, StoryEdit};
 use flowboard_lib::factory::mcp;
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
@@ -54,6 +54,9 @@ enum Cmd {
     /// Factory Stories
     #[command(subcommand)]
     Story(StoryCmd),
+    /// Epics: goals that group several Stories (never built)
+    #[command(subcommand)]
+    Epic(EpicCmd),
     /// Record a Review round on a building Story
     Review {
         key: String,
@@ -142,6 +145,9 @@ enum StoryCmd {
         priority: Option<String>,
         #[arg(long)]
         labels: Option<String>,
+        /// Put the Story in this epic (a key), or take it out with `none`
+        #[arg(long)]
+        epic: Option<String>,
     },
     Move { key: String, to: String },
     /// Put into a sprint, carry to another, or take out with `none`
@@ -162,6 +168,23 @@ enum StoryCmd {
         #[arg(long)]
         remove: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum EpicCmd {
+    /// Create an open epic (todo, no sprint, no points)
+    Create {
+        project: String,
+        title: String,
+        #[arg(long, default_value = "")]
+        description: String,
+        #[arg(long, default_value = "medium")]
+        priority: String,
+        #[arg(long, default_value = "")]
+        labels: String,
+    },
+    /// Close (done) or cancel (canceled) an open epic
+    Move { key: String, to: String },
 }
 
 #[derive(Subcommand)]
@@ -284,12 +307,13 @@ async fn run(cli: Cli, pool: SqlitePool) -> Result<Value, String> {
             }
             StoryCmd::Show { key } => ops::story_show(p, &key).await,
             StoryCmd::Trail { key } => ops::trail(p, &key).await,
-            StoryCmd::Edit { key, title, description, priority, labels } => {
+            StoryCmd::Edit { key, title, description, priority, labels, epic } => {
                 let e = StoryEdit {
                     title: title.as_deref(),
                     description: description.as_deref(),
                     priority: priority.as_deref(),
                     labels: labels.as_deref(),
+                    epic: epic_arg(epic.as_deref()),
                 };
                 ops::story_edit(p, &key, e).await
             }
@@ -318,6 +342,17 @@ async fn run(cli: Cli, pool: SqlitePool) -> Result<Value, String> {
                 }
             }
         },
+        Cmd::Epic(EpicCmd::Create { project, title, description, priority, labels }) => {
+            let e = NewEpic {
+                project: &project,
+                title: &title,
+                description: &description,
+                priority: &priority,
+                labels: &labels,
+            };
+            ops::epic_create(p, e, actor).await
+        }
+        Cmd::Epic(EpicCmd::Move { key, to }) => ops::epic_move(p, &key, &to, actor).await,
         Cmd::Review { key, verdict, commit, findings } => {
             ops::review_record(p, &key, &verdict, &commit, findings.as_deref(), actor).await
         }
@@ -364,6 +399,11 @@ async fn run(cli: Cli, pool: SqlitePool) -> Result<Value, String> {
     }
 }
 
+/// `story edit --epic`: a key puts the Story in that epic, `none` takes it out.
+fn epic_arg(epic: Option<&str>) -> Option<Option<&str>> {
+    epic.map(|k| Some(k).filter(|k| *k != "none"))
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -388,13 +428,37 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::{Cli, Cmd, StoryCmd};
-    use clap::Parser;
+    use clap::{CommandFactory, Parser};
+
+    #[test]
+    fn epic_help_lists_create_and_move() {
+        let help = Cli::command().find_subcommand_mut("epic").expect("an epic subcommand").render_help().to_string();
+        for sub in ["create", "move"] {
+            assert!(help.lines().any(|l| l.trim_start().starts_with(sub)), "`epic --help` lacks {sub}:
+{help}");
+        }
+    }
 
     fn story_create_bug(args: &[&str]) -> bool {
         match Cli::try_parse_from(args).unwrap().cmd {
             Cmd::Story(StoryCmd::Create { bug, .. }) => bug,
             _ => panic!("not story create"),
         }
+    }
+
+    /// `story edit`'s epic as `ops::StoryEdit` takes it.
+    fn story_edit_epic(args: &[&str]) -> Option<Option<String>> {
+        match Cli::try_parse_from(args).unwrap().cmd {
+            Cmd::Story(StoryCmd::Edit { epic, .. }) => super::epic_arg(epic.as_deref()).map(|e| e.map(String::from)),
+            _ => panic!("not story edit"),
+        }
+    }
+
+    #[test]
+    fn story_edit_parses_the_epic_flag() {
+        assert_eq!(story_edit_epic(&["flowboard-cli", "story", "edit", "SF-2"]), None);
+        assert_eq!(story_edit_epic(&["flowboard-cli", "story", "edit", "SF-2", "--epic", "none"]), Some(None));
+        assert_eq!(story_edit_epic(&["flowboard-cli", "story", "edit", "SF-2", "--epic", "SF-1"]), Some(Some("SF-1".into())));
     }
 
     #[test]
