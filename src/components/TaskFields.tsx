@@ -7,6 +7,7 @@ import { usePeople } from "@/hooks/usePeople";
 import { useSprints } from "@/hooks/useSprints";
 import { useProject } from "@/hooks/useProjects";
 import { statusOptionsForType } from "@/features/boards/shared/boardConstants";
+import { isStoryLevel } from "@/lib/storyLevel";
 import {
   computeSprintDropPayload,
   isSprintScheduleBlocked,
@@ -126,10 +127,12 @@ export function TaskFields({ task, state }: { task: Task; state: TaskDraftState 
 
   const peopleSafe = people ?? [];
   const sprintsSafe = sprints ?? [];
-  const storyOptions = (projectTasks ?? []).filter((t) => t.type === "story");
-  const showParent = task.type === "subtask" || task.type === "bug";
+  const ladder = project?.ladder;
+  const storyOptions = (projectTasks ?? []).filter((t) => isStoryLevel(t, ladder));
+  // A Factory top-level bug is a Story (FB-52), so it has no parent to pick.
+  const showParent = (task.type === "subtask" || task.type === "bug") && !isStoryLevel(task, ladder);
   // A Factory Story's points are the sum of its Subtasks' (SF-68).
-  const derivedPoints = project?.ladder === "factory" && task.type === "story";
+  const derivedPoints = ladder === "factory" && isStoryLevel(task, ladder);
 
   // Reparenting to a story inherits the story's sprint so the child stays in the
   // same sprint as its parent (matches the Task Board DnD reparent behavior).

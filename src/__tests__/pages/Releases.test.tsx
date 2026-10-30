@@ -151,6 +151,27 @@ describe("ReleasesPage", () => {
     expect(buildingPill.className).toContain("amber");
   });
 
+  // FB-52: a top-level bug on a Factory project is a Story (a fix).
+  it("offers a tested bug Story as a candidate and marks fixes with the Bug icon", async () => {
+    const bugStory = { ...story(95, "Crash on save", "tested", "fix/FB-95-crash", null), type: "bug" };
+    const bugSubtask = { ...story(96, "Found in testing", "tested", null, null), type: "bug", parent_id: 100 };
+    mockFactory({ list_tasks: [...tasks, bugStory, bugSubtask] });
+    renderPage();
+
+    const fix = (await screen.findByText("Crash on save")).closest("li") as HTMLElement;
+    expect(within(fix).getByRole("button", { name: "Pick Crash on save into 1.6.0" })).toBeInTheDocument();
+    expect(within(fix).getByRole("img", { name: "Bug" })).toHaveClass("lucide-bug", "text-red-400");
+    expect(screen.queryByText("Found in testing")).not.toBeInTheDocument();
+
+    const feature = screen.getByText("Markdown descriptions").closest("li") as HTMLElement;
+    expect(within(feature).getByRole("img", { name: "Story" })).toHaveClass("lucide-book-open", "text-emerald-400");
+
+    const pickedFix = (await screen.findByText("Half way")).closest("li") as HTMLElement;
+    expect(within(pickedFix).getByRole("img", { name: "Bug" })).toHaveClass("lucide-bug", "text-red-400");
+    const pickedFeature = screen.getByText("Already picked").closest("li") as HTMLElement;
+    expect(within(pickedFeature).getByRole("img", { name: "Story" })).toHaveClass("lucide-book-open", "text-emerald-400");
+  });
+
   it("picks a candidate and removes a pick by their accessible names", async () => {
     const user = userEvent.setup();
     mockFactory();

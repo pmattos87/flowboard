@@ -136,3 +136,47 @@ describe("TaskFields points", () => {
     expect(screen.getByLabelText("Points")).not.toHaveAttribute("readonly");
   });
 });
+
+// FB-52: on a Factory project a top-level bug is a Story (a fix).
+describe("TaskFields bug Stories", () => {
+  function renderWithTasks(task: Task, ladder: "legacy" | "factory", projectTasks: Task[]) {
+    vi.mocked(invoke).mockImplementation((cmd) => {
+      if (cmd === "get_project") return Promise.resolve({ id: 1, ladder });
+      if (cmd === "list_tasks") return Promise.resolve(projectTasks);
+      return Promise.resolve([]);
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <PointsField task={task} />
+      </QueryClientProvider>,
+    );
+  }
+
+  const bugStory: Task = { ...baseTask, id: 20, task_number: 20, type: "bug", parent_id: null, title: "Crash fix", status: "backlog" };
+  const feature: Task = { ...baseTask, id: 21, task_number: 21, title: "Feature story" };
+  const bugSubtask: Task = { ...baseTask, id: 22, task_number: 22, type: "bug", parent_id: 21, title: "Found in testing" };
+  const subtask: Task = { ...baseTask, id: 23, task_number: 23, type: "subtask", parent_id: 21, title: "A subtask" };
+
+  it("hides the Parent select and makes points read-only on a Factory top-level bug", async () => {
+    renderWithTasks(bugStory, "factory", [bugStory, feature]);
+    await waitFor(() => expect(screen.getByLabelText("Points")).toHaveAttribute("readonly"));
+    expect(screen.queryByLabelText("Parent story")).not.toBeInTheDocument();
+  });
+
+  it("lists bug Stories as well as Stories in a Factory Subtask's Parent select", async () => {
+    renderWithTasks(subtask, "factory", [bugStory, feature, bugSubtask, subtask]);
+    const select = screen.getByLabelText("Parent story") as HTMLSelectElement;
+    await waitFor(() => expect(Array.from(select.options).map((o) => o.textContent)).toContain("Crash fix"));
+    const names = Array.from(select.options).map((o) => o.textContent);
+    expect(names).toEqual(["No parent", "Crash fix", "Feature story"]);
+  });
+
+  it("keeps the Parent select and editable points on a legacy top-level bug", async () => {
+    renderWithTasks(bugStory, "legacy", [bugStory, feature]);
+    const select = screen.getByLabelText("Parent story") as HTMLSelectElement;
+    await waitFor(() => expect(Array.from(select.options).map((o) => o.textContent)).toContain("Feature story"));
+    expect(Array.from(select.options).map((o) => o.textContent)).not.toContain("Crash fix");
+    expect(screen.getByLabelText("Points")).not.toHaveAttribute("readonly");
+  });
+});
