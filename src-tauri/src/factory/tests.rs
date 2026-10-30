@@ -53,7 +53,7 @@ async fn setup(kind: &str) -> Fx {
 async fn story(fx: &Fx, title: &str) -> String {
     let s = ops::story_create(
         &fx.pool,
-        NewStory { project: "SF", title, description: "", priority: "medium", labels: "" },
+        NewStory { project: "SF", title, description: "", priority: "medium", labels: "", bug: false },
         Actor::Owner,
     )
     .await
@@ -362,7 +362,7 @@ async fn legacy_projects_are_refused() {
     let fx = setup("internal").await;
     let err = ops::story_create(
         &fx.pool,
-        NewStory { project: "LG", title: "x", description: "", priority: "medium", labels: "" },
+        NewStory { project: "LG", title: "x", description: "", priority: "medium", labels: "", bug: false },
         Actor::Owner,
     )
     .await
@@ -631,7 +631,7 @@ async fn missing_factory_roles_give_an_actionable_error() {
     ops::people_set_role(&fx.pool, fx.pedro, None).await.unwrap();
     let err = ops::story_create(
         &fx.pool,
-        NewStory { project: "SF", title: "x", description: "", priority: "medium", labels: "" },
+        NewStory { project: "SF", title: "x", description: "", priority: "medium", labels: "", bug: false },
         Actor::Owner,
     )
     .await
@@ -882,5 +882,60 @@ async fn a_legacy_top_level_bug_keeps_its_editable_points_and_app_path() {
     let bug = ts::task(&pool, p, None, None, TaskType::Bug, TaskStatus::Todo).await;
     ops::app_check_points(&pool, bug, Some(8)).await.expect("a legacy bug's points are its own");
     assert!(!ops::app_move(&pool, bug, Some("in_progress"), None).await.unwrap(), "legacy rows skip the Factory ladder");
-    ops::app_check_parent(&pool, bug, Some(Some(bug + 1))).await.expect("legacy parents are free");
+    ops::app_check_level(&pool, bug, Some(Some(bug + 1)), None).await.expect("legacy parents are free");
+    ops::app_check_level(&pool, bug, None, Some("subtask")).await.expect("legacy types are free");
+}
+
+async fn bug_story(fx: &Fx, title: &str) -> Value {
+    ops::story_create(
+        &fx.pool,
+        NewStory { project: "SF", title, description: "", priority: "medium", labels: "", bug: true },
+        Actor::Owner,
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn story_create_files_a_bug_story_with_the_bug_flag() {
+    let fx = setup("internal").await;
+    let created = bug_story(&fx, "a fix").await;
+    assert_eq!((&created["type"], &created["status"], &created["assignee"]), (&"bug".into(), &"backlog".into(), &"Pedro".into()));
+    let key = created["key"].as_str().unwrap();
+    let n: i64 = key.rsplit_once('-').unwrap().1.parse().unwrap();
+    let stored: (String, Option<i64>, String, Option<i64>) = sqlx::query_as(
+        "SELECT type, parent_id, status, assignee_id FROM tasks WHERE task_number = ? AND project_id = (SELECT id FROM projects WHERE key = 'SF')",
+    )
+    .bind(n)
+    .fetch_one(&fx.pool)
+    .await
+    .unwrap();
+    assert_eq!(stored, ("bug".into(), None, "backlog".into(), Some(fx.pedro)));
+
+    let feature = story(&fx, "a feature").await;
+    assert_eq!(ops::story_show(&fx.pool, &feature).await.unwrap()["type"], "story", "without the flag it is a Story");
+}
+
+#[tokio::test]
+async fn release_show_gives_each_picked_storys_type() {
+    let fx = setup("internal").await;
+    let feature = tested(&fx, "feature").await;
+    let fix = bug_story(&fx, "fix").await["key"].as_str().unwrap().to_string();
+    ready_in_sprint(&fx, &fix).await;
+    for to in ["building", "integrated_tests", "tested"] {
+        mv(&fx, &fix, to).await.unwrap();
+    }
+    ops::release_create(&fx.pool, "SF", "1.6.0").await.unwrap();
+    for k in [&feature, &fix] {
+        ops::release_pick(&fx.pool, "1.6.0", k, Actor::Owner).await.unwrap();
+    }
+
+    let shown = ops::release_show(&fx.pool, "SF", "1.6.0").await.unwrap();
+    let types: Vec<(&str, &str)> = shown["stories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| (s["key"].as_str().unwrap(), s["type"].as_str().unwrap()))
+        .collect();
+    assert_eq!(types, vec![(feature.as_str(), "story"), (fix.as_str(), "bug")]);
 }

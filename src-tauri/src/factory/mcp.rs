@@ -41,6 +41,9 @@ pub struct StoryCreate {
     /// Comma-separated labels
     #[serde(default)]
     pub labels: String,
+    /// true files a bug Story (a fix found in production)
+    #[serde(default)]
+    pub bug: bool,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -207,7 +210,7 @@ impl FlowboardMcp {
         out(ops::trail(&self.pool, &p.key).await)
     }
 
-    #[tool(description = "Create a Story in backlog on a Factory project")]
+    #[tool(description = "Create a Story (or a bug Story) in backlog on a Factory project")]
     async fn story_create(&self, Parameters(p): Parameters<StoryCreate>) -> Result<String, String> {
         let s = NewStory {
             project: &p.project,
@@ -215,6 +218,7 @@ impl FlowboardMcp {
             description: &p.description,
             priority: p.priority.as_deref().unwrap_or("medium"),
             labels: &p.labels,
+            bug: p.bug,
         };
         out(ops::story_create(&self.pool, s, AGENT).await)
     }
@@ -378,4 +382,23 @@ pub async fn serve(pool: SqlitePool) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     service.waiting().await.map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StoryCreate;
+
+    #[test]
+    fn story_create_takes_an_optional_bug_flag() {
+        let schema = schemars::schema_for!(StoryCreate);
+        let schema = schema.as_value();
+        assert_eq!(schema["properties"]["bug"]["type"], "boolean", "{schema}");
+        let required = schema["required"].as_array().unwrap();
+        assert!(!required.iter().any(|r| r == "bug"), "bug is optional: {schema}");
+
+        let p: StoryCreate = serde_json::from_str(r#"{"project":"SF","title":"t"}"#).unwrap();
+        assert!(!p.bug);
+        let p: StoryCreate = serde_json::from_str(r#"{"project":"SF","title":"t","bug":true}"#).unwrap();
+        assert!(p.bug);
+    }
 }

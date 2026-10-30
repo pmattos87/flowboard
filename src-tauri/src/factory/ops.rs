@@ -120,7 +120,7 @@ fn is_story_level(kind: &str, parent_id: Option<i64>) -> bool {
 }
 
 /// [`is_story_level`] as a SQL condition on the `tasks` row aliased `t`.
-fn story_level_sql(t: &str) -> String {
+pub(crate) fn story_level_sql(t: &str) -> String {
     format!("({t}.parent_id IS NULL AND {t}.type IN ('story','bug'))")
 }
 
@@ -304,6 +304,7 @@ async fn story_json(tx: &mut Tx<'_>, story: &Row) -> Result<Value, String> {
     Ok(json!({
         "key": story.key(),
         "title": story.title,
+        "type": story.kind,
         "status": story.status,
         "priority": story.priority,
         "labels": story.labels,
@@ -608,6 +609,8 @@ pub struct NewStory<'a> {
     pub description: &'a str,
     pub priority: &'a str,
     pub labels: &'a str,
+    /// true files a bug Story (a fix) instead of a feature Story (FB-52).
+    pub bug: bool,
 }
 
 pub async fn story_create(pool: &SqlitePool, s: NewStory<'_>, actor: Actor) -> Result<Value, String> {
@@ -617,7 +620,8 @@ pub async fn story_create(pool: &SqlitePool, s: NewStory<'_>, actor: Actor) -> R
         return Err(format!("{} is a legacy project; the Factory does not write to it", s.project));
     }
     let owner = role_person(&mut tx, "owner").await?;
-    let id = insert_task(&mut tx, pid, None, None, "story", "backlog", s.title, s.description, s.priority, Some(owner), 0, false, s.labels).await?;
+    let kind = if s.bug { "bug" } else { "story" };
+    let id = insert_task(&mut tx, pid, None, None, kind, "backlog", s.title, s.description, s.priority, Some(owner), 0, false, s.labels).await?;
     log(&mut tx, id, actor, "created", "", "backlog").await?;
     let story = load_by_id(&mut tx, id).await?;
     let out = story_json(&mut tx, &story).await?;
@@ -1206,19 +1210,40 @@ pub async fn app_check_points(pool: &SqlitePool, id: i64, points: Option<i64>) -
     Ok(())
 }
 
-/// Refuse the app's parent edit on a Factory project when it would move the
-/// task between Story level and Subtask level (a bug Story given a parent, a
-/// bug Subtask losing its): the two climb different ladders. `parent_id` is the
-/// payload's three-state field; absent changes nothing.
-pub async fn app_check_parent(pool: &SqlitePool, id: i64, parent_id: Option<Option<i64>>) -> Result<(), String> {
-    let Some(new_parent) = parent_id else { return Ok(()) };
+/// Refuse the app's parent or type edit on a Factory project when it would take
+/// a Story or a Subtask off its level (a bug Story given a parent or set to
+/// `subtask`, a bug Subtask losing its parent or set to `story`): the two climb
+/// different ladders, and a `story` with a parent climbs neither. A top-level
+/// `story` <-> `bug` change stays a Story, a `subtask` <-> `bug` change under a
+/// parent stays a Subtask. `parent_id` is the payload's three-state field and
+/// `kind` its type; absent changes nothing.
+pub async fn app_check_level(
+    pool: &SqlitePool,
+    id: i64,
+    parent_id: Option<Option<i64>>,
+    kind: Option<&str>,
+) -> Result<(), String> {
+    if parent_id.is_none() && kind.is_none() {
+        return Ok(());
+    }
     let mut tx = pool.begin().await.map_err(err)?;
     let row = load_by_id(&mut tx, id).await?;
     tx.rollback().await.map_err(err)?;
-    if row.ladder != "factory" || new_parent == row.parent_id {
+    if row.ladder != "factory" {
         return Ok(());
     }
-    if is_story_level(&row.kind, row.parent_id) != is_story_level(&row.kind, new_parent) {
+    // Story level, Subtask level, or neither (`None`).
+    let level = |kind: &str, parent: Option<i64>| {
+        if is_story_level(kind, parent) {
+            Some("story")
+        } else if parent.is_some() && matches!(kind, "subtask" | "bug") {
+            Some("subtask")
+        } else {
+            None
+        }
+    };
+    let old = level(&row.kind, row.parent_id);
+    if old.is_some() && old != level(kind.unwrap_or(&row.kind), parent_id.unwrap_or(row.parent_id)) {
         return Err(format!(
             "on a Factory project, {} cannot move between Story level and Subtask level; create a new item instead",
             row.key()
@@ -1331,8 +1356,9 @@ fn version_taken(project: &str, version: &str, e: sqlx::Error) -> String {
 pub async fn release_show(pool: &SqlitePool, project: &str, version: &str) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let (id, _, state, _) = release_row(&mut tx, project, version).await?;
-    let stories: Vec<(String, String, String)> = sqlx::query_as(
-        r#"SELECT p.key || '-' || t.task_number, t.title, t.status FROM tasks t
+    // `type` tells a feature Story from a bug Story (a fix), FB-52.
+    let stories: Vec<(String, String, String, String)> = sqlx::query_as(
+        r#"SELECT p.key || '-' || t.task_number, t.title, t.status, t.type FROM tasks t
              JOIN projects p ON p.id = t.project_id WHERE t.release_id = ? ORDER BY t.task_number"#,
     )
     .bind(id)
@@ -1343,7 +1369,9 @@ pub async fn release_show(pool: &SqlitePool, project: &str, version: &str) -> Re
         "project": project.to_uppercase(),
         "version": version,
         "state": state,
-        "stories": stories.into_iter().map(|(k, t, s)| json!({ "key": k, "title": t, "status": s })).collect::<Vec<_>>(),
+        "stories": stories
+            .into_iter()
+            .map(|(k, t, s, kind)| json!({ "key": k, "title": t, "status": s, "type": kind })).collect::<Vec<_>>(),
     }))
 }
 

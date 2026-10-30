@@ -264,9 +264,11 @@ pub async fn complete_sprint_inner(
     }
 
     if ladder == "factory" {
+        // Story level: a feature Story or a bug Story (FB-52).
         let stories: Vec<i64> = sqlx::query_scalar(&format!(
-            r#"SELECT id FROM tasks WHERE sprint_id = ? AND type = 'story' AND parent_id IS NULL
-                 AND {UNFINISHED} ORDER BY task_number"#
+            r#"SELECT id FROM tasks WHERE sprint_id = ? AND {}
+                 AND {UNFINISHED} ORDER BY task_number"#,
+            factory::ops::story_level_sql("tasks")
         ))
         .bind(sprint_id)
         .fetch_all(&mut *tx)
@@ -467,11 +469,22 @@ mod tests {
 
     #[tokio::test]
     async fn a_tested_factory_story_and_its_subtasks_carry_over_at_tested() {
+        carry_over_a_tested_factory_story(false).await;
+    }
+
+    #[tokio::test]
+    async fn a_tested_factory_bug_story_and_its_subtasks_carry_over_like_a_story() {
+        carry_over_a_tested_factory_story(true).await;
+    }
+
+    /// A tested Story (a bug Story when `bug`) with two done Subtasks, carried
+    /// from S1 to S2: all three land in S2 with their status.
+    async fn carry_over_a_tested_factory_story(bug: bool) {
         let pool = pool().await;
         let p = factory_project(&pool, "SF").await;
         let a = sprint(&pool, p, "S1", "2026-10-01", S::Active).await;
         let b = sprint(&pool, p, "S2", "2026-10-15", S::Active).await;
-        let key = ops::story_create(&pool, NewStory { project: "SF", title: "s", description: "", priority: "medium", labels: "" }, Actor::Owner)
+        let key = ops::story_create(&pool, NewStory { project: "SF", title: "s", description: "", priority: "medium", labels: "", bug }, Actor::Owner)
             .await
             .unwrap()["key"]
             .as_str()
@@ -546,7 +559,7 @@ mod tests {
         let pool = pool().await;
         let p = factory_project(&pool, "SF").await;
         let a = sprint(&pool, p, "S1", "2026-10-01", S::Active).await;
-        let key = ops::story_create(&pool, NewStory { project: "SF", title: "s", description: "", priority: "medium", labels: "" }, Actor::Owner)
+        let key = ops::story_create(&pool, NewStory { project: "SF", title: "s", description: "", priority: "medium", labels: "", bug: false }, Actor::Owner)
             .await
             .unwrap()["key"]
             .as_str()
@@ -577,7 +590,7 @@ mod tests {
         let p = factory_project(&pool, "SF").await;
         let a = sprint(&pool, p, "S1", "2026-10-01", S::Active).await;
         for title in ["ready one", "building one"] {
-            let key = ops::story_create(&pool, NewStory { project: "SF", title, description: "", priority: "medium", labels: "" }, Actor::Owner)
+            let key = ops::story_create(&pool, NewStory { project: "SF", title, description: "", priority: "medium", labels: "", bug: false }, Actor::Owner)
                 .await
                 .unwrap()["key"]
                 .as_str()
