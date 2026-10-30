@@ -386,7 +386,7 @@ describe("runGraph second pass after a bug loop (FB-176)", () => {
     const g = graph({ status: "building" }, done, [...firstPass, ...secondBuilt, passed]);
     const s = ids(g);
     expect(s.review).toBe("done");
-    expect(s.pr).toBe("todo");
+    expect(s.pr).toBe("current");
     expect(s.merge).toBe("todo");
   });
 
@@ -828,5 +828,70 @@ describe("runGraph Verify lit from verify_started (FB-277)", () => {
   it("a finished Build never shows Verify current, even with verify_started latest", () => {
     const g = graph({ status: "building" }, [sub(2, "done")], [stage("building"), handoff, started(1)]);
     expect(g.verify.state).toBe("done");
+  });
+});
+
+describe("runGraph approval gate and PR opened lit while under way (FB-282)", () => {
+  const built = [stage("building"), ev("verify_round", { subtask: "FB-2", round: 1, result: "pass" })];
+  const passed = ev("review_round", { round: 1, verdict: "passed" });
+  const prOpen = ev("pr_opened", { url: "https://github.com/o/r/pull/9", target: "develop" });
+
+  it("refining with no Subtasks: Brief written and Task splitter are current", () => {
+    const g = graph({ status: "refining" }, [], [stage("refining")]);
+    expect(states(g.plan)).toEqual({ created: "done", brief: "current", split: "current", approve: "todo", start: "todo" });
+  });
+
+  it("refining with Subtasks: Pedro approves is current", () => {
+    const one = graph({ status: "refining" }, [sub(2, "todo")], [stage("refining")]);
+    expect(states(one.plan)).toEqual({ created: "done", brief: "done", split: "done", approve: "current", start: "todo" });
+    const two = graph({ status: "refining" }, [sub(2, "todo"), sub(3, "todo")], [stage("refining")]);
+    expect(states(two.plan)).toEqual({ created: "done", brief: "done", split: "done", approve: "current", start: "todo" });
+  });
+
+  it("a passed Review with no PR into develop: PR opened is current", () => {
+    const g = graph({ status: "building" }, [sub(2, "done")], [...built, passed]);
+    expect(states(g.ship)).toMatchObject({ review: "done", pr: "current", merge: "todo" });
+  });
+
+  it("after the PR into develop opens: PR opened is done and Auto-merge current", () => {
+    const g = graph({ status: "building" }, [sub(2, "done")], [...built, passed, prOpen]);
+    expect(states(g.ship)).toMatchObject({ pr: "done", merge: "current" });
+  });
+
+  it("a passed Review then a stop with no PR: PR opened is not current, the stop routes through merge", () => {
+    const g = graph({ status: "building", run_stopped: true }, [sub(2, "done")], [
+      ...built, passed, ev("run_stopped", { reason: "Integrate: push failed" }),
+    ]);
+    expect(g.ship.find((n) => n.id === "pr")?.state).not.toBe("current");
+    expect(g.reviewStopFrom).toBe("merge");
+    expect(g.reviewStop.state).toBe("stopped");
+    expect(g.stop.state).not.toBe("stopped");
+  });
+
+  it("a passed Review with a review_started after it: PR opened is not current", () => {
+    const g = graph({ status: "building" }, [sub(2, "done")], [...built, passed, ev("review_started", { round: 2 })]);
+    expect(g.ship.find((n) => n.id === "pr")?.state).not.toBe("current");
+  });
+
+  it("a passed Review with a subtask_handoff after it: PR opened is not current", () => {
+    const g = graph({ status: "building", run_stopped: false }, [sub(2, "done"), sub(3, "in_progress", "bug")], [
+      ...built, passed, ev("run_stopped", { reason: "Integrate: checks red" }), ev("run_restarted"),
+      ev("subtask_handoff", { subtask: "FB-3", agent: "frontend-design", model: "opus" }),
+    ]);
+    expect(g.ship.find((n) => n.id === "pr")?.state).not.toBe("current");
+  });
+
+  it("a bug loop's second pass: PR opened is current after its passed Review, done once its PR opens", () => {
+    const url1 = "https://github.com/o/r/pull/93";
+    const firstPass = [
+      ...built, passed, ev("pr_opened", { url: url1, target: "develop" }), ev("pr_merged", { url: url1 }),
+      stage("integrated_tests"), ev("bug_subtask_filed", { subtask: "FB-3" }), stage("building"),
+      ev("verify_round", { subtask: "FB-3", round: 1, result: "pass" }), ev("review_round", { round: 2, verdict: "passed" }),
+    ];
+    const done = [sub(2, "done"), sub(3, "done", "bug")];
+    const waiting = graph({ status: "building" }, done, firstPass);
+    expect(states(waiting.ship)).toMatchObject({ pr: "current", merge: "todo" });
+    const opened = graph({ status: "building" }, done, [...firstPass, ev("pr_opened", { url: "https://github.com/o/r/pull/100", target: "develop" })]);
+    expect(states(opened.ship)).toMatchObject({ pr: "done", merge: "current" });
   });
 });

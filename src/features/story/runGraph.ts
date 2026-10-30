@@ -110,7 +110,8 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
   const created = trail.find((e) => e.action === "created");
   const plan: RunNode[] = [
     { id: "created", title: "Story created", kind: "flowboard", caption: `backlog · ${shortDate(created?.at ?? story.created_at)}`, state: "done" },
-    { id: "brief", title: "Brief written", kind: "design", caption: "refining", state: pick(reached("ready"), status === "refining") },
+    // Refining with Subtasks on the board is the wait for Pedro's approval (FB-282).
+    { id: "brief", title: "Brief written", kind: "design", caption: "refining", state: pick(reached("ready") || subtasks.length > 0, status === "refining") },
     {
       id: "split",
       title: "Task splitter",
@@ -118,7 +119,7 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
       caption: subtasks.length > 0 ? `${subtasks.length} Subtask${subtasks.length === 1 ? "" : "s"}` : "no Subtasks yet",
       state: pick(subtasks.length > 0, status === "refining"),
     },
-    { id: "approve", title: "Pedro approves", kind: "gate", caption: reached("ready") ? `→ ready · ${shortDate(at("ready"))}` : "→ ready", state: pick(reached("ready"), false) },
+    { id: "approve", title: "Pedro approves", kind: "gate", caption: reached("ready") ? `→ ready · ${shortDate(at("ready"))}` : "→ ready", state: pick(reached("ready"), status === "refining" && subtasks.length > 0) },
     {
       id: "start",
       title: "Run started",
@@ -272,7 +273,15 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
 
   const ship: RunNode[] = [
     review,
-    { id: "pr", title: "PR opened", kind: "git", caption: prCount > 1 ? `${prCount} PRs · PR gate: Review passed` : "PR gate: Review passed", state: pick(prOpened, false) },
+    {
+      id: "pr",
+      title: "PR opened",
+      kind: "git",
+      caption: prCount > 1 ? `${prCount} PRs · PR gate: Review passed` : "PR gate: Review passed",
+      // Integrate is preparing the PR while this pass's last Review round passed,
+      // no Review is in flight and no Build work came after it (FB-282).
+      state: pick(prOpened, lastVerdict === "passed" && !reviewInFlight && !prOpened && !stopped && lastIndex("review_round") > Math.max(lastIndex("subtask_handoff"), lastIndex("verify_round"))),
+    },
     { id: "merge", title: "Auto-merge → develop", kind: "git", caption: "Integrate", state: reviewStopFrom === "merge" ? "stopped" : pick(prMerged, prOpened && !prMerged) },
     {
       id: "integrated",
