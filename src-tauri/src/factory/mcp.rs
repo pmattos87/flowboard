@@ -339,7 +339,7 @@ impl FlowboardMcp {
         out(ops::subtask_verify(&self.pool, &p.key, p.passed, &p.reason, AGENT).await)
     }
 
-    #[tool(description = "Create an epic (a goal grouping several Stories) on a Factory project; it starts open at todo,                           with no sprint and no points")]
+    #[tool(description = "Create an epic (a goal grouping several Stories) on a Factory project; it starts open at todo, with no sprint and no points")]
     async fn epic_create(&self, Parameters(p): Parameters<EpicCreate>) -> Result<String, String> {
         let e = NewEpic {
             project: &p.project,
@@ -351,7 +351,7 @@ impl FlowboardMcp {
         out(ops::epic_create(&self.pool, e, AGENT).await)
     }
 
-    #[tool(description = "Close an open epic (todo -> done) or cancel it (todo -> canceled). Any other move,                           reopening included, is refused with the reason.")]
+    #[tool(description = "Close an open epic (todo -> done) or cancel it (todo -> canceled). Any other move, reopening included, is refused with the reason.")]
     async fn epic_move(&self, Parameters(p): Parameters<Move>) -> Result<String, String> {
         out(ops::epic_move(&self.pool, &p.key, &p.to, AGENT).await)
     }
