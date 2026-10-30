@@ -264,7 +264,7 @@ pub async fn update_task_inner(
     let before = get_task_inner(pool, id).await?;
     factory::ops::app_check_points(pool, id, payload.story_points).await?;
     factory::ops::app_check_level(pool, id, payload.parent_id, payload.r#type.as_deref()).await?;
-    factory::ops::app_check_epic(pool, id, payload.epic_id).await?;
+    factory::ops::app_check_epic(pool, id, payload.epic_id, payload.status.as_deref(), payload.sprint_id).await?;
     if factory::ops::app_move(pool, id, payload.status.as_deref(), payload.sprint_id).await? {
         payload.status = None;
         payload.sprint_id = None;
@@ -288,7 +288,10 @@ pub async fn update_task_inner(
     let new_story_points = payload.story_points.unwrap_or(current.story_points);
     let new_due_date = payload.due_date.unwrap_or(current.due_date.clone());
     let new_labels = payload.labels.unwrap_or(current.labels.clone());
-    let new_epic_id = payload.epic_id.unwrap_or(current.epic_id);
+    // Absent `epic_id` leaves the column out of the write (see the UPDATE), so a
+    // concurrent membership change since `current` was read is kept (FB-224).
+    let write_epic = payload.epic_id.is_some();
+    let new_epic_id = payload.epic_id.flatten();
 
     let status_changed = new_status != current.status;
 
@@ -301,9 +304,11 @@ pub async fn update_task_inner(
         None
     };
 
-    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
-    // The earlier check read outside this transaction; judge the membership
-    // rule again on the rows as they are when `epic_id` is written (FB-224).
+    // IMMEDIATE takes the write lock up front, so no other writer can commit
+    // between the check below and the UPDATE. The earlier check read outside
+    // this transaction; judge the membership rule again on the rows as they are
+    // when `epic_id` is written (FB-224).
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.map_err(|e| e.to_string())?;
     factory::ops::app_check_epic_in(&mut tx, id, payload.epic_id).await?;
 
     sqlx::query(
@@ -319,7 +324,7 @@ pub async fn update_task_inner(
             story_points = ?,
             due_date     = ?,
             labels       = ?,
-            epic_id      = ?,
+            epic_id      = CASE WHEN ? THEN ? ELSE epic_id END,
             updated_at   = strftime('%Y-%m-%dT%H:%M:%fZ','now')
            WHERE id = ?"#,
     )
@@ -334,6 +339,7 @@ pub async fn update_task_inner(
     .bind(new_story_points)
     .bind(&new_due_date)
     .bind(&new_labels)
+    .bind(write_epic)
     .bind(new_epic_id)
     .bind(id)
     .execute(&mut *tx)
@@ -1691,34 +1697,100 @@ mod tests {
         assert_eq!(set_epic(&pool, legacy_story, None).await.unwrap().epic_id, None);
     }
 
+    /// Run `payload` on `id` while another connection holds the write lock,
+    /// and have that connection run `sql` and commit once the edit has done its
+    /// early reads and is waiting to write: a concurrent MCP/CLI call landing
+    /// between the edit's read and its write.
+    async fn edit_under_concurrent_write(
+        pool: &SqlitePool,
+        id: i64,
+        payload: TaskUpdate,
+        sql: &str,
+    ) -> Result<super::Task, String> {
+        let mut other = pool.acquire().await.unwrap();
+        sqlx::query("BEGIN IMMEDIATE").execute(&mut *other).await.unwrap();
+        let edit = tokio::spawn({
+            let pool = pool.clone();
+            async move { update_task_inner(&pool, id, payload).await }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert!(!edit.is_finished(), "the edit waits for the other writer");
+        sqlx::query(sql).execute(&mut *other).await.unwrap();
+        sqlx::query("COMMIT").execute(&mut *other).await.unwrap();
+        edit.await.unwrap()
+    }
+
     #[tokio::test]
     async fn an_epic_closed_after_the_early_check_still_refuses_the_edit() {
+        use crate::test_support::{self as ts, TaskStatus, TaskType};
+        let pool = ts::file_pool("epic-closed-after-check").await;
+        let p = ts::factory_project(&pool, "SF").await;
+        let epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+        let trail = count_activity(&pool, story).await;
+
+        // The epic is open at the early check and closed by another writer
+        // before the edit's write transaction starts.
+        let payload = TaskUpdate { epic_id: Some(Some(epic)), title: Some("renamed".into()), ..empty_update() };
+        let close = format!("UPDATE tasks SET status = 'done' WHERE id = {epic}");
+        let err = edit_under_concurrent_write(&pool, story, payload, &close).await.unwrap_err();
+        assert!(err.contains("a closed epic takes no new Stories"), "{err}");
+        let row = get_task_inner(&pool, story).await.unwrap();
+        assert_eq!(
+            (row.epic_id, row.title.as_str(), row.status.as_str()),
+            (None, "t", "backlog"),
+            "the refused edit wrote nothing"
+        );
+        assert_eq!(count_activity(&pool, story).await, trail, "no status trail");
+    }
+
+    #[tokio::test]
+    async fn an_edit_without_epic_id_keeps_a_membership_changed_since_its_read() {
+        use crate::test_support::{self as ts, TaskStatus, TaskType};
+        let pool = ts::file_pool("edit-keeps-new-epic").await;
+        let p = ts::factory_project(&pool, "SF").await;
+        let old_epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let new_epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+        link(&pool, story, old_epic).await;
+
+        // A picker or MCP edit moves the Story to another epic after the title
+        // edit has read the row.
+        let payload = TaskUpdate { title: Some("renamed".into()), ..empty_update() };
+        let move_epic = format!("UPDATE tasks SET epic_id = {new_epic} WHERE id = {story}");
+        let row = edit_under_concurrent_write(&pool, story, payload, &move_epic).await.unwrap();
+        assert_eq!((row.epic_id, row.title.as_str()), (Some(new_epic), "renamed"));
+    }
+
+    #[tokio::test]
+    async fn a_factory_edit_changing_epic_and_status_together_is_refused_before_any_change() {
         use crate::test_support::{self as ts, TaskStatus, TaskType};
         let pool = ts::pool().await;
         let p = ts::factory_project(&pool, "SF").await;
         let epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let sprint = ts::sprint(&pool, p, "S1", "2026-01-01", ts::SprintStatus::Active).await;
         let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
-        // The Story's status move runs after the early check and before the write
-        // transaction; this trigger closes the epic there, as a concurrent MCP/CLI
-        // call could.
-        sqlx::query(
-            r#"CREATE TRIGGER close_epic AFTER UPDATE OF status ON tasks WHEN NEW.type = 'story'
-               BEGIN UPDATE tasks SET status = 'done' WHERE type = 'epic'; END"#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        let trail = count_activity(&pool, story).await;
 
-        let payload = TaskUpdate {
-            status: Some("refining".into()),
-            epic_id: Some(Some(epic)),
-            title: Some("renamed".into()),
-            ..empty_update()
-        };
-        let err = update_task_inner(&pool, story, payload).await.unwrap_err();
-        assert!(err.contains("a closed epic takes no new Stories"), "{err}");
-        let row = get_task_inner(&pool, story).await.unwrap();
-        assert_eq!((row.epic_id, row.title.as_str()), (None, "t"), "the refused edit wrote nothing");
+        for payload in [
+            TaskUpdate { status: Some("canceled".into()), epic_id: Some(Some(epic)), ..empty_update() },
+            TaskUpdate { sprint_id: Some(Some(sprint)), epic_id: Some(Some(epic)), ..empty_update() },
+        ] {
+            let err = update_task_inner(&pool, story, payload).await.unwrap_err();
+            assert!(err.contains("change SF-") && err.contains("separately from its status and sprint"), "{err}");
+            let row = get_task_inner(&pool, story).await.unwrap();
+            assert_eq!((row.status.as_str(), row.epic_id, row.sprint_id), ("backlog", None, None));
+            assert_eq!(count_activity(&pool, story).await, trail, "no status trail");
+        }
+
+        // An echo of the current status is not a change: the epic edit goes through.
+        let payload = TaskUpdate { status: Some("backlog".into()), epic_id: Some(Some(epic)), ..empty_update() };
+        assert_eq!(update_task_inner(&pool, story, payload).await.unwrap().epic_id, Some(epic));
+
+        // Nor is an echo of the current epic: the status move goes through.
+        let payload = TaskUpdate { status: Some("refining".into()), epic_id: Some(Some(epic)), ..empty_update() };
+        let row = update_task_inner(&pool, story, payload).await.unwrap();
+        assert_eq!((row.status.as_str(), row.epic_id), ("refining", Some(epic)));
     }
 
     #[tokio::test]
