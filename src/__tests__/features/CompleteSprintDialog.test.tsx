@@ -140,6 +140,28 @@ describe("CompleteSprintDialog", () => {
     ).toBeInTheDocument();
   });
 
+  it("disables Backlog on a Factory project with a top-level bug Story past ready (FB-52)", () => {
+    renderDialog(
+      [source, sprint(21, "backlog", "2024-04-01")],
+      [task(1, 20, "ready"), task(2, 20, "todo", "bug")],
+      factory,
+    );
+    expect(screen.getByRole("radio", { name: /backlog/i })).toBeDisabled();
+    expect(
+      screen.getByText(/a Story enters or leaves a sprint only at ready; FB-2 is todo/),
+    ).toBeInTheDocument();
+  });
+
+  it("offers Backlog on a legacy project with a top-level bug at todo (FB-52)", () => {
+    renderDialog(
+      [source, sprint(21, "backlog", "2024-04-01")],
+      [task(1, 20, "todo", "bug"), task(2, 20, "in_progress")],
+      legacy,
+    );
+    expect(screen.getByRole("radio", { name: /backlog/i })).toBeEnabled();
+    expect(screen.queryByText(/Not available/)).not.toBeInTheDocument();
+  });
+
   it("offers Backlog on a legacy project and sends the backlog target", async () => {
     const user = userEvent.setup();
     renderDialog([source, sprint(21, "backlog", "2024-04-01")], [task(1, 20, "in_progress")]);
@@ -190,7 +212,7 @@ describe("CompleteSprintDialog", () => {
     const user = userEvent.setup();
     renderDialog(
       [source, sprint(21, "backlog", "2024-04-01")],
-      [task(1, 20, "ready"), task(2, 20, "done"), task(3, 20, "todo", "bug")],
+      [task(1, 20, "ready"), task(2, 20, "done"), task(3, 20, "todo", "bug", 1)],
       factory,
     );
     const backlog = screen.getByRole("radio", { name: /backlog/i });

@@ -92,9 +92,9 @@ function SprintSection({
 
   // FB-119: completion of the row's stories. Canceled points show in the tooltip
   // but are not part of the total.
-  const completion = sprintCompletion(row.tasks);
+  const completion = sprintCompletion(row.tasks, ladder);
   const statusLabel = new Map(
-    statusOptionsForType("story", ladder).map((o) => [o.value, o.label.toLowerCase()]),
+    statusOptionsForType({ type: "story", parent_id: null }, ladder).map((o) => [o.value, o.label.toLowerCase()]),
   );
   const progressTitle = Object.entries(completion.byStatus)
     .map(

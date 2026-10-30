@@ -147,7 +147,7 @@ export interface ReleaseDetail {
   project: string;
   version: string;
   state: ReleaseState;
-  stories: { key: string; title: string; status: TaskStatus }[];
+  stories: { key: string; title: string; type: TaskType; status: TaskStatus }[];
 }
 
 /** `pick_release_story`: depends-on warnings, never refusals. */
@@ -163,6 +163,7 @@ export interface ReleasePickResult {
 export interface StoryView {
   key: string;
   title: string;
+  type: TaskType;
   status: TaskStatus;
   priority: TaskPriority;
   labels: string;

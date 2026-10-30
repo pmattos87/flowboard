@@ -250,13 +250,13 @@ describe("Factory ladder (SF-31)", () => {
   });
 
   it("offers only ladder statuses in the pickers", () => {
-    const storyStatuses = statusOptionsForType("story", "factory").map((o) => o.value);
+    const storyStatuses = statusOptionsForType({ type: "story", parent_id: null }, "factory").map((o) => o.value);
     expect(storyStatuses).toEqual([
       "backlog", "refining", "ready", "building", "integrated_tests", "tested", "user_testing", "canceled", "done",
     ]);
-    const subtaskStatuses = statusOptionsForType("subtask", "factory").map((o) => o.value);
+    const subtaskStatuses = statusOptionsForType({ type: "subtask", parent_id: 1 }, "factory").map((o) => o.value);
     expect(subtaskStatuses).toEqual(["todo", "in_progress", "canceled", "done"]);
     // Legacy projects keep their lists.
-    expect(statusOptionsForType("story").map((o) => o.value)).toContain("ready_for_development");
+    expect(statusOptionsForType({ type: "story", parent_id: null }).map((o) => o.value)).toContain("ready_for_development");
   });
 });

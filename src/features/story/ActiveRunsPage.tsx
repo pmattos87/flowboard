@@ -10,7 +10,7 @@ import { StoryFlags } from "./StoryFlags";
 // in a sprint through `user_testing`. Stopped Runs come first; "Needs Pedro"
 // keeps only the Stories assigned to him. There is no separate inbox.
 
-const STAGE_LABEL = Object.fromEntries(statusOptionsForType("story", "factory").map((o) => [o.value, o.label]));
+const STAGE_LABEL = Object.fromEntries(statusOptionsForType({ type: "story", parent_id: null }, "factory").map((o) => [o.value, o.label]));
 
 /** "4d", "3h", "12m": how long since the Story entered its Stage. */
 export function timeInStage(since: string, now: Date = new Date()): string {
