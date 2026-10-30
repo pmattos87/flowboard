@@ -13,6 +13,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { Project, Task, TaskPriority, TaskStatus, TaskType } from "@/types";
 import { subtaskRole } from "@/lib/subtaskRole";
+import { isStoryLevel } from "@/lib/storyLevel";
 
 export type BoardColumn = { status: TaskStatus; label: string; dotClass: string; Icon?: LucideIcon };
 
@@ -95,11 +96,22 @@ const FACTORY_STORY_STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
 
 const FACTORY_SUBTASK_STATUS_OPTIONS = DEV_STATUS_OPTIONS.filter((o) => o.value !== "in_review");
 
+// FB-224: a Factory epic is never built. It opens at `todo` and only closes
+// (`done`) or cancels; the backend refuses every other move.
+const FACTORY_EPIC_STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
+  { value: "todo",     label: "Open" },
+  { value: "canceled", label: "Canceled" },
+  { value: "done",     label: "Done" },
+];
+
+// FB-52: takes the parent too, since on a Factory project a top-level bug is a
+// Story (Story ladder) and a bug with a parent is a Subtask (Subtask ladder).
 export function statusOptionsForType(
-  type: TaskType,
+  task: Pick<Task, "type" | "parent_id">,
   ladder: Project["ladder"] = "legacy",
 ): { value: TaskStatus; label: string }[] {
-  const story = type === "story" || type === "epic";
+  if (ladder === "factory" && task.type === "epic") return FACTORY_EPIC_STATUS_OPTIONS;
+  const story = task.type === "epic" || isStoryLevel(task, ladder);
   if (ladder === "factory") return story ? FACTORY_STORY_STATUS_OPTIONS : FACTORY_SUBTASK_STATUS_OPTIONS;
   return story ? STORY_STATUS_OPTIONS : DEV_STATUS_OPTIONS;
 }

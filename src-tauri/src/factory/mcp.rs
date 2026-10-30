@@ -3,7 +3,7 @@
 //! project ladder/kind, contacts) stay CLI-only, so an agent cannot switch a
 //! project's ladder.
 
-use super::ops::{self, Actor, NewStory, NewSubtask, StoryEdit};
+use super::ops::{self, Actor, NewEpic, NewStory, NewSubtask, StoryEdit};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
@@ -41,6 +41,9 @@ pub struct StoryCreate {
     /// Comma-separated labels
     #[serde(default)]
     pub labels: String,
+    /// true files a bug Story (a fix found in production)
+    #[serde(default)]
+    pub bug: bool,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -51,6 +54,23 @@ pub struct StoryEditArgs {
     pub description: Option<String>,
     pub priority: Option<String>,
     pub labels: Option<String>,
+    /// Epic key to put the Story in (an open epic of its project), or null to
+    /// take it out; leave it out to keep the current epic
+    #[serde(default, deserialize_with = "crate::commands::deserialize_optional_field")]
+    pub epic: Option<Option<String>>,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct EpicCreate {
+    pub project: String,
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    /// low | medium | high | critical (default medium)
+    pub priority: Option<String>,
+    /// Comma-separated labels
+    #[serde(default)]
+    pub labels: String,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -207,7 +227,7 @@ impl FlowboardMcp {
         out(ops::trail(&self.pool, &p.key).await)
     }
 
-    #[tool(description = "Create a Story in backlog on a Factory project")]
+    #[tool(description = "Create a Story (or a bug Story) in backlog on a Factory project")]
     async fn story_create(&self, Parameters(p): Parameters<StoryCreate>) -> Result<String, String> {
         let s = NewStory {
             project: &p.project,
@@ -215,17 +235,19 @@ impl FlowboardMcp {
             description: &p.description,
             priority: p.priority.as_deref().unwrap_or("medium"),
             labels: &p.labels,
+            bug: p.bug,
         };
         out(ops::story_create(&self.pool, s, AGENT).await)
     }
 
-    #[tool(description = "Edit a Story's title, description, priority or labels")]
+    #[tool(description = "Edit a Story's title, description, priority, labels or epic (a key, or null to take it out)")]
     async fn story_edit(&self, Parameters(p): Parameters<StoryEditArgs>) -> Result<String, String> {
         let e = StoryEdit {
             title: p.title.as_deref(),
             description: p.description.as_deref(),
             priority: p.priority.as_deref(),
             labels: p.labels.as_deref(),
+            epic: p.epic.as_ref().map(|e| e.as_deref()),
         };
         out(ops::story_edit(&self.pool, &p.key, e).await)
     }
@@ -267,6 +289,11 @@ impl FlowboardMcp {
     #[tool(description = "Log the start of a Review round on a building Story")]
     async fn review_start(&self, Parameters(p): Parameters<Key>) -> Result<String, String> {
         out(ops::review_start(&self.pool, &p.key, AGENT).await)
+    }
+
+    #[tool(description = "Log the start of a Verify round on an in_progress Subtask of a building Story")]
+    async fn verify_start(&self, Parameters(p): Parameters<Key>) -> Result<String, String> {
+        out(ops::verify_start(&self.pool, &p.key, AGENT).await)
     }
 
     #[tool(description = "Stop a building Story's Run and hand it to Pedro")]
@@ -315,6 +342,23 @@ impl FlowboardMcp {
     #[tool(description = "Record a Verify round's result for a Subtask")]
     async fn subtask_verify(&self, Parameters(p): Parameters<Verify>) -> Result<String, String> {
         out(ops::subtask_verify(&self.pool, &p.key, p.passed, &p.reason, AGENT).await)
+    }
+
+    #[tool(description = "Create an epic (a goal grouping several Stories) on a Factory project; it starts open at todo, with no sprint and no points")]
+    async fn epic_create(&self, Parameters(p): Parameters<EpicCreate>) -> Result<String, String> {
+        let e = NewEpic {
+            project: &p.project,
+            title: &p.title,
+            description: &p.description,
+            priority: p.priority.as_deref().unwrap_or("medium"),
+            labels: &p.labels,
+        };
+        out(ops::epic_create(&self.pool, e, AGENT).await)
+    }
+
+    #[tool(description = "Close an open epic (todo -> done) or cancel it (todo -> canceled). Any other move, reopening included, is refused with the reason.")]
+    async fn epic_move(&self, Parameters(p): Parameters<Move>) -> Result<String, String> {
+        out(ops::epic_move(&self.pool, &p.key, &p.to, AGENT).await)
     }
 
     #[tool(description = "Show a project's ladder, kind and client contacts")]
@@ -378,4 +422,46 @@ pub async fn serve(pool: SqlitePool) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     service.waiting().await.map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FlowboardMcp, StoryCreate, StoryEditArgs};
+
+    #[test]
+    fn the_router_serves_the_epic_tools() {
+        let router = FlowboardMcp::tool_router();
+        for tool in ["epic_create", "epic_move"] {
+            assert!(router.has_route(tool), "{tool} is not in the MCP tool router");
+        }
+    }
+
+    #[test]
+    fn story_create_takes_an_optional_bug_flag() {
+        let schema = schemars::schema_for!(StoryCreate);
+        let schema = schema.as_value();
+        assert_eq!(schema["properties"]["bug"]["type"], "boolean", "{schema}");
+        let required = schema["required"].as_array().unwrap();
+        assert!(!required.iter().any(|r| r == "bug"), "bug is optional: {schema}");
+
+        let p: StoryCreate = serde_json::from_str(r#"{"project":"SF","title":"t"}"#).unwrap();
+        assert!(!p.bug);
+        let p: StoryCreate = serde_json::from_str(r#"{"project":"SF","title":"t","bug":true}"#).unwrap();
+        assert!(p.bug);
+    }
+
+    #[test]
+    fn story_edit_tells_an_absent_epic_from_null() {
+        let schema = schemars::schema_for!(StoryEditArgs);
+        let schema = schema.as_value();
+        let required = schema["required"].as_array().unwrap();
+        assert!(!required.iter().any(|r| r == "epic"), "epic is optional: {schema}");
+
+        let p: StoryEditArgs = serde_json::from_str(r#"{"key":"SF-2"}"#).unwrap();
+        assert_eq!(p.epic, None, "absent keeps the epic");
+        let p: StoryEditArgs = serde_json::from_str(r#"{"key":"SF-2","epic":null}"#).unwrap();
+        assert_eq!(p.epic, Some(None), "null takes the Story out");
+        let p: StoryEditArgs = serde_json::from_str(r#"{"key":"SF-2","epic":"SF-1"}"#).unwrap();
+        assert_eq!(p.epic, Some(Some("SF-1".into())));
+    }
 }

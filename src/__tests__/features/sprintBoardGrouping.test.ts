@@ -48,7 +48,7 @@ const story = (
   created_at: "2024-01-01T00:00:00.000Z",
   updated_at: "2024-01-01T00:00:00.000Z",
   labels: "",
-  feature_branch: null, review_verdict: null, reviewed_commit: null, findings_url: null, run_stopped: false, risk: false, release_id: null,
+  feature_branch: null, review_verdict: null, reviewed_commit: null, findings_url: null, run_stopped: false, risk: false, release_id: null, epic_id: null,
   task_number: id,
 });
 
@@ -250,13 +250,13 @@ describe("Factory ladder (SF-31)", () => {
   });
 
   it("offers only ladder statuses in the pickers", () => {
-    const storyStatuses = statusOptionsForType("story", "factory").map((o) => o.value);
+    const storyStatuses = statusOptionsForType({ type: "story", parent_id: null }, "factory").map((o) => o.value);
     expect(storyStatuses).toEqual([
       "backlog", "refining", "ready", "building", "integrated_tests", "tested", "user_testing", "canceled", "done",
     ]);
-    const subtaskStatuses = statusOptionsForType("subtask", "factory").map((o) => o.value);
+    const subtaskStatuses = statusOptionsForType({ type: "subtask", parent_id: 1 }, "factory").map((o) => o.value);
     expect(subtaskStatuses).toEqual(["todo", "in_progress", "canceled", "done"]);
     // Legacy projects keep their lists.
-    expect(statusOptionsForType("story").map((o) => o.value)).toContain("ready_for_development");
+    expect(statusOptionsForType({ type: "story", parent_id: null }).map((o) => o.value)).toContain("ready_for_development");
   });
 });

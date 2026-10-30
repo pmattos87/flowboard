@@ -53,7 +53,7 @@ async fn setup(kind: &str) -> Fx {
 async fn story(fx: &Fx, title: &str) -> String {
     let s = ops::story_create(
         &fx.pool,
-        NewStory { project: "SF", title, description: "", priority: "medium", labels: "" },
+        NewStory { project: "SF", title, description: "", priority: "medium", labels: "", bug: false },
         Actor::Owner,
     )
     .await
@@ -330,6 +330,112 @@ async fn review_start_is_refused_off_building_and_on_a_stopped_run() {
     assert_eq!(rows().await, 0, "a refused review_start must not log");
 }
 
+/// The `new_value` of every `verify_started` row on a Story, oldest first.
+async fn verify_starts(fx: &Fx, key: &str) -> Vec<Value> {
+    ops::trail(&fx.pool, key)
+        .await
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["action"] == "verify_started")
+        .map(|e| e["new"].clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn verify_start_logs_the_subtask_round_about_to_run() {
+    let fx = setup("internal").await;
+    let s = story(&fx, "verify start").await;
+    let sub = subtask(&fx, &s, false).await;
+    ready_in_sprint(&fx, &s).await;
+    mv(&fx, &s, "building").await.unwrap();
+    ops::subtask_move(&fx.pool, &sub, "in_progress", Actor::Agent).await.unwrap();
+
+    ops::verify_start(&fx.pool, &sub, Actor::Agent).await.unwrap();
+    assert_eq!(verify_starts(&fx, &s).await, vec![serde_json::json!({ "subtask": sub, "round": 1 })]);
+
+    ops::subtask_verify(&fx.pool, &sub, false, "tests red", Actor::Agent).await.unwrap();
+    ops::verify_start(&fx.pool, &sub, Actor::Agent).await.unwrap();
+    assert_eq!(
+        verify_starts(&fx, &s).await,
+        vec![
+            serde_json::json!({ "subtask": sub, "round": 1 }),
+            serde_json::json!({ "subtask": sub, "round": 2 }),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn verify_start_is_refused_off_building_on_a_stopped_run_and_off_in_progress() {
+    let fx = setup("internal").await;
+    let s = story(&fx, "refused verify").await;
+    let sub = subtask(&fx, &s, false).await;
+    let rows = || async {
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM activity_log WHERE action = 'verify_started'")
+            .fetch_one(&fx.pool)
+            .await
+            .unwrap()
+    };
+    ready_in_sprint(&fx, &s).await;
+
+    // An in_progress Subtask whose Story isn't building.
+    ops::subtask_move(&fx.pool, &sub, "in_progress", Actor::Agent).await.unwrap();
+    let err = ops::verify_start(&fx.pool, &sub, Actor::Agent).await.unwrap_err();
+    assert!(err.contains("building"), "{err}");
+    assert_eq!(rows().await, 0);
+
+    // A stopped Run.
+    mv(&fx, &s, "building").await.unwrap();
+    ops::run_stop(&fx.pool, &s, "held", Actor::Agent).await.unwrap();
+    let err = ops::verify_start(&fx.pool, &sub, Actor::Agent).await.unwrap_err();
+    assert!(err.contains("stopped"), "{err}");
+    assert_eq!(rows().await, 0);
+    ops::run_restart(&fx.pool, &s, Actor::Owner).await.unwrap();
+
+    // A todo Subtask.
+    ops::subtask_move(&fx.pool, &sub, "todo", Actor::Agent).await.unwrap();
+    let err = ops::verify_start(&fx.pool, &sub, Actor::Agent).await.unwrap_err();
+    assert!(err.contains("not in_progress"), "{err}");
+    assert_eq!(rows().await, 0);
+
+    // A done Subtask.
+    ops::subtask_move(&fx.pool, &sub, "in_progress", Actor::Agent).await.unwrap();
+    ops::subtask_move(&fx.pool, &sub, "done", Actor::Agent).await.unwrap();
+    let err = ops::verify_start(&fx.pool, &sub, Actor::Agent).await.unwrap_err();
+    assert!(err.contains("not in_progress"), "{err}");
+
+    assert_eq!(rows().await, 0, "a refused verify_start must not log");
+}
+
+#[tokio::test]
+async fn verify_start_refuses_in_order_and_numbers_rounds_per_subtask() {
+    let fx = setup("internal").await;
+    let s = story(&fx, "verify order").await;
+    let a = subtask(&fx, &s, false).await;
+    let b = subtask(&fx, &s, false).await;
+    ready_in_sprint(&fx, &s).await;
+
+    // A todo Subtask on a Story that isn't building: the building check comes first.
+    let err = ops::verify_start(&fx.pool, &a, Actor::Agent).await.unwrap_err();
+    assert!(err.contains("Starting a Verify"), "{err}");
+
+    // A todo Subtask on a stopped Run: the stopped check comes before in_progress.
+    mv(&fx, &s, "building").await.unwrap();
+    ops::run_stop(&fx.pool, &s, "held", Actor::Agent).await.unwrap();
+    let err = ops::verify_start(&fx.pool, &a, Actor::Agent).await.unwrap_err();
+    assert!(err.contains("stopped"), "{err}");
+    ops::run_restart(&fx.pool, &s, Actor::Owner).await.unwrap();
+
+    // Another Subtask's failed Verify rounds don't advance this one's round.
+    ops::subtask_move(&fx.pool, &a, "in_progress", Actor::Agent).await.unwrap();
+    ops::subtask_move(&fx.pool, &b, "in_progress", Actor::Agent).await.unwrap();
+    ops::subtask_verify(&fx.pool, &a, false, "tests red", Actor::Agent).await.unwrap();
+    let got = ops::verify_start(&fx.pool, &b, Actor::Agent).await.unwrap();
+    assert_eq!(got, serde_json::json!({ "subtask": b, "round": 1 }));
+    assert_eq!(verify_starts(&fx, &s).await, vec![serde_json::json!({ "subtask": b, "round": 1 })]);
+}
+
 #[tokio::test]
 async fn sprint_entry_and_exit_only_at_ready_and_subtasks_follow() {
     let fx = setup("internal").await;
@@ -362,7 +468,7 @@ async fn legacy_projects_are_refused() {
     let fx = setup("internal").await;
     let err = ops::story_create(
         &fx.pool,
-        NewStory { project: "LG", title: "x", description: "", priority: "medium", labels: "" },
+        NewStory { project: "LG", title: "x", description: "", priority: "medium", labels: "", bug: false },
         Actor::Owner,
     )
     .await
@@ -437,9 +543,15 @@ async fn a_legacy_project_switches_once_its_open_items_are_mapped() {
     insert(3, None, "bug", "refining").await;
     insert(4, None, "story", "done").await;
     insert(5, Some(4), "subtask", "canceled").await;
+    // Epics (FB-224): open at todo and closed are mapped; in_progress is not.
+    insert(6, None, "epic", "todo").await;
+    insert(7, None, "epic", "done").await;
+    insert(8, None, "epic", "in_progress").await;
 
     let err = ops::project_set(&fx.pool, "LG", Some("factory"), None).await.unwrap_err();
-    assert!(err.contains("3 open item(s)") && err.contains("LG-1, LG-2, LG-3"), "{err}");
+    assert!(err.contains("3 open item(s)") && err.contains("LG-1, LG-2, LG-8"), "{err}");
+    assert!(!err.contains("LG-3"), "a top-level bug at refining is a mapped Story (FB-52): {err}");
+    assert!(!err.contains("LG-6"), "an open epic at todo is mapped: {err}");
 
     let map = |sql: &'static str| {
         let pool = fx.pool.clone();
@@ -447,12 +559,40 @@ async fn a_legacy_project_switches_once_its_open_items_are_mapped() {
     };
     map("UPDATE tasks SET status = 'backlog' WHERE task_number = 1").await;
     map("UPDATE tasks SET status = 'todo' WHERE task_number = 2").await;
-    let err = ops::project_set(&fx.pool, "LG", Some("factory"), None).await.unwrap_err();
-    assert!(err.contains("1 open item(s)") && err.contains("LG-3"), "a top-level bug isn't a Story: {err}");
-
-    map("UPDATE tasks SET type = 'story' WHERE task_number = 3").await;
+    map("UPDATE tasks SET status = 'todo' WHERE task_number = 8").await;
     ops::project_set(&fx.pool, "LG", Some("factory"), None).await.expect("every open item is mapped");
     assert_eq!(mv(&fx, "LG-1", "refining").await.unwrap()["status"], "refining");
+    assert_eq!(mv(&fx, "LG-3", "backlog").await.unwrap()["status"], "backlog", "the bug Story is on the Story ladder");
+}
+
+#[tokio::test]
+async fn a_legacy_epic_with_a_sprint_points_or_parent_blocks_the_switch() {
+    use crate::test_support::{self as ts, SprintStatus, TaskStatus, TaskType};
+    let pool = ts::pool().await;
+    let p = ts::project(&pool, "LG").await;
+    let sprint = ts::sprint(&pool, p, "S1", "2026-10-01", SprintStatus::Active).await;
+    let scheduled = ts::task(&pool, p, Some(sprint), None, TaskType::Epic, TaskStatus::Todo).await;
+    let pointed = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+    let closed = ts::task(&pool, p, Some(sprint), None, TaskType::Epic, TaskStatus::Done).await;
+    let nested = ts::task(&pool, p, None, Some(pointed), TaskType::Epic, TaskStatus::Todo).await;
+    let well_formed = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+    sqlx::query("UPDATE tasks SET story_points = 5 WHERE id = ?").bind(pointed).execute(&pool).await.unwrap();
+
+    let err = ops::project_set(&pool, "LG", Some("factory"), None).await.unwrap_err();
+    assert!(err.contains("LG-1, LG-2, LG-3, LG-4") && !err.contains("LG-5"), "{err}");
+    let ladder: String = sqlx::query_scalar("SELECT ladder FROM projects WHERE id = ?").bind(p).fetch_one(&pool).await.unwrap();
+    assert_eq!(ladder, "legacy", "a refused switch changes nothing");
+
+    sqlx::query("UPDATE tasks SET sprint_id = NULL, story_points = 0 WHERE id IN (?, ?, ?)")
+        .bind(scheduled)
+        .bind(pointed)
+        .bind(closed)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE tasks SET parent_id = NULL WHERE id = ?").bind(nested).execute(&pool).await.unwrap();
+    ops::project_set(&pool, "LG", Some("factory"), None).await.expect("well-formed epics switch");
+    assert_eq!(epic_of(&pool, well_formed).await, None);
 }
 
 #[tokio::test]
@@ -633,7 +773,7 @@ async fn missing_factory_roles_give_an_actionable_error() {
     ops::people_set_role(&fx.pool, fx.pedro, None).await.unwrap();
     let err = ops::story_create(
         &fx.pool,
-        NewStory { project: "SF", title: "x", description: "", priority: "medium", labels: "" },
+        NewStory { project: "SF", title: "x", description: "", priority: "medium", labels: "", bug: false },
         Actor::Owner,
     )
     .await
@@ -729,4 +869,488 @@ async fn an_unsplit_story_cannot_move_to_ready() {
     assert!(err.contains("0 points"), "{err}");
     subtask(&fx, &s, false).await;
     mv(&fx, &s, "ready").await.unwrap();
+}
+
+// ─── Bug Stories (FB-52) ────────────────────────────────────────────────────
+
+use crate::test_support::{self as ts, SprintStatus, TaskStatus, TaskType};
+
+/// The issue key of task `id`.
+async fn key_of(pool: &SqlitePool, id: i64) -> String {
+    sqlx::query_scalar("SELECT p.key || '-' || t.task_number FROM tasks t JOIN projects p ON p.id = t.project_id WHERE t.id = ?")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn points_of(pool: &SqlitePool, id: i64) -> i64 {
+    sqlx::query_scalar("SELECT story_points FROM tasks WHERE id = ?").bind(id).fetch_one(pool).await.unwrap()
+}
+
+/// A Client Factory project SF with a primary contact and an active sprint, and
+/// a top-level `bug` in backlog on it. Returns the pool, the sprint, and the
+/// bug's id and key.
+async fn bug_story_fixture() -> (SqlitePool, i64, i64, String) {
+    let pool = ts::pool().await;
+    let p = ts::factory_project(&pool, "SF").await;
+    ops::project_set(&pool, "SF", None, Some("client")).await.unwrap();
+    let client: i64 = sqlx::query_scalar("INSERT INTO people (name, email) VALUES ('Client', 'client@test') RETURNING id")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    ops::contact_add(&pool, "SF", client, true).await.unwrap();
+    let sprint = ts::sprint(&pool, p, "S1", "2026-10-01", SprintStatus::Active).await;
+    let bug = ts::task(&pool, p, None, None, TaskType::Bug, TaskStatus::Backlog).await;
+    let key = key_of(&pool, bug).await;
+    (pool, sprint, bug, key)
+}
+
+async fn new_subtask(pool: &SqlitePool, story: &str, bug: bool, story_points: i64) -> String {
+    let s = ops::subtask_create(
+        pool,
+        NewSubtask { story, title: "slice", description: "", bug, story_points, risk: false },
+        Actor::Agent,
+    )
+    .await
+    .unwrap();
+    s["key"].as_str().unwrap().to_string()
+}
+
+/// The `active_runs` entry for `key`, if it is listed.
+async fn active_run(pool: &SqlitePool, key: &str) -> Option<Value> {
+    ops::active_runs(pool).await.unwrap().as_array().unwrap().iter().find(|r| r["key"] == key).cloned()
+}
+
+#[tokio::test]
+async fn a_top_level_bug_climbs_the_whole_story_ladder() {
+    let (pool, sprint, bug, s) = bug_story_fixture().await;
+    let mv = |to: &'static str| ops::story_move(&pool, &s, to, Actor::Owner);
+
+    mv("refining").await.unwrap();
+    let sub = new_subtask(&pool, &s, false, 2).await;
+    let dropped = new_subtask(&pool, &s, false, 3).await;
+    ops::subtask_move(&pool, &dropped, "canceled", Actor::Owner).await.unwrap();
+    assert_eq!(points_of(&pool, bug).await, 2, "points are the sum of the open non-bug Subtasks");
+    let err = ops::app_check_points(&pool, bug, Some(8)).await.unwrap_err();
+    assert!(err.contains("sum of its Subtasks' points"), "{err}");
+    ops::app_check_points(&pool, bug, Some(2)).await.expect("echoing the current points is not an edit");
+
+    mv("ready").await.unwrap();
+    ops::story_set_sprint(&pool, &s, Some(sprint)).await.unwrap();
+    mv("building").await.unwrap();
+    let run = active_run(&pool, &s).await.expect("a bug Story under way is an active Run");
+    assert_eq!(run["flags"]["waiting_on_bugs"], 0, "an open non-bug Subtask is not a bug");
+
+    ops::subtask_handoff(&pool, &sub, "backend-engineer", "claude-opus-5-5", Actor::Agent).await.unwrap();
+    ops::subtask_move(&pool, &sub, "in_progress", Actor::Agent).await.unwrap();
+    ops::subtask_move(&pool, &sub, "done", Actor::Agent).await.unwrap();
+    ops::subtask_verify(&pool, &sub, true, "gates green", Actor::Agent).await.unwrap();
+    mv("integrated_tests").await.unwrap();
+
+    // A defect found while testing the fix is a bug Subtask, and holds it.
+    let found = new_subtask(&pool, &s, true, 5).await;
+    assert_eq!(points_of(&pool, bug).await, 2, "a bug Subtask doesn't count");
+    assert_eq!(active_run(&pool, &s).await.unwrap()["flags"]["waiting_on_bugs"], 1);
+    assert_eq!(ops::story_show(&pool, &s).await.unwrap()["flags"]["waiting_on_bugs"], 1);
+    assert!(mv("tested").await.is_err());
+    mv("building").await.unwrap();
+    ops::subtask_move(&pool, &found, "in_progress", Actor::Agent).await.unwrap();
+    ops::subtask_move(&pool, &found, "done", Actor::Agent).await.unwrap();
+    mv("integrated_tests").await.unwrap();
+    mv("tested").await.unwrap();
+
+    ops::release_create(&pool, "SF", "1.0.0").await.unwrap();
+    ops::release_pick(&pool, "1.0.0", &s, Actor::Owner).await.unwrap();
+    mv("user_testing").await.unwrap();
+    let done = mv("done").await.unwrap();
+    assert_eq!(done["status"], "done");
+    assert_eq!(done["release"]["version"], "1.0.0");
+}
+
+#[tokio::test]
+async fn story_and_subtask_operations_refuse_the_other_level_of_bug() {
+    let (pool, _, _, s) = bug_story_fixture().await;
+    ops::story_move(&pool, &s, "refining", Actor::Owner).await.unwrap();
+    let bug_sub = new_subtask(&pool, &s, true, 1).await;
+
+    let errs = [
+        ops::subtask_move(&pool, &s, "in_progress", Actor::Agent).await.unwrap_err(),
+        ops::subtask_handoff(&pool, &s, "implementer", "m", Actor::Agent).await.unwrap_err(),
+        ops::subtask_verify(&pool, &s, true, "", Actor::Agent).await.unwrap_err(),
+    ];
+    for err in errs {
+        assert!(err.contains("is not a Subtask"), "a top-level bug is a Story: {err}");
+    }
+    let errs = [
+        ops::story_move(&pool, &bug_sub, "refining", Actor::Owner).await.unwrap_err(),
+        ops::story_show(&pool, &bug_sub).await.unwrap_err(),
+    ];
+    for err in errs {
+        assert!(err.contains("is not a Story"), "a bug with a parent is a Subtask: {err}");
+    }
+}
+
+#[tokio::test]
+async fn the_app_moves_a_bug_story_through_the_story_operations() {
+    let (pool, sprint, bug, s) = bug_story_fixture().await;
+    ops::story_move(&pool, &s, "refining", Actor::Owner).await.unwrap();
+    let sub = new_subtask(&pool, &s, false, 2).await;
+
+    assert!(ops::app_move(&pool, bug, Some("ready"), None).await.unwrap());
+    let shown = ops::story_show(&pool, &s).await.unwrap();
+    assert_eq!(shown["status"], "ready");
+    assert_eq!(shown["assignee"], "Pedro", "story_move applied the assignee rule");
+
+    assert!(ops::app_move(&pool, bug, None, Some(Some(sprint))).await.unwrap());
+    assert_eq!(ops::story_show(&pool, &s).await.unwrap()["sprint_id"], sprint);
+    let sub_sprint: Option<i64> = sqlx::query_scalar(
+        "SELECT sprint_id FROM tasks WHERE task_number = ? AND project_id = (SELECT id FROM projects WHERE key = 'SF')",
+    )
+    .bind(sub.rsplit_once('-').unwrap().1.parse::<i64>().unwrap())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(sub_sprint, Some(sprint), "story_set_sprint carried the Subtask along");
+
+    let err = ops::app_move(&pool, bug, Some("refining"), Some(None)).await.unwrap_err();
+    assert!(err.contains("separately"), "{err}");
+}
+
+#[tokio::test]
+async fn a_legacy_top_level_bug_keeps_its_editable_points_and_app_path() {
+    let pool = ts::pool().await;
+    let p = ts::project(&pool, "LG").await;
+    let bug = ts::task(&pool, p, None, None, TaskType::Bug, TaskStatus::Todo).await;
+    ops::app_check_points(&pool, bug, Some(8)).await.expect("a legacy bug's points are its own");
+    assert!(!ops::app_move(&pool, bug, Some("in_progress"), None).await.unwrap(), "legacy rows skip the Factory ladder");
+    ops::app_check_level(&pool, bug, Some(Some(bug + 1)), None).await.expect("legacy parents are free");
+    ops::app_check_level(&pool, bug, None, Some("subtask")).await.expect("legacy types are free");
+}
+
+async fn bug_story(fx: &Fx, title: &str) -> Value {
+    ops::story_create(
+        &fx.pool,
+        NewStory { project: "SF", title, description: "", priority: "medium", labels: "", bug: true },
+        Actor::Owner,
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn story_create_files_a_bug_story_with_the_bug_flag() {
+    let fx = setup("internal").await;
+    let created = bug_story(&fx, "a fix").await;
+    assert_eq!((&created["type"], &created["status"], &created["assignee"]), (&"bug".into(), &"backlog".into(), &"Pedro".into()));
+    let key = created["key"].as_str().unwrap();
+    let n: i64 = key.rsplit_once('-').unwrap().1.parse().unwrap();
+    let stored: (String, Option<i64>, String, Option<i64>) = sqlx::query_as(
+        "SELECT type, parent_id, status, assignee_id FROM tasks WHERE task_number = ? AND project_id = (SELECT id FROM projects WHERE key = 'SF')",
+    )
+    .bind(n)
+    .fetch_one(&fx.pool)
+    .await
+    .unwrap();
+    assert_eq!(stored, ("bug".into(), None, "backlog".into(), Some(fx.pedro)));
+
+    let feature = story(&fx, "a feature").await;
+    assert_eq!(ops::story_show(&fx.pool, &feature).await.unwrap()["type"], "story", "without the flag it is a Story");
+}
+
+#[tokio::test]
+async fn release_show_gives_each_picked_storys_type() {
+    let fx = setup("internal").await;
+    let feature = tested(&fx, "feature").await;
+    let fix = bug_story(&fx, "fix").await["key"].as_str().unwrap().to_string();
+    ready_in_sprint(&fx, &fix).await;
+    for to in ["building", "integrated_tests", "tested"] {
+        mv(&fx, &fix, to).await.unwrap();
+    }
+    ops::release_create(&fx.pool, "SF", "1.6.0").await.unwrap();
+    for k in [&feature, &fix] {
+        ops::release_pick(&fx.pool, "1.6.0", k, Actor::Owner).await.unwrap();
+    }
+
+    let shown = ops::release_show(&fx.pool, "SF", "1.6.0").await.unwrap();
+    let types: Vec<(&str, &str)> = shown["stories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| (s["key"].as_str().unwrap(), s["type"].as_str().unwrap()))
+        .collect();
+    assert_eq!(types, vec![(feature.as_str(), "story"), (fix.as_str(), "bug")]);
+}
+
+// ─── Epics (FB-224) ─────────────────────────────────────────────────────────
+
+/// A Factory project SF with an open epic created through `ops::epic_create`;
+/// returns the pool, the project id and the epic's key.
+async fn epic_fixture() -> (SqlitePool, i64, String) {
+    let pool = ts::pool().await;
+    let p = ts::factory_project(&pool, "SF").await;
+    let epic = ops::epic_create(
+        &pool,
+        ops::NewEpic { project: "SF", title: "hosted web app", description: "", priority: "medium", labels: "" },
+        Actor::Agent,
+    )
+    .await
+    .unwrap();
+    (pool, p, epic["key"].as_str().unwrap().to_string())
+}
+
+/// The stored type, status, parent, sprint and points of the task `key` on SF.
+async fn stored(pool: &SqlitePool, key: &str) -> (String, String, Option<i64>, Option<i64>, i64) {
+    let n: i64 = key.rsplit_once('-').unwrap().1.parse().unwrap();
+    sqlx::query_as(
+        r#"SELECT type, status, parent_id, sprint_id, story_points FROM tasks
+            WHERE task_number = ? AND project_id = (SELECT id FROM projects WHERE key = 'SF')"#,
+    )
+    .bind(n)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn epic_create_opens_an_epic_at_todo_with_no_sprint_or_points() {
+    let (pool, _, key) = epic_fixture().await;
+    assert_eq!(stored(&pool, &key).await, ("epic".into(), "todo".into(), None, None, 0));
+}
+
+#[tokio::test]
+async fn epic_create_is_refused_on_a_legacy_project() {
+    let pool = ts::pool().await;
+    ts::project(&pool, "LG").await;
+    ops::people_set_role(&pool, ts::OWNER, Some("owner")).await.unwrap();
+    ops::people_set_role(&pool, ts::AGENT, Some("agent")).await.unwrap();
+    let err = ops::epic_create(
+        &pool,
+        ops::NewEpic { project: "LG", title: "x", description: "", priority: "medium", labels: "" },
+        Actor::Agent,
+    )
+    .await
+    .unwrap_err();
+    assert!(err.contains("legacy project"), "{err}");
+}
+
+#[tokio::test]
+async fn epic_move_closes_or_cancels_an_open_epic_and_nothing_else() {
+    for to in ["done", "canceled"] {
+        let (pool, _, key) = epic_fixture().await;
+        for refused in ["backlog", "refining", "ready", "building", "tested", "in_progress", "todo"] {
+            let err = ops::epic_move(&pool, &key, refused, Actor::Owner).await.unwrap_err();
+            assert!(err.contains(&key) && err.contains(&format!("from todo to {refused}")), "todo -> {refused}: {err}");
+            assert_eq!(stored(&pool, &key).await.1, "todo", "a refused move changes nothing");
+        }
+        let moved = ops::epic_move(&pool, &key, to, Actor::Owner).await.unwrap();
+        assert_eq!(moved["status"], to);
+        assert_eq!(stored(&pool, &key).await.1, to);
+
+        // Closed is final: no reopen, no switch between done and canceled.
+        for refused in ["todo", "done", "canceled", "backlog"] {
+            let err = ops::epic_move(&pool, &key, refused, Actor::Owner).await.unwrap_err();
+            assert!(err.contains(&key) && err.contains(&format!("from {to} to {refused}")), "{to} -> {refused}: {err}");
+            assert_eq!(stored(&pool, &key).await.1, to);
+        }
+    }
+}
+
+#[tokio::test]
+async fn epic_move_logs_the_change_on_the_epic() {
+    let (pool, _, key) = epic_fixture().await;
+    ops::epic_move(&pool, &key, "done", Actor::Owner).await.unwrap();
+    let n: i64 = key.rsplit_once('-').unwrap().1.parse().unwrap();
+    let events: Vec<(String, String, String)> = sqlx::query_as(
+        r#"SELECT a.action, a.old_value, a.new_value FROM activity_log a JOIN tasks t ON t.id = a.task_id
+            WHERE t.task_number = ? ORDER BY a.id"#,
+    )
+    .bind(n)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![("created".into(), "".into(), "todo".into()), ("status_changed".into(), "todo".into(), "done".into())]
+    );
+}
+
+#[tokio::test]
+async fn epic_move_refuses_a_story() {
+    let (pool, p, _) = epic_fixture().await;
+    let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+    let err = ops::epic_move(&pool, &key_of(&pool, story).await, "done", Actor::Owner).await.unwrap_err();
+    assert!(err.contains("is not an epic"), "{err}");
+}
+
+#[tokio::test]
+async fn story_operations_refuse_an_epic() {
+    let (pool, _, key) = epic_fixture().await;
+    ops::release_create(&pool, "SF", "1.0.0").await.unwrap();
+    let errs = [
+        ops::story_move(&pool, &key, "refining", Actor::Owner).await.unwrap_err(),
+        ops::story_show(&pool, &key).await.unwrap_err(),
+        ops::release_pick(&pool, "1.0.0", &key, Actor::Owner).await.unwrap_err(),
+    ];
+    for err in errs {
+        assert!(err.contains("is not a Story"), "{err}");
+    }
+    assert_eq!(stored(&pool, &key).await.1, "todo");
+}
+
+#[tokio::test]
+async fn subtask_create_refuses_an_epic_as_its_story() {
+    let (pool, _, key) = epic_fixture().await;
+    let err = ops::subtask_create(
+        &pool,
+        NewSubtask { story: &key, title: "s", description: "", bug: false, story_points: 1, risk: false },
+        Actor::Agent,
+    )
+    .await
+    .unwrap_err();
+    assert!(err.contains("is not a Story"), "{err}");
+}
+
+#[tokio::test]
+async fn the_app_moves_a_factory_epic_through_epic_move() {
+    let (pool, _, key) = epic_fixture().await;
+    let n: i64 = key.rsplit_once('-').unwrap().1.parse().unwrap();
+    let id: i64 = sqlx::query_scalar("SELECT id FROM tasks WHERE task_number = ?").bind(n).fetch_one(&pool).await.unwrap();
+    let err = ops::app_move(&pool, id, Some("building"), None).await.unwrap_err();
+    assert!(err.contains(&key) && err.contains("from todo to building"), "{err}");
+    assert!(ops::app_move(&pool, id, Some("canceled"), None).await.unwrap());
+    assert_eq!(stored(&pool, &key).await.1, "canceled");
+}
+
+#[tokio::test]
+async fn epic_move_refuses_a_legacy_epic_and_an_unknown_target() {
+    let pool = ts::pool().await;
+    let lg = ts::project(&pool, "LG").await;
+    let legacy = ts::task(&pool, lg, None, None, TaskType::Epic, TaskStatus::Todo).await;
+    let legacy_key = key_of(&pool, legacy).await;
+    let err = ops::epic_move(&pool, &legacy_key, "done", Actor::Owner).await.unwrap_err();
+    assert!(err.contains("legacy project"), "{err}");
+    let status: String = sqlx::query_scalar("SELECT status FROM tasks WHERE id = ?").bind(legacy).fetch_one(&pool).await.unwrap();
+    assert_eq!(status, "todo", "a legacy epic is left alone");
+
+    let (pool, _, key) = epic_fixture().await;
+    let err = ops::epic_move(&pool, &key, "bogus", Actor::Owner).await.unwrap_err();
+    assert!(err.contains(&key) && err.contains("from todo to bogus") && err.contains("not an epic status"), "{err}");
+    assert_eq!(stored(&pool, &key).await.1, "todo");
+}
+
+// ─── Epic membership (FB-224) ───────────────────────────────────────────────
+
+/// A `story_edit` that only sets the epic (`None` takes the Story out).
+fn set_epic(epic: Option<&str>) -> ops::StoryEdit<'_> {
+    ops::StoryEdit { title: None, description: None, priority: None, labels: None, epic: Some(epic) }
+}
+
+async fn epic_of(pool: &SqlitePool, id: i64) -> Option<i64> {
+    sqlx::query_scalar("SELECT epic_id FROM tasks WHERE id = ?").bind(id).fetch_one(pool).await.unwrap()
+}
+
+async fn link(pool: &SqlitePool, id: i64, epic: i64) {
+    sqlx::query("UPDATE tasks SET epic_id = ? WHERE id = ?").bind(epic).bind(id).execute(pool).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_story_and_a_bug_story_join_an_open_epic_and_leave_it_through_story_edit() {
+    let pool = ts::pool().await;
+    let p = ts::factory_project(&pool, "SF").await;
+    let epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+    let epic_key = key_of(&pool, epic).await;
+    let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+    let bug_story = ts::task(&pool, p, None, None, TaskType::Bug, TaskStatus::Building).await;
+    for id in [story, bug_story] {
+        let key = key_of(&pool, id).await;
+        let out = ops::story_edit(&pool, &key, set_epic(Some(&epic_key))).await.unwrap();
+        assert_eq!(out["epic"], serde_json::json!({ "key": epic_key, "title": "t", "status": "todo" }));
+        assert_eq!(epic_of(&pool, id).await, Some(epic));
+
+        // An edit that leaves the epic out keeps it.
+        let edit = ops::StoryEdit { title: Some("renamed"), description: None, priority: None, labels: None, epic: None };
+        ops::story_edit(&pool, &key, edit).await.unwrap();
+        assert_eq!(epic_of(&pool, id).await, Some(epic));
+
+        let out = ops::story_edit(&pool, &key, set_epic(None)).await.unwrap();
+        assert_eq!(out["epic"], Value::Null);
+        assert_eq!(epic_of(&pool, id).await, None);
+    }
+}
+
+#[tokio::test]
+async fn story_show_names_the_storys_epic_or_null() {
+    let pool = ts::pool().await;
+    let p = ts::factory_project(&pool, "SF").await;
+    let epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+    let linked = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Refining).await;
+    let alone = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Refining).await;
+    link(&pool, linked, epic).await;
+    // A closed epic is still shown on the Stories it holds.
+    sqlx::query("UPDATE tasks SET status = 'done' WHERE id = ?").bind(epic).execute(&pool).await.unwrap();
+
+    let shown = ops::story_show(&pool, &key_of(&pool, linked).await).await.unwrap();
+    assert_eq!(shown["epic"], serde_json::json!({ "key": key_of(&pool, epic).await, "title": "t", "status": "done" }));
+    let shown = ops::story_show(&pool, &key_of(&pool, alone).await).await.unwrap();
+    assert!(shown["epic"].is_null(), "{shown}");
+}
+
+#[tokio::test]
+async fn story_edit_refuses_an_epic_change_that_breaks_membership_and_changes_nothing() {
+    let pool = ts::pool().await;
+    let p = ts::factory_project(&pool, "SF").await;
+    let other = ts::factory_project(&pool, "OT").await;
+    let lg = ts::project(&pool, "LG").await;
+    let open = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+    let done_epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Done).await;
+    let canceled_epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Canceled).await;
+    let foreign = ts::task(&pool, other, None, None, TaskType::Epic, TaskStatus::Todo).await;
+    let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Ready).await;
+    let not_epic = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+    let sub = ts::task(&pool, p, None, Some(story), TaskType::Subtask, TaskStatus::Todo).await;
+    let done_story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Done).await;
+    let canceled_story = ts::task(&pool, p, None, None, TaskType::Bug, TaskStatus::Canceled).await;
+    let legacy_story = ts::task(&pool, lg, None, None, TaskType::Story, TaskStatus::Todo).await;
+    link(&pool, done_story, open).await;
+    link(&pool, canceled_story, open).await;
+
+    let k = |id: i64| {
+        let pool = pool.clone();
+        async move { key_of(&pool, id).await }
+    };
+    let cases: Vec<(i64, Option<String>, &str)> = vec![
+        (story, Some(k(foreign).await), "belongs to another project"),
+        (story, Some(k(done_epic).await), "is done; a closed epic takes no new Stories"),
+        (story, Some(k(canceled_epic).await), "is canceled; a closed epic takes no new Stories"),
+        (story, Some(k(not_epic).await), "is not an epic"),
+        (story, Some("SF-99".into()), "SF-99 not found"),
+        (done_story, None, "is done; a done or canceled Story keeps its epic"),
+        (done_story, Some(k(not_epic).await), "keeps its epic"),
+        (canceled_story, None, "is canceled; a done or canceled Story keeps its epic"),
+        (sub, Some(k(open).await), "is not a Story"),
+        (open, None, "is not a Story"),
+        (open, Some(k(done_epic).await), "is not a Story"),
+        (legacy_story, Some(k(open).await), "legacy project"),
+    ];
+    let row = |id: i64| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_as::<_, (Option<i64>, String, String)>("SELECT epic_id, title, updated_at FROM tasks WHERE id = ?")
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+        }
+    };
+    for (id, epic, needle) in cases {
+        let before = row(id).await;
+        // A refused epic change takes the rest of the edit down with it.
+        let edit = ops::StoryEdit { title: Some("renamed"), ..set_epic(epic.as_deref()) };
+        let err = ops::story_edit(&pool, &k(id).await, edit).await.unwrap_err();
+        assert!(err.contains(needle), "{needle}: {err}");
+        assert_eq!(row(id).await, before, "{needle}: nothing changes");
+    }
+    // Keeping a done Story's epic is not a change.
+    ops::story_edit(&pool, &k(done_story).await, set_epic(Some(&k(open).await))).await.unwrap();
 }

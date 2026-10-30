@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import type { CardDecor } from "@/features/boards/shared/TaskCard";
 import type { Project, Task } from "@/types";
 import { StoryFlags } from "./StoryFlags";
+import { isStoryLevel } from "@/lib/storyLevel";
 
 // On a Factory project a Story opens its own page instead of the slide-over,
 // and its board card carries the Run flags (SF-61). Legacy projects are left
@@ -9,8 +10,14 @@ import { StoryFlags } from "./StoryFlags";
 
 /** The Story page path of a task, or null when it opens in the slide-over. */
 export function storyPagePath(project: Project | undefined, task: Task): string | null {
-  if (project?.ladder !== "factory" || task.type !== "story") return null;
+  if (project?.ladder !== "factory" || !isStoryLevel(task, project.ladder)) return null;
   return `/story/${project.key}-${task.task_number}`;
+}
+
+/** The epic page path of a Factory epic (FB-224), or null when it opens in the slide-over. */
+export function epicPagePath(project: Project | undefined, task: Task): string | null {
+  if (project?.ladder !== "factory" || task.type !== "epic") return null;
+  return `/epic/${project.key}-${task.task_number}`;
 }
 
 /** Open bug Subtasks of a Story: the "waiting on N bugs" flag. */
@@ -28,7 +35,7 @@ export function useStoryCardDecor(
   const navigate = useNavigate();
   if (project?.ladder !== "factory") return undefined;
   return (task) => {
-    const path = storyPagePath(project, task);
+    const path = storyPagePath(project, task) ?? epicPagePath(project, task);
     if (!path) return {};
     const bugs = openBugCount(task, allTasks ?? []);
     return {

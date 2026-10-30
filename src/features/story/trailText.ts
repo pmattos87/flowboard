@@ -37,6 +37,8 @@ export function trailLine(e: TrailEvent): TrailLine {
       const pass = f("result") === "pass";
       return { tone: pass ? "pass" : "fail", text: `Verify r${f("round")} ${pass ? "✓" : "✗"} ${f("subtask")}`, detail: f("reason") };
     }
+    case "verify_started":
+      return { tone: "info", text: `${f("subtask")} Verify r${f("round")} started`, detail: "" };
     case "review_round": {
       const pass = f("verdict") === "passed";
       const commit = f("commit").slice(0, 7);

@@ -87,6 +87,8 @@ export interface Task {
   run_stopped: boolean;
   risk: boolean;
   release_id: number | null;
+  /** The epic this Story belongs to (FB-224); Factory Stories only. */
+  epic_id: number | null;
 }
 
 export interface Comment {
@@ -147,7 +149,7 @@ export interface ReleaseDetail {
   project: string;
   version: string;
   state: ReleaseState;
-  stories: { key: string; title: string; status: TaskStatus }[];
+  stories: { key: string; title: string; type: TaskType; status: TaskStatus }[];
 }
 
 /** `pick_release_story`: depends-on warnings, never refusals. */
@@ -163,6 +165,7 @@ export interface ReleasePickResult {
 export interface StoryView {
   key: string;
   title: string;
+  type: TaskType;
   status: TaskStatus;
   priority: TaskPriority;
   labels: string;
@@ -176,6 +179,8 @@ export interface StoryView {
     findings_url: string | null;
   };
   release: { version: string; state: ReleaseState } | null;
+  /** The epic the Story belongs to (FB-224). */
+  epic: { key: string; title: string; status: TaskStatus } | null;
   flags: { stopped: boolean; waiting_on_bugs: number };
   prs: { url: string; target: string; state: string }[];
   /** Keys of the Stories this one depends on. */

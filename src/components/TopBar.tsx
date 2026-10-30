@@ -10,7 +10,7 @@ import { useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/Avatar";
 import { ProjectBadge } from "@/components/ProjectBadge";
-import { storyPagePath } from "@/features/story/useStoryCardDecor";
+import { epicPagePath, storyPagePath } from "@/features/story/useStoryCardDecor";
 
 const LAST_VISIT_KEY = "lastInboxVisit";
 
@@ -176,7 +176,7 @@ export function TopBar() {
     switch (r.kind) {
       case "task": {
         const task = tasks.find((t) => t.id === r.id);
-        const path = task ? storyPagePath(activeProject, task) : null;
+        const path = task ? (storyPagePath(activeProject, task) ?? epicPagePath(activeProject, task)) : null;
         if (path) navigate(path);
         else setSelectedTaskId(r.id);
         break;

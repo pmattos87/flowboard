@@ -39,6 +39,10 @@ describe("trailLine", () => {
     expect(trailLine(ev("review_started", { round: 2 })).text).toBe("Review r2 started");
   });
 
+  it("describes a Subtask's Verify round starting (FB-277)", () => {
+    expect(trailLine(ev("verify_started", { subtask: "FB-2", round: 1 }))).toEqual({ tone: "info", text: "FB-2 Verify r1 started", detail: "" });
+  });
+
   it("falls back to the action name for unknown kinds", () => {
     expect(trailLine(ev("something_new", "x"))).toEqual({ tone: "info", text: "something new", detail: "x" });
   });

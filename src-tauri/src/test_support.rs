@@ -121,6 +121,22 @@ pub async fn pool() -> SqlitePool {
     pool
 }
 
+/// Like [`pool`], but on a fresh file opened as the app opens it (WAL, through
+/// `db::open_and_migrate`), for tests that interleave two writers: the
+/// in-memory database shares one cache and locks per table, which the app's
+/// database never does. `name` keeps each test's file apart.
+pub async fn file_pool(name: &str) -> SqlitePool {
+    let dir = std::env::temp_dir().join(format!("flowboard-test-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let pool = crate::db::open_and_migrate(&dir.join("flowboard.db")).await.unwrap();
+    sqlx::query("INSERT INTO people (name, email) VALUES ('Pedro', 'p@test'), ('Claude', 'c@test')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool
+}
+
 /// A legacy project whose name and key are both `key`; returns its id.
 pub async fn project(pool: &SqlitePool, key: &str) -> i64 {
     sqlx::query_scalar("INSERT INTO projects (name, key, created_at) VALUES (?, ?, '2026-01-01T00:00:00.000Z') RETURNING id")

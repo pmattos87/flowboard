@@ -17,6 +17,7 @@ import { useSprints } from "@/hooks/useSprints";
 import { useProject } from "@/hooks/useProjects";
 import { useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
+import { isStoryLevel } from "@/lib/storyLevel";
 import { statusOptionsForType } from "@/features/boards/shared/boardConstants";
 import {
   isSprintScheduleBlocked,
@@ -91,17 +92,27 @@ export function CreateTaskModal() {
 
   // The form starts at `todo`; on a Factory project a Story starts in backlog
   // instead (SF-31), so fall back to the first status the ladder offers.
-  const statusOptions = statusOptionsForType(form.type, project?.ladder);
+  const statusOptions = statusOptionsForType(form, project?.ladder);
   const status = statusOptions.some((o) => o.value === form.status)
     ? form.status
     : statusOptions[0].value;
   const gate = sprintGateToast(project?.ladder);
   // A Factory Story's points are the sum of its Subtasks' (SF-68).
-  const derivedPoints = project?.ladder === "factory" && form.type === "story";
+  const derivedPoints = project?.ladder === "factory" && isStoryLevel(form, project.ladder);
+  // FB-224: a Factory epic is never built. It opens at `todo` with no sprint,
+  // points or parent, so the modal drops those fields for it.
+  const factoryEpic = project?.ladder === "factory" && form.type === "epic";
 
   const lockType = createTaskPrefill?.lockType ?? false;
+  // On a Factory project a top-level bug is a Story too (FB-52), so the
+  // create-story modal offers Bug next to Story, and Epic (FB-224) for an
+  // initiative that groups Stories.
+  const lockedTypes: TaskType[] =
+    lockType && project?.ladder === "factory" && createTaskPrefill?.type === "story"
+      ? ["story", "bug", "epic"]
+      : [createTaskPrefill?.type ?? "story"];
   const typeOptions = lockType
-    ? TYPE_OPTIONS.filter((opt) => opt.value === (createTaskPrefill?.type ?? "story"))
+    ? TYPE_OPTIONS.filter((opt) => lockedTypes.includes(opt.value))
     : TYPE_OPTIONS;
 
   const handleOpenChange = (open: boolean) => {
@@ -119,7 +130,7 @@ export function CreateTaskModal() {
     if (!title || activeProjectId == null) return;
     // FB-90: the select's own guard can be sidestepped by picking a sprint while
     // the status is still valid and then changing the status, so re-check here.
-    if (form.sprint_id !== null && isSprintScheduleBlocked({ ...form, status, sprint_id: null }, form.sprint_id, project?.ladder)) {
+    if (!factoryEpic && form.sprint_id !== null && isSprintScheduleBlocked({ ...form, status, sprint_id: null }, form.sprint_id, project?.ladder)) {
       toast.warning(gate.title, { description: gate.description });
       return;
     }
@@ -128,12 +139,12 @@ export function CreateTaskModal() {
         project_id: activeProjectId,
         title,
         type: form.type,
-        status,
+        status: factoryEpic ? "todo" : status,
         priority: form.priority,
-        sprint_id: form.sprint_id,
-        parent_id: form.parent_id,
+        ...(factoryEpic ? {} : { sprint_id: form.sprint_id }),
+        parent_id: factoryEpic ? null : form.parent_id,
         assignee_id: form.assignee_id,
-        story_points: derivedPoints ? 0 : form.story_points,
+        story_points: derivedPoints || factoryEpic ? 0 : form.story_points,
         due_date: form.due_date || null,
         labels: form.labels.trim(),
         description: form.description.trim(),
@@ -181,13 +192,14 @@ export function CreateTaskModal() {
                     key={opt.value}
                     type="button"
                     onClick={() => setForm((f) => ({ ...f, type: opt.value }))}
-                    disabled={lockType}
+                    disabled={typeOptions.length === 1}
+                    aria-pressed={form.type === opt.value}
                     className={cn(
                       "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors",
                       form.type === opt.value
                         ? opt.color
                         : "text-gray-500 border-gray-700 bg-transparent hover:border-gray-600 hover:text-gray-300",
-                      lockType && "cursor-default",
+                      typeOptions.length === 1 && "cursor-default",
                     )}
                   >
                     {opt.icon}
@@ -204,6 +216,7 @@ export function CreateTaskModal() {
                 <select
                   id="task-status"
                   value={status}
+                  disabled={factoryEpic}
                   onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as TaskStatus }))}
                   className="w-full rounded-md bg-gray-800 border border-gray-700 text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
@@ -230,6 +243,7 @@ export function CreateTaskModal() {
 
             {/* Sprint + Assignee */}
             <div className="grid grid-cols-2 gap-3">
+              {!factoryEpic && (
               <div className="space-y-1.5">
                 <Label htmlFor="task-sprint" className="text-gray-300">Sprint</Label>
                 <select
@@ -257,6 +271,7 @@ export function CreateTaskModal() {
                   ))}
                 </select>
               </div>
+              )}
               <div className="space-y-1.5">
                 <Label htmlFor="task-assignee" className="text-gray-300">Assignee</Label>
                 <select
@@ -279,7 +294,8 @@ export function CreateTaskModal() {
             </div>
 
             {/* Story points + Due date + Labels */}
-            <div className="grid grid-cols-3 gap-3">
+            <div className={cn("grid gap-3", factoryEpic ? "grid-cols-2" : "grid-cols-3")}>
+              {!factoryEpic && (
               <div className="space-y-1.5">
                 <Label htmlFor="task-points" className="text-gray-300">Points</Label>
                 <Input
@@ -294,6 +310,7 @@ export function CreateTaskModal() {
                   className="bg-gray-800 border-gray-700 text-gray-100"
                 />
               </div>
+              )}
               <div className="space-y-1.5">
                 <Label htmlFor="task-due" className="text-gray-300">Due date</Label>
                 <Input
@@ -350,7 +367,7 @@ export function CreateTaskModal() {
                 disabled={!form.title.trim() || createTask.isPending}
                 className="bg-blue-600 hover:bg-blue-500 text-white"
               >
-                {createTask.isPending ? "Creating…" : lockType ? "Create story" : "Create subtask"}
+                {createTask.isPending ? "Creating…" : factoryEpic ? "Create epic" : lockType ? "Create story" : "Create subtask"}
               </Button>
             </div>
           </form>

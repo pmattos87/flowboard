@@ -162,6 +162,27 @@ pub fn check_subtask_move(from: &str, to: &str) -> Result<(), String> {
     }
 }
 
+/// An epic's lifecycle (FB-224): open at `todo`, closed by hand to `done` or
+/// `canceled`, never reopened. Existing status values only: a new one would
+/// mean a CHECK change, which rebuilds `tasks`.
+pub const EPIC_STATUSES: &[&str] = &["todo", "done", "canceled"];
+
+/// `Ok(())` when an epic may move from `from` to `to`; otherwise the reason.
+pub fn check_epic_move(from: &str, to: &str) -> Result<(), String> {
+    if matches!((from, to), ("todo", "done") | ("todo", "canceled")) {
+        return Ok(());
+    }
+    if !EPIC_STATUSES.contains(&to) {
+        return Err(format!(
+            "an epic cannot move from {from} to {to}: '{to}' is not an epic status (expected one of: {})",
+            EPIC_STATUSES.join(", ")
+        ));
+    }
+    Err(format!(
+        "an epic cannot move from {from} to {to}: an open epic (todo) is closed to done or canceled, and a closed one is never reopened"
+    ))
+}
+
 pub fn check_release_move(from: &str, to: &str, client_project: bool) -> Result<(), String> {
     if !RELEASE_STATES.contains(&to) {
         return Err(format!(
@@ -403,5 +424,25 @@ mod tests {
         assert!(check_release_move("planned", "released", true).is_err());
         check_release_move("user_testing", "released", true).unwrap();
         assert!(check_release_move("released", "canceled", true).is_err());
+    }
+
+    #[test]
+    fn an_epic_only_closes_from_todo_and_never_reopens() {
+        check_epic_move("todo", "done").unwrap();
+        check_epic_move("todo", "canceled").unwrap();
+        let refused = [
+            ("todo", "todo"),
+            ("todo", "backlog"),
+            ("todo", "building"),
+            ("todo", "in_progress"),
+            ("done", "todo"),
+            ("done", "canceled"),
+            ("canceled", "todo"),
+            ("canceled", "done"),
+        ];
+        for (from, to) in refused {
+            let err = check_epic_move(from, to).unwrap_err();
+            assert!(err.contains(&format!("from {from} to {to}")), "{from} -> {to}: {err}");
+        }
     }
 }
