@@ -311,3 +311,68 @@ describe("CreateTaskModal — submission", () => {
     expect(useUiStore.getState().createTaskModalOpen).toBe(true);
   });
 });
+
+// FB-52: on a Factory project a top-level bug is a Story (a fix), so the
+// create-story modal offers Bug and gives it the Story ladder.
+describe("CreateTaskModal — bug Stories (FB-52)", () => {
+  const project = (ladder: "legacy" | "factory") => ({ id: 1, name: "P", key: "P", ladder });
+
+  function mockProject(ladder: "legacy" | "factory") {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "get_project") return Promise.resolve(project(ladder));
+      if (cmd === "create_task") return Promise.resolve(null);
+      return Promise.resolve([]);
+    });
+  }
+
+  beforeEach(() => {
+    useUiStore.setState({
+      createTaskModalOpen: true,
+      activeProjectId: 1,
+      createTaskPrefill: { type: "story", lockType: true },
+    });
+  });
+
+  it("creates a top-level bug in backlog with the Story statuses on a Factory project", async () => {
+    const user = userEvent.setup();
+    mockProject("factory");
+    renderModal();
+
+    await user.click(await screen.findByRole("button", { name: "Bug" }));
+    expect(screen.getByRole("button", { name: "Bug" })).toHaveAttribute("aria-pressed", "true");
+
+    const statusSelect = screen.getByLabelText(/status/i) as HTMLSelectElement;
+    const offered = Array.from(statusSelect.options).map((o) => o.value);
+    expect(offered.slice(0, 3)).toEqual(["backlog", "refining", "ready"]);
+    expect(offered).not.toContain("todo");
+    expect(statusSelect.value).toBe("backlog");
+    expect(screen.getByLabelText(/points/i)).toBeDisabled();
+
+    await user.type(screen.getByLabelText(/title/i), "Crash on save");
+    await user.click(screen.getByRole("button", { name: /create story/i }));
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith(
+        "create_task",
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            type: "bug",
+            parent_id: null,
+            status: "backlog",
+            story_points: 0,
+            title: "Crash on save",
+          }),
+        }),
+      ),
+    );
+  });
+
+  it("keeps the create-story modal Story-only on a legacy project", async () => {
+    mockProject("legacy");
+    renderModal();
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith("get_project", { id: 1 }));
+    await screen.findByRole("button", { name: "Story" });
+    await new Promise((r) => setTimeout(r, 20)); // let the project query settle
+    expect(screen.queryByRole("button", { name: "Bug" })).not.toBeInTheDocument();
+  });
+});

@@ -11,6 +11,7 @@ import { useTasks } from "@/hooks/useTasks";
 import { useRestartRun, useStory, useStoryTrail } from "@/hooks/useStory";
 import { statusOptionsForType } from "@/features/boards/shared/boardConstants";
 import { cn } from "@/lib/utils";
+import { isStoryLevel } from "@/lib/storyLevel";
 import { openGithubUrl } from "@/lib/commands";
 import type { StoryView, TrailEvent } from "@/types";
 import { StoryFlags } from "./StoryFlags";
@@ -153,7 +154,7 @@ export function StoryPage() {
   const project = projects?.find((p) => p.key === projectKey);
   const { data: tasks } = useTasks(project ? { project_id: project.id } : undefined);
   const { data: people = [] } = usePeople();
-  const task = project ? tasks?.find((t) => t.task_number === number && t.type === "story") : undefined;
+  const task = project ? tasks?.find((t) => t.task_number === number && isStoryLevel(t, project.ladder)) : undefined;
   const isFactory = project?.ladder === "factory";
   const { data: story, error } = useStory(key, isFactory && task != null);
   const draftState = useTaskDraft(task);
@@ -167,7 +168,7 @@ export function StoryPage() {
 
   const typeBadge = typeBadgeFor(task);
   const statusLabel =
-    statusOptionsForType(task.type, "factory").find((o) => o.value === task.status)?.label ?? task.status;
+    statusOptionsForType(task, "factory").find((o) => o.value === task.status)?.label ?? task.status;
 
   return (
     <div>

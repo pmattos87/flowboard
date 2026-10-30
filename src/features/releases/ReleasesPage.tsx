@@ -11,8 +11,10 @@ import {
 } from "@/hooks/useReleases";
 import { RefreshButton } from "@/components/RefreshButton";
 import { Button } from "@/components/ui/button";
+import { TYPE_META } from "@/features/boards/shared/boardConstants";
+import { isStoryLevel } from "@/lib/storyLevel";
 import { NewReleaseDialog } from "./NewReleaseDialog";
-import type { ReleaseState, ReleaseSummary, Task } from "@/types";
+import type { ReleaseState, ReleaseSummary, Task, TaskType } from "@/types";
 
 const SECTIONS: { state: ReleaseState; label: string }[] = [
   { state: "planned", label: "Planned" },
@@ -66,11 +68,16 @@ function TableHead({ withAction }: { withAction: boolean }) {
   );
 }
 
-function StoryCell({ title, storyKey }: { title: string; storyKey: string }) {
+/** Title over key, led by the type icon so a pick reads as a feature or a fix (FB-52). */
+function StoryCell({ title, storyKey, type }: { title: string; storyKey: string; type: TaskType }) {
+  const { Icon, colorClass } = TYPE_META[type] ?? TYPE_META.story;
   return (
-    <div className="min-w-0">
-      <p className="truncate text-sm font-medium text-gray-100">{title}</p>
-      <p className="truncate text-xs text-gray-500">{storyKey}</p>
+    <div className="flex min-w-0 items-start gap-2">
+      <Icon role="img" aria-label={type === "bug" ? "Bug" : "Story"} className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${colorClass}`} />
+      <div className="min-w-0">
+        <p className="truncate text-sm font-medium text-gray-100">{title}</p>
+        <p className="truncate text-xs text-gray-500">{storyKey}</p>
+      </div>
     </div>
   );
 }
@@ -120,7 +127,7 @@ function OpenRelease({ projectKey, release, candidates }: { projectKey: string; 
         <ul className="divide-y divide-gray-700">
           {stories.map((s) => (
             <li key={s.key} className={`${GRID} py-2 hover:bg-gray-700/40`}>
-              <StoryCell title={s.title} storyKey={s.key} />
+              <StoryCell title={s.title} storyKey={s.key} type={s.type} />
               <div>
                 <StatusPill label={statusLabel(s.status)} tone={statusTone(s.status)} />
               </div>
@@ -146,7 +153,7 @@ function OpenRelease({ projectKey, release, candidates }: { projectKey: string; 
               const key = `${projectKey}-${t.task_number}`;
               return (
                 <li key={t.id} className={`${GRID} py-2 hover:bg-gray-700/40`}>
-                  <StoryCell title={t.title} storyKey={key} />
+                  <StoryCell title={t.title} storyKey={key} type={t.type} />
                   <div>
                     <StatusPill label="Tested" tone={EMERALD} />
                   </div>
@@ -178,7 +185,7 @@ function ClosedStories({ projectKey, version }: { projectKey: string; version: s
       <ul className="divide-y divide-gray-700">
         {(data?.stories ?? []).map((s) => (
           <li key={s.key} className={`${GRID_NO_ACTION} py-2`}>
-            <StoryCell title={s.title} storyKey={s.key} />
+            <StoryCell title={s.title} storyKey={s.key} type={s.type} />
             <div>
               <StatusPill label={statusLabel(s.status)} tone={statusTone(s.status)} />
             </div>
@@ -245,7 +252,7 @@ export default function ReleasesPage() {
   if (!project) return null;
 
   const candidates = (tasks ?? []).filter(
-    (t) => t.type === "story" && t.parent_id === null && t.status === "tested" && t.release_id === null,
+    (t) => isStoryLevel(t, project.ladder) && t.status === "tested" && t.release_id === null,
   );
 
   return (

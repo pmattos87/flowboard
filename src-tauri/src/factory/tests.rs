@@ -53,7 +53,7 @@ async fn setup(kind: &str) -> Fx {
 async fn story(fx: &Fx, title: &str) -> String {
     let s = ops::story_create(
         &fx.pool,
-        NewStory { project: "SF", title, description: "", priority: "medium", labels: "" },
+        NewStory { project: "SF", title, description: "", priority: "medium", labels: "", bug: false },
         Actor::Owner,
     )
     .await
@@ -362,7 +362,7 @@ async fn legacy_projects_are_refused() {
     let fx = setup("internal").await;
     let err = ops::story_create(
         &fx.pool,
-        NewStory { project: "LG", title: "x", description: "", priority: "medium", labels: "" },
+        NewStory { project: "LG", title: "x", description: "", priority: "medium", labels: "", bug: false },
         Actor::Owner,
     )
     .await
@@ -439,7 +439,8 @@ async fn a_legacy_project_switches_once_its_open_items_are_mapped() {
     insert(5, Some(4), "subtask", "canceled").await;
 
     let err = ops::project_set(&fx.pool, "LG", Some("factory"), None).await.unwrap_err();
-    assert!(err.contains("3 open item(s)") && err.contains("LG-1, LG-2, LG-3"), "{err}");
+    assert!(err.contains("2 open item(s)") && err.contains("LG-1, LG-2"), "{err}");
+    assert!(!err.contains("LG-3"), "a top-level bug at refining is a mapped Story (FB-52): {err}");
 
     let map = |sql: &'static str| {
         let pool = fx.pool.clone();
@@ -447,12 +448,9 @@ async fn a_legacy_project_switches_once_its_open_items_are_mapped() {
     };
     map("UPDATE tasks SET status = 'backlog' WHERE task_number = 1").await;
     map("UPDATE tasks SET status = 'todo' WHERE task_number = 2").await;
-    let err = ops::project_set(&fx.pool, "LG", Some("factory"), None).await.unwrap_err();
-    assert!(err.contains("1 open item(s)") && err.contains("LG-3"), "a top-level bug isn't a Story: {err}");
-
-    map("UPDATE tasks SET type = 'story' WHERE task_number = 3").await;
     ops::project_set(&fx.pool, "LG", Some("factory"), None).await.expect("every open item is mapped");
     assert_eq!(mv(&fx, "LG-1", "refining").await.unwrap()["status"], "refining");
+    assert_eq!(mv(&fx, "LG-3", "backlog").await.unwrap()["status"], "backlog", "the bug Story is on the Story ladder");
 }
 
 #[tokio::test]
@@ -633,7 +631,7 @@ async fn missing_factory_roles_give_an_actionable_error() {
     ops::people_set_role(&fx.pool, fx.pedro, None).await.unwrap();
     let err = ops::story_create(
         &fx.pool,
-        NewStory { project: "SF", title: "x", description: "", priority: "medium", labels: "" },
+        NewStory { project: "SF", title: "x", description: "", priority: "medium", labels: "", bug: false },
         Actor::Owner,
     )
     .await
@@ -729,4 +727,215 @@ async fn an_unsplit_story_cannot_move_to_ready() {
     assert!(err.contains("0 points"), "{err}");
     subtask(&fx, &s, false).await;
     mv(&fx, &s, "ready").await.unwrap();
+}
+
+// ─── Bug Stories (FB-52) ────────────────────────────────────────────────────
+
+use crate::test_support::{self as ts, SprintStatus, TaskStatus, TaskType};
+
+/// The issue key of task `id`.
+async fn key_of(pool: &SqlitePool, id: i64) -> String {
+    sqlx::query_scalar("SELECT p.key || '-' || t.task_number FROM tasks t JOIN projects p ON p.id = t.project_id WHERE t.id = ?")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn points_of(pool: &SqlitePool, id: i64) -> i64 {
+    sqlx::query_scalar("SELECT story_points FROM tasks WHERE id = ?").bind(id).fetch_one(pool).await.unwrap()
+}
+
+/// A Client Factory project SF with a primary contact and an active sprint, and
+/// a top-level `bug` in backlog on it. Returns the pool, the sprint, and the
+/// bug's id and key.
+async fn bug_story_fixture() -> (SqlitePool, i64, i64, String) {
+    let pool = ts::pool().await;
+    let p = ts::factory_project(&pool, "SF").await;
+    ops::project_set(&pool, "SF", None, Some("client")).await.unwrap();
+    let client: i64 = sqlx::query_scalar("INSERT INTO people (name, email) VALUES ('Client', 'client@test') RETURNING id")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    ops::contact_add(&pool, "SF", client, true).await.unwrap();
+    let sprint = ts::sprint(&pool, p, "S1", "2026-10-01", SprintStatus::Active).await;
+    let bug = ts::task(&pool, p, None, None, TaskType::Bug, TaskStatus::Backlog).await;
+    let key = key_of(&pool, bug).await;
+    (pool, sprint, bug, key)
+}
+
+async fn new_subtask(pool: &SqlitePool, story: &str, bug: bool, story_points: i64) -> String {
+    let s = ops::subtask_create(
+        pool,
+        NewSubtask { story, title: "slice", description: "", bug, story_points, risk: false },
+        Actor::Agent,
+    )
+    .await
+    .unwrap();
+    s["key"].as_str().unwrap().to_string()
+}
+
+/// The `active_runs` entry for `key`, if it is listed.
+async fn active_run(pool: &SqlitePool, key: &str) -> Option<Value> {
+    ops::active_runs(pool).await.unwrap().as_array().unwrap().iter().find(|r| r["key"] == key).cloned()
+}
+
+#[tokio::test]
+async fn a_top_level_bug_climbs_the_whole_story_ladder() {
+    let (pool, sprint, bug, s) = bug_story_fixture().await;
+    let mv = |to: &'static str| ops::story_move(&pool, &s, to, Actor::Owner);
+
+    mv("refining").await.unwrap();
+    let sub = new_subtask(&pool, &s, false, 2).await;
+    let dropped = new_subtask(&pool, &s, false, 3).await;
+    ops::subtask_move(&pool, &dropped, "canceled", Actor::Owner).await.unwrap();
+    assert_eq!(points_of(&pool, bug).await, 2, "points are the sum of the open non-bug Subtasks");
+    let err = ops::app_check_points(&pool, bug, Some(8)).await.unwrap_err();
+    assert!(err.contains("sum of its Subtasks' points"), "{err}");
+    ops::app_check_points(&pool, bug, Some(2)).await.expect("echoing the current points is not an edit");
+
+    mv("ready").await.unwrap();
+    ops::story_set_sprint(&pool, &s, Some(sprint)).await.unwrap();
+    mv("building").await.unwrap();
+    let run = active_run(&pool, &s).await.expect("a bug Story under way is an active Run");
+    assert_eq!(run["flags"]["waiting_on_bugs"], 0, "an open non-bug Subtask is not a bug");
+
+    ops::subtask_handoff(&pool, &sub, "backend-engineer", "claude-opus-5-5", Actor::Agent).await.unwrap();
+    ops::subtask_move(&pool, &sub, "in_progress", Actor::Agent).await.unwrap();
+    ops::subtask_move(&pool, &sub, "done", Actor::Agent).await.unwrap();
+    ops::subtask_verify(&pool, &sub, true, "gates green", Actor::Agent).await.unwrap();
+    mv("integrated_tests").await.unwrap();
+
+    // A defect found while testing the fix is a bug Subtask, and holds it.
+    let found = new_subtask(&pool, &s, true, 5).await;
+    assert_eq!(points_of(&pool, bug).await, 2, "a bug Subtask doesn't count");
+    assert_eq!(active_run(&pool, &s).await.unwrap()["flags"]["waiting_on_bugs"], 1);
+    assert_eq!(ops::story_show(&pool, &s).await.unwrap()["flags"]["waiting_on_bugs"], 1);
+    assert!(mv("tested").await.is_err());
+    mv("building").await.unwrap();
+    ops::subtask_move(&pool, &found, "in_progress", Actor::Agent).await.unwrap();
+    ops::subtask_move(&pool, &found, "done", Actor::Agent).await.unwrap();
+    mv("integrated_tests").await.unwrap();
+    mv("tested").await.unwrap();
+
+    ops::release_create(&pool, "SF", "1.0.0").await.unwrap();
+    ops::release_pick(&pool, "1.0.0", &s, Actor::Owner).await.unwrap();
+    mv("user_testing").await.unwrap();
+    let done = mv("done").await.unwrap();
+    assert_eq!(done["status"], "done");
+    assert_eq!(done["release"]["version"], "1.0.0");
+}
+
+#[tokio::test]
+async fn story_and_subtask_operations_refuse_the_other_level_of_bug() {
+    let (pool, _, _, s) = bug_story_fixture().await;
+    ops::story_move(&pool, &s, "refining", Actor::Owner).await.unwrap();
+    let bug_sub = new_subtask(&pool, &s, true, 1).await;
+
+    let errs = [
+        ops::subtask_move(&pool, &s, "in_progress", Actor::Agent).await.unwrap_err(),
+        ops::subtask_handoff(&pool, &s, "implementer", "m", Actor::Agent).await.unwrap_err(),
+        ops::subtask_verify(&pool, &s, true, "", Actor::Agent).await.unwrap_err(),
+    ];
+    for err in errs {
+        assert!(err.contains("is not a Subtask"), "a top-level bug is a Story: {err}");
+    }
+    let errs = [
+        ops::story_move(&pool, &bug_sub, "refining", Actor::Owner).await.unwrap_err(),
+        ops::story_show(&pool, &bug_sub).await.unwrap_err(),
+    ];
+    for err in errs {
+        assert!(err.contains("is not a Story"), "a bug with a parent is a Subtask: {err}");
+    }
+}
+
+#[tokio::test]
+async fn the_app_moves_a_bug_story_through_the_story_operations() {
+    let (pool, sprint, bug, s) = bug_story_fixture().await;
+    ops::story_move(&pool, &s, "refining", Actor::Owner).await.unwrap();
+    let sub = new_subtask(&pool, &s, false, 2).await;
+
+    assert!(ops::app_move(&pool, bug, Some("ready"), None).await.unwrap());
+    let shown = ops::story_show(&pool, &s).await.unwrap();
+    assert_eq!(shown["status"], "ready");
+    assert_eq!(shown["assignee"], "Pedro", "story_move applied the assignee rule");
+
+    assert!(ops::app_move(&pool, bug, None, Some(Some(sprint))).await.unwrap());
+    assert_eq!(ops::story_show(&pool, &s).await.unwrap()["sprint_id"], sprint);
+    let sub_sprint: Option<i64> = sqlx::query_scalar(
+        "SELECT sprint_id FROM tasks WHERE task_number = ? AND project_id = (SELECT id FROM projects WHERE key = 'SF')",
+    )
+    .bind(sub.rsplit_once('-').unwrap().1.parse::<i64>().unwrap())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(sub_sprint, Some(sprint), "story_set_sprint carried the Subtask along");
+
+    let err = ops::app_move(&pool, bug, Some("refining"), Some(None)).await.unwrap_err();
+    assert!(err.contains("separately"), "{err}");
+}
+
+#[tokio::test]
+async fn a_legacy_top_level_bug_keeps_its_editable_points_and_app_path() {
+    let pool = ts::pool().await;
+    let p = ts::project(&pool, "LG").await;
+    let bug = ts::task(&pool, p, None, None, TaskType::Bug, TaskStatus::Todo).await;
+    ops::app_check_points(&pool, bug, Some(8)).await.expect("a legacy bug's points are its own");
+    assert!(!ops::app_move(&pool, bug, Some("in_progress"), None).await.unwrap(), "legacy rows skip the Factory ladder");
+    ops::app_check_level(&pool, bug, Some(Some(bug + 1)), None).await.expect("legacy parents are free");
+    ops::app_check_level(&pool, bug, None, Some("subtask")).await.expect("legacy types are free");
+}
+
+async fn bug_story(fx: &Fx, title: &str) -> Value {
+    ops::story_create(
+        &fx.pool,
+        NewStory { project: "SF", title, description: "", priority: "medium", labels: "", bug: true },
+        Actor::Owner,
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn story_create_files_a_bug_story_with_the_bug_flag() {
+    let fx = setup("internal").await;
+    let created = bug_story(&fx, "a fix").await;
+    assert_eq!((&created["type"], &created["status"], &created["assignee"]), (&"bug".into(), &"backlog".into(), &"Pedro".into()));
+    let key = created["key"].as_str().unwrap();
+    let n: i64 = key.rsplit_once('-').unwrap().1.parse().unwrap();
+    let stored: (String, Option<i64>, String, Option<i64>) = sqlx::query_as(
+        "SELECT type, parent_id, status, assignee_id FROM tasks WHERE task_number = ? AND project_id = (SELECT id FROM projects WHERE key = 'SF')",
+    )
+    .bind(n)
+    .fetch_one(&fx.pool)
+    .await
+    .unwrap();
+    assert_eq!(stored, ("bug".into(), None, "backlog".into(), Some(fx.pedro)));
+
+    let feature = story(&fx, "a feature").await;
+    assert_eq!(ops::story_show(&fx.pool, &feature).await.unwrap()["type"], "story", "without the flag it is a Story");
+}
+
+#[tokio::test]
+async fn release_show_gives_each_picked_storys_type() {
+    let fx = setup("internal").await;
+    let feature = tested(&fx, "feature").await;
+    let fix = bug_story(&fx, "fix").await["key"].as_str().unwrap().to_string();
+    ready_in_sprint(&fx, &fix).await;
+    for to in ["building", "integrated_tests", "tested"] {
+        mv(&fx, &fix, to).await.unwrap();
+    }
+    ops::release_create(&fx.pool, "SF", "1.6.0").await.unwrap();
+    for k in [&feature, &fix] {
+        ops::release_pick(&fx.pool, "1.6.0", k, Actor::Owner).await.unwrap();
+    }
+
+    let shown = ops::release_show(&fx.pool, "SF", "1.6.0").await.unwrap();
+    let types: Vec<(&str, &str)> = shown["stories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| (s["key"].as_str().unwrap(), s["type"].as_str().unwrap()))
+        .collect();
+    assert_eq!(types, vec![(feature.as_str(), "story"), (fix.as_str(), "bug")]);
 }

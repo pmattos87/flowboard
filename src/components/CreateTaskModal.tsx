@@ -17,6 +17,7 @@ import { useSprints } from "@/hooks/useSprints";
 import { useProject } from "@/hooks/useProjects";
 import { useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
+import { isStoryLevel } from "@/lib/storyLevel";
 import { statusOptionsForType } from "@/features/boards/shared/boardConstants";
 import {
   isSprintScheduleBlocked,
@@ -91,17 +92,23 @@ export function CreateTaskModal() {
 
   // The form starts at `todo`; on a Factory project a Story starts in backlog
   // instead (SF-31), so fall back to the first status the ladder offers.
-  const statusOptions = statusOptionsForType(form.type, project?.ladder);
+  const statusOptions = statusOptionsForType(form, project?.ladder);
   const status = statusOptions.some((o) => o.value === form.status)
     ? form.status
     : statusOptions[0].value;
   const gate = sprintGateToast(project?.ladder);
   // A Factory Story's points are the sum of its Subtasks' (SF-68).
-  const derivedPoints = project?.ladder === "factory" && form.type === "story";
+  const derivedPoints = project?.ladder === "factory" && isStoryLevel(form, project.ladder);
 
   const lockType = createTaskPrefill?.lockType ?? false;
+  // On a Factory project a top-level bug is a Story too (FB-52), so the
+  // create-story modal offers Bug next to Story.
+  const lockedTypes: TaskType[] =
+    lockType && project?.ladder === "factory" && createTaskPrefill?.type === "story"
+      ? ["story", "bug"]
+      : [createTaskPrefill?.type ?? "story"];
   const typeOptions = lockType
-    ? TYPE_OPTIONS.filter((opt) => opt.value === (createTaskPrefill?.type ?? "story"))
+    ? TYPE_OPTIONS.filter((opt) => lockedTypes.includes(opt.value))
     : TYPE_OPTIONS;
 
   const handleOpenChange = (open: boolean) => {
@@ -181,13 +188,14 @@ export function CreateTaskModal() {
                     key={opt.value}
                     type="button"
                     onClick={() => setForm((f) => ({ ...f, type: opt.value }))}
-                    disabled={lockType}
+                    disabled={typeOptions.length === 1}
+                    aria-pressed={form.type === opt.value}
                     className={cn(
                       "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors",
                       form.type === opt.value
                         ? opt.color
                         : "text-gray-500 border-gray-700 bg-transparent hover:border-gray-600 hover:text-gray-300",
-                      lockType && "cursor-default",
+                      typeOptions.length === 1 && "cursor-default",
                     )}
                   >
                     {opt.icon}

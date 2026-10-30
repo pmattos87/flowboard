@@ -6,6 +6,7 @@ import { RefreshButton } from "@/components/RefreshButton";
 import { KanbanBoard } from "./shared/KanbanBoard";
 import { DISCOVERY_COLUMNS, FACTORY_DISCOVERY_COLUMNS } from "./shared/boardConstants";
 import { useStoryCardDecor } from "@/features/story/useStoryCardDecor";
+import { isStoryLevel } from "@/lib/storyLevel";
 
 export function DiscoveryBoard() {
   const activeProjectId = useUiStore((s) => s.activeProjectId);
@@ -23,7 +24,7 @@ export function DiscoveryBoard() {
   }
 
   const tasks = (allTasks ?? []).filter(
-    (t) => (t.type === "epic" || t.type === "story") && t.sprint_id === null
+    (t) => (t.type === "epic" || isStoryLevel(t, project?.ladder)) && t.sprint_id === null
   );
 
   return (

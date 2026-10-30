@@ -5,6 +5,12 @@
 ```ts
 // src/types/index.ts
 export type TaskType     = 'story' | 'bug' | 'subtask' | 'epic';
+// On a Factory project a row is a Story when parent_id is null and type is 'story' or 'bug'
+// (a bug Story is a fix); a bug with a parent is a bug Subtask. On a legacy project only
+// 'story' is a Story. Use isStoryLevel(task, project.ladder) from src/lib/storyLevel.ts, never
+// a bare type === 'story' check (FB-52).
+// Factory command types (ReleaseDetail.stories[], StoryView) carry `type: TaskType` so a
+// Story reads as feature or fix.
 export type TaskStatus   = 'todo' | 'in_progress' | 'in_review' | 'canceled' | 'done';
 export type TaskPriority = 'low' | 'medium' | 'high' | 'critical';
 export type SprintStatus = 'backlog' | 'active' | 'completed';
