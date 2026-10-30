@@ -302,6 +302,9 @@ pub async fn update_task_inner(
     };
 
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    // The earlier check read outside this transaction; judge the membership
+    // rule again on the rows as they are when `epic_id` is written (FB-224).
+    factory::ops::app_check_epic_in(&mut tx, id, payload.epic_id).await?;
 
     sqlx::query(
         r#"UPDATE tasks SET
@@ -1686,6 +1689,36 @@ mod tests {
         // Echoing a done Story's epic, or a legacy task's NULL, is not a change.
         assert_eq!(set_epic(&pool, done_story, Some(open)).await.unwrap().epic_id, Some(open));
         assert_eq!(set_epic(&pool, legacy_story, None).await.unwrap().epic_id, None);
+    }
+
+    #[tokio::test]
+    async fn an_epic_closed_after_the_early_check_still_refuses_the_edit() {
+        use crate::test_support::{self as ts, TaskStatus, TaskType};
+        let pool = ts::pool().await;
+        let p = ts::factory_project(&pool, "SF").await;
+        let epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+        // The Story's status move runs after the early check and before the write
+        // transaction; this trigger closes the epic there, as a concurrent MCP/CLI
+        // call could.
+        sqlx::query(
+            r#"CREATE TRIGGER close_epic AFTER UPDATE OF status ON tasks WHEN NEW.type = 'story'
+               BEGIN UPDATE tasks SET status = 'done' WHERE type = 'epic'; END"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let payload = TaskUpdate {
+            status: Some("refining".into()),
+            epic_id: Some(Some(epic)),
+            title: Some("renamed".into()),
+            ..empty_update()
+        };
+        let err = update_task_inner(&pool, story, payload).await.unwrap_err();
+        assert!(err.contains("a closed epic takes no new Stories"), "{err}");
+        let row = get_task_inner(&pool, story).await.unwrap();
+        assert_eq!((row.epic_id, row.title.as_str()), (None, "t"), "the refused edit wrote nothing");
     }
 
     #[tokio::test]

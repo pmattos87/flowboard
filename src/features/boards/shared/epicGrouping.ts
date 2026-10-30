@@ -1,5 +1,6 @@
 import type { Task } from "@/types";
 import { isStoryLevel } from "@/lib/storyLevel";
+import { FACTORY_DISCOVERY_COLUMNS } from "./boardConstants";
 
 export type EpicGroupKey = number | "none";
 
@@ -11,9 +12,18 @@ export interface EpicRow {
   stories: Task[];
 }
 
-/** The cards of the Factory Discovery board: unscheduled Stories, never epics (FB-224). */
+/**
+ * The cards of the Factory Discovery board: unscheduled Stories in a status one
+ * of its columns renders, never epics (FB-224). An unscheduled `done` Story (its
+ * sprint was deleted) has no column, so it is no card and keeps no row.
+ */
 export function factoryDiscoveryStories(tasks: Task[]): Task[] {
-  return tasks.filter((t) => isStoryLevel(t, "factory") && t.sprint_id === null);
+  return tasks.filter(
+    (t) =>
+      isStoryLevel(t, "factory") &&
+      t.sprint_id === null &&
+      FACTORY_DISCOVERY_COLUMNS.some((c) => c.status === t.status)
+  );
 }
 
 /**

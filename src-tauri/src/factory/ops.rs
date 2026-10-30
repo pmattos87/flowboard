@@ -521,18 +521,24 @@ pub async fn project_show(pool: &SqlitePool, key: &str) -> Result<Value, String>
 
 /// Open items of a project that don't fit the Factory ladder: anything but a
 /// Story-level row in a Story status, a `subtask`/`bug` under one in a
-/// Subtask status, or a top-level `epic` in an epic status (FB-224). Returns
-/// their keys.
+/// Subtask status, or a top-level `epic` in an epic status with no sprint and
+/// no points (FB-224: the Factory guards refuse clearing either afterwards).
+/// An epic of any status holding a sprint, points or a parent is unmapped too.
+/// Returns their keys.
 async fn unmapped_items(tx: &mut Tx<'_>, project_id: i64, key: &str) -> Result<Vec<String>, String> {
     let quoted = |statuses: &[&str]| statuses.iter().map(|s| format!("'{s}'")).collect::<Vec<_>>().join(",");
     let open = |statuses: &[&str]| quoted(&statuses.iter().copied().filter(|s| !matches!(*s, "done" | "canceled")).collect::<Vec<_>>());
     let numbers: Vec<i64> = sqlx::query_scalar(&format!(
         r#"SELECT t.task_number FROM tasks t LEFT JOIN tasks parent ON parent.id = t.parent_id
-            WHERE t.project_id = ? AND t.status NOT IN ('done','canceled')
-              AND NOT ({} AND t.status IN ({}))
-              AND NOT (t.parent_id IS NOT NULL AND t.type IN ('subtask','bug') AND {}
-                       AND t.status IN ({}))
-              AND NOT (t.parent_id IS NULL AND t.type = 'epic' AND t.status IN ({}))
+            WHERE t.project_id = ?
+              AND ((t.status NOT IN ('done','canceled')
+                    AND NOT ({} AND t.status IN ({}))
+                    AND NOT (t.parent_id IS NOT NULL AND t.type IN ('subtask','bug') AND {}
+                             AND t.status IN ({}))
+                    AND NOT (t.parent_id IS NULL AND t.type = 'epic' AND t.status IN ({})
+                             AND t.sprint_id IS NULL AND t.story_points = 0))
+                   OR (t.type = 'epic'
+                       AND (t.parent_id IS NOT NULL OR t.sprint_id IS NOT NULL OR t.story_points != 0)))
             ORDER BY t.task_number"#,
         story_level_sql("t"),
         open(ladder::STORY_STATUSES),
@@ -1288,23 +1294,35 @@ fn check_epic_link(task: &Row, epic: Option<&Row>) -> Result<(), String> {
 
 /// Refuse the app's epic edit on task `id` when [`check_epic_link`] does.
 /// `epic_id` is the payload's three-state field; absent changes nothing. The
-/// caller writes the column.
+/// caller writes the column. This read is only a fail-fast: the caller must
+/// repeat the check with [`app_check_epic_in`] inside its write transaction.
 pub async fn app_check_epic(pool: &SqlitePool, id: i64, epic_id: Option<Option<i64>>) -> Result<(), String> {
-    let Some(epic_id) = epic_id else { return Ok(()) };
+    if epic_id.is_none() {
+        return Ok(());
+    }
     let mut tx = pool.begin().await.map_err(err)?;
-    let row = load_by_id(&mut tx, id).await?;
+    let out = app_check_epic_in(&mut tx, id, epic_id).await;
+    tx.rollback().await.map_err(err)?;
+    out
+}
+
+/// [`app_check_epic`] inside the caller's transaction, so the rule is judged on
+/// the rows as they are when the caller writes `epic_id` (FB-224: a concurrent
+/// close of the epic or cancel of the Story cannot slip between check and write).
+pub async fn app_check_epic_in(tx: &mut Tx<'_>, id: i64, epic_id: Option<Option<i64>>) -> Result<(), String> {
+    let Some(epic_id) = epic_id else { return Ok(()) };
+    let row = load_by_id(tx, id).await?;
     let epic = match epic_id {
         Some(e) => Some(
             sqlx::query_as::<_, Row>(&format!("{ROW_SQL} WHERE t.id = ?"))
                 .bind(e)
-                .fetch_optional(&mut *tx)
+                .fetch_optional(&mut **tx)
                 .await
                 .map_err(err)?
                 .ok_or_else(|| format!("task {e} not found"))?,
         ),
         None => None,
     };
-    tx.rollback().await.map_err(err)?;
     check_epic_link(&row, epic.as_ref())
 }
 

@@ -460,6 +460,36 @@ async fn a_legacy_project_switches_once_its_open_items_are_mapped() {
 }
 
 #[tokio::test]
+async fn a_legacy_epic_with_a_sprint_points_or_parent_blocks_the_switch() {
+    use crate::test_support::{self as ts, SprintStatus, TaskStatus, TaskType};
+    let pool = ts::pool().await;
+    let p = ts::project(&pool, "LG").await;
+    let sprint = ts::sprint(&pool, p, "S1", "2026-10-01", SprintStatus::Active).await;
+    let scheduled = ts::task(&pool, p, Some(sprint), None, TaskType::Epic, TaskStatus::Todo).await;
+    let pointed = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+    let closed = ts::task(&pool, p, Some(sprint), None, TaskType::Epic, TaskStatus::Done).await;
+    let nested = ts::task(&pool, p, None, Some(pointed), TaskType::Epic, TaskStatus::Todo).await;
+    let well_formed = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+    sqlx::query("UPDATE tasks SET story_points = 5 WHERE id = ?").bind(pointed).execute(&pool).await.unwrap();
+
+    let err = ops::project_set(&pool, "LG", Some("factory"), None).await.unwrap_err();
+    assert!(err.contains("LG-1, LG-2, LG-3, LG-4") && !err.contains("LG-5"), "{err}");
+    let ladder: String = sqlx::query_scalar("SELECT ladder FROM projects WHERE id = ?").bind(p).fetch_one(&pool).await.unwrap();
+    assert_eq!(ladder, "legacy", "a refused switch changes nothing");
+
+    sqlx::query("UPDATE tasks SET sprint_id = NULL, story_points = 0 WHERE id IN (?, ?, ?)")
+        .bind(scheduled)
+        .bind(pointed)
+        .bind(closed)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE tasks SET parent_id = NULL WHERE id = ?").bind(nested).execute(&pool).await.unwrap();
+    ops::project_set(&pool, "LG", Some("factory"), None).await.expect("well-formed epics switch");
+    assert_eq!(epic_of(&pool, well_formed).await, None);
+}
+
+#[tokio::test]
 async fn release_pick_warns_on_unreleased_dependencies() {
     let fx = setup("internal").await;
     let a = story(&fx, "a").await;

@@ -19,14 +19,18 @@ const epicDone = task({ id: 30, type: "epic", status: "done", title: "Done epic 
 const epicCanceled = task({ id: 40, type: "epic", status: "canceled", title: "Canceled epic, no card" });
 const epicDoneScheduledOnly = task({ id: 50, type: "epic", status: "done", title: "Done epic, scheduled only" });
 
+const epicDoneUnscheduledDone = task({ id: 60, type: "epic", status: "done", title: "Done epic, only a done Story" });
+
 const tasks = [
   // Out of id order on purpose: rows follow epic creation order.
-  epicB, epicDone, epicA, epicCanceled, epicDoneScheduledOnly,
+  epicB, epicDone, epicA, epicCanceled, epicDoneScheduledOnly, epicDoneUnscheduledDone,
   task({ id: 1, epic_id: 10, title: "A1" }),
   task({ id: 2, epic_id: 10, type: "bug", status: "refining", title: "A2 bug Story" }),
   task({ id: 3, epic_id: 10, sprint_id: 7, status: "building", title: "A scheduled" }),
   task({ id: 4, epic_id: 30, status: "canceled", title: "Done epic card" }),
   task({ id: 5, epic_id: 50, sprint_id: 7, status: "building", title: "Scheduled of done epic" }),
+  // Unscheduled but `done` (its sprint was deleted): no Discovery column renders it.
+  task({ id: 10, epic_id: 60, status: "done", title: "Done, sprint deleted" }),
   task({ id: 6, title: "Loose" }),
   task({ id: 7, parent_id: 1, type: "subtask", status: "todo", title: "Subtask" }),
   task({ id: 8, parent_id: 1, type: "bug", status: "todo", title: "Bug Subtask" }),
@@ -49,6 +53,9 @@ describe("buildEpicRows", () => {
     expect(rows.find((r) => r.key === 40)).toBeUndefined();
     // A scheduled Story is not on the board, so it does not keep its done epic's row.
     expect(rows.find((r) => r.key === 50)).toBeUndefined();
+    // Nor does an unscheduled `done` Story, which no column renders.
+    expect(rows.find((r) => r.key === 60)).toBeUndefined();
+    expect(rows.flatMap((r) => r.stories.map((s) => s.title))).not.toContain("Done, sprint deleted");
   });
 
   it("puts the No epic row last, with Stories whose epic has no row", () => {
