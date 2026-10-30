@@ -8,6 +8,7 @@ import { UserStoryBoard } from "@/features/boards/UserStoryBoard";
 import { SprintPlanningBoard } from "@/features/boards/SprintPlanningBoard";
 import { TaskBoard } from "@/features/boards/TaskBoard";
 import { StoryPage } from "@/features/story/StoryPage";
+import { StorySubtasks } from "@/features/story/StorySubtasks";
 import { useUiStore } from "@/stores/uiStore";
 import type { Project, StoryView, Task } from "@/types";
 
@@ -107,6 +108,46 @@ describe("a Factory bug Story on the Story boards", () => {
     renderAt(<UserStoryBoard />);
     await screen.findByText("Parent story");
     expect(screen.queryByText("Child bug")).not.toBeInTheDocument();
+  });
+});
+
+// Review B2: on a Factory project the Task Board redirects to the User Story
+// Board (SF-61), and a Story's children live on its Story page. This is the path
+// a Factory bug Story and its Subtasks actually render on.
+describe("the Factory Task Board path with a bug Story", () => {
+  const bugStory = task({ id: 1, task_number: 1, title: "Crash on save", status: "building", sprint_id: 7 });
+  const children = [
+    task({ id: 2, task_number: 2, title: "Fix the writer", type: "subtask", parent_id: 1, status: "in_progress", sprint_id: 7 }),
+    task({ id: 3, task_number: 3, title: "Found in testing", parent_id: 1, status: "todo", sprint_id: 7 }),
+  ];
+
+  it("redirects the Task Board to the User Story Board, where the bug Story is a card", async () => {
+    setup("factory", [bugStory, ...children]);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={["/board/task"]}>
+          <Routes>
+            <Route path="/board/task" element={<TaskBoard />} />
+            <Route path="/board/user-story" element={<UserStoryBoard />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByText("Crash on save");
+    expect(screen.queryByText("Task Board")).not.toBeInTheDocument();
+    expect(within(columnOf("Crash on save")).getByText("BUILDING")).toBeInTheDocument();
+    expect(screen.queryByText("Fix the writer")).not.toBeInTheDocument();
+    expect(screen.queryByText("Found in testing")).not.toBeInTheDocument();
+  });
+
+  it("renders the bug Story's Subtask and bug Subtask on its Story page board", async () => {
+    setup("factory", [bugStory, ...children]);
+    renderAt(<StorySubtasks story={bugStory} storyKey="FB-1" projectKey="FB" />);
+    await screen.findByText("Fix the writer");
+    expect(within(columnOf("Fix the writer")).getByText("IN PROGRESS")).toBeInTheDocument();
+    expect(within(columnOf("Found in testing")).getByText("TO DO")).toBeInTheDocument();
+    expect(screen.queryByText("Crash on save")).not.toBeInTheDocument();
   });
 });
 

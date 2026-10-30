@@ -169,7 +169,34 @@ describe("TaskFields bug Stories", () => {
     const select = screen.getByLabelText("Parent story") as HTMLSelectElement;
     await waitFor(() => expect(Array.from(select.options).map((o) => o.textContent)).toContain("Crash fix"));
     const names = Array.from(select.options).map((o) => o.textContent);
-    expect(names).toEqual(["No parent", "Crash fix", "Feature story"]);
+    expect(names).toEqual(["Crash fix", "Feature story"]);
+  });
+
+  // Review B1: "No parent" would turn a bug Subtask into a bug Story, which the
+  // backend refuses, and the draft would then offer Story statuses.
+  it("offers no 'No parent' on a Factory bug Subtask, so it keeps the Subtask statuses", async () => {
+    renderWithTasks(bugSubtask, "factory", [bugStory, feature, bugSubtask]);
+    const parent = screen.getByLabelText("Parent story") as HTMLSelectElement;
+    // Wait for both the project (ladder) and the tasks, so the assertion can't run
+    // against the pre-load legacy default.
+    await waitFor(() =>
+      expect(Array.from(parent.options).map((o) => o.textContent)).toEqual(["Crash fix", "Feature story"]),
+    );
+    expect(parent.value).toBe("21");
+    const status = screen.getByLabelText("Status") as HTMLSelectElement;
+    const values = Array.from(status.options).map((o) => o.value);
+    // The Factory Subtask statuses: dev statuses without in_review, no Story stages.
+    expect(values).toContain("in_progress");
+    expect(values).not.toContain("in_review");
+    expect(values).not.toContain("backlog");
+    expect(values).not.toContain("building");
+  });
+
+  it("keeps 'No parent' on a legacy bug with a parent", async () => {
+    renderWithTasks(bugSubtask, "legacy", [feature, bugSubtask]);
+    const parent = screen.getByLabelText("Parent story") as HTMLSelectElement;
+    await waitFor(() => expect(Array.from(parent.options).map((o) => o.textContent)).toContain("Feature story"));
+    expect(Array.from(parent.options).map((o) => o.textContent)).toEqual(["No parent", "Feature story"]);
   });
 
   it("keeps the Parent select and editable points on a legacy top-level bug", async () => {

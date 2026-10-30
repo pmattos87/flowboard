@@ -41,7 +41,6 @@ export function TaskBoard() {
         people={people}
         projectKey={project?.key ?? "FB"}
         columns={COLUMNS}
-        ladder={project?.ladder}
       />
     </div>
   );

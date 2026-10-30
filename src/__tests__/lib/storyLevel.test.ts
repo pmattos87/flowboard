@@ -6,7 +6,6 @@ import {
   computeSprintDropPayload,
   isSprintScheduleBlocked,
 } from "@/features/boards/shared/sprintBoardGrouping";
-import { buildTaskBoardRows } from "@/features/boards/shared/taskBoardGrouping";
 import { sprintCompletion } from "@/lib/sprintProgress";
 import { backlogBlockReason } from "@/lib/sprintCompletion";
 import { reportedTasks } from "@/features/reports/reportedTasks";
@@ -116,26 +115,6 @@ describe("Sprint Planning with a bug Story", () => {
     expect(isSprintScheduleBlocked(bug, 7, "legacy")).toBe(false);
     expect(computeSprintDropPayload(bug, 7, "legacy")?.payload).toEqual({ sprint_id: 7 });
     expect(computeSprintDropPayload({ ...bug, sprint_id: 7 }, "backlog", "legacy")?.payload).toEqual({ sprint_id: null });
-  });
-});
-
-describe("Task Board grouping with a bug Story", () => {
-  const bugStory = task({ id: 1, type: "bug", status: "building", sprint_id: 7 });
-  const child = task({ id: 2, type: "subtask", status: "todo", parent_id: 1, sprint_id: 7 });
-  const bugChild = task({ id: 3, type: "bug", status: "todo", parent_id: 1, sprint_id: 7 });
-
-  it("on a Factory project, is a Story row with its children, not Unparented", () => {
-    const rows = buildTaskBoardRows([bugStory, child, bugChild], "all", "factory");
-    expect(rows.map((r) => r.key)).toEqual([1]);
-    expect(rows[0].story?.id).toBe(1);
-    expect(rows[0].children.map((c) => c.id)).toEqual([2, 3]);
-  });
-
-  it("on a legacy project, a top-level bug stays in Unparented", () => {
-    const bug = task({ id: 1, type: "bug", status: "todo" });
-    const rows = buildTaskBoardRows([bug], "all", "legacy");
-    expect(rows.map((r) => r.key)).toEqual(["unparented"]);
-    expect(rows[0].children.map((c) => c.id)).toEqual([1]);
   });
 });
 
