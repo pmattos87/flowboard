@@ -291,6 +291,11 @@ impl FlowboardMcp {
         out(ops::review_start(&self.pool, &p.key, AGENT).await)
     }
 
+    #[tool(description = "Log the start of a Verify round on an in_progress Subtask of a building Story")]
+    async fn verify_start(&self, Parameters(p): Parameters<Key>) -> Result<String, String> {
+        out(ops::verify_start(&self.pool, &p.key, AGENT).await)
+    }
+
     #[tool(description = "Stop a building Story's Run and hand it to Pedro")]
     async fn run_stop(&self, Parameters(p): Parameters<Stop>) -> Result<String, String> {
         out(ops::run_stop(&self.pool, &p.key, &p.reason, AGENT).await)

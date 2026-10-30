@@ -767,3 +767,66 @@ describe("runGraph Subtask roles (FB-171)", () => {
     expect(g.subtasks.map((s) => [s.key, s.role])).toEqual([["FB-2", "subtask"], ["FB-3", "simplify"], ["FB-4", "bug"]]);
   });
 });
+
+describe("runGraph Verify lit from verify_started (FB-277)", () => {
+  const handoff = ev("subtask_handoff", { subtask: "FB-2", agent: "frontend-design", model: "opus" });
+  const started = (round: number) => ev("verify_started", { subtask: "FB-2", round });
+  const round = (n: number, result: "pass" | "fail") => ev("verify_round", { subtask: "FB-2", round: n, result });
+
+  it("a handoff then verify_started: Verify and the Subtask under it are current", () => {
+    const g = graph({ status: "building" }, [sub(2, "in_progress"), sub(3, "todo")], [stage("building"), handoff, started(1)]);
+    expect(g.verify.state).toBe("current");
+    expect(g.subtasks.map((s) => [s.key, s.state])).toEqual([["FB-2", "current"], ["FB-3", "todo"]]);
+  });
+
+  it("round 2 starting after a failed round 1 lights Verify again", () => {
+    const g = graph({ status: "building" }, [sub(2, "in_progress")], [stage("building"), handoff, started(1), round(1, "fail"), started(2)]);
+    expect(g.verify.state).toBe("current");
+    expect(g.subtasks.map((s) => s.state)).toEqual(["current"]);
+  });
+
+  it("a failed verify_round ends it: Verify is not current", () => {
+    const g = graph({ status: "building" }, [sub(2, "in_progress")], [stage("building"), handoff, started(1), round(1, "fail")]);
+    expect(g.verify.state).not.toBe("current");
+  });
+
+  it("a passing verify_round ends it: Verify is not current", () => {
+    const g = graph({ status: "building" }, [sub(2, "done"), sub(3, "todo")], [stage("building"), handoff, started(1), round(1, "pass")]);
+    expect(g.verify.state).not.toBe("current");
+  });
+
+  it("a new subtask_handoff after verify_started: Verify is not current", () => {
+    const g = graph({ status: "building" }, [sub(2, "in_progress")], [stage("building"), handoff, started(1), handoff]);
+    expect(g.verify.state).not.toBe("current");
+  });
+
+  it("a review_started after verify_started: Verify is not current", () => {
+    const g = graph({ status: "building" }, [sub(2, "done")], [stage("building"), handoff, started(1), ev("review_started", { round: 1 })]);
+    expect(g.verify.state).not.toBe("current");
+  });
+
+  it("a stop while Verify is in flight is a Build stop; Verify is neither stopped nor current", () => {
+    const g = graph({ status: "building", run_stopped: true }, [sub(2, "in_progress")], [
+      stage("building"), handoff, started(1), ev("run_stopped", { reason: "QA blocked" }),
+    ]);
+    expect(g.stop.state).toBe("stopped");
+    expect(g.reviewStop.state).not.toBe("stopped");
+    expect(g.verify.state).not.toBe("stopped");
+    expect(g.verify.state).not.toBe("current");
+  });
+
+  it("a stop after a failed verify_round, round 2 having started, stops Verify", () => {
+    const g = graph({ status: "building", run_stopped: true }, [sub(2, "in_progress")], [
+      stage("building"), handoff, started(1), round(1, "fail"), started(2), round(2, "fail"),
+      ev("run_stopped", { reason: "Verify failed twice on FB-2" }),
+    ]);
+    expect(g.stop.state).toBe("stopped");
+    expect(g.reviewStop.state).not.toBe("stopped");
+    expect(g.verify.state).toBe("stopped");
+  });
+
+  it("a finished Build never shows Verify current, even with verify_started latest", () => {
+    const g = graph({ status: "building" }, [sub(2, "done")], [stage("building"), handoff, started(1)]);
+    expect(g.verify.state).toBe("done");
+  });
+});
