@@ -44,7 +44,7 @@ function mockFactory(overrides: Record<string, unknown> = {}) {
     if (cmd === "get_release" && (args as { version?: string } | undefined)?.version === "1.5.1") {
       return Promise.resolve({
         project: "FB", version: "1.5.1", state: "released",
-        stories: [{ key: "FB-70", title: "Shipped story", status: "done" }],
+        stories: [{ key: "FB-70", title: "Shipped story", type: "story", status: "done" }],
       });
     }
     switch (cmd) {
@@ -54,8 +54,8 @@ function mockFactory(overrides: Record<string, unknown> = {}) {
       case "get_release": return Promise.resolve({
         project: "FB", version: "1.6.0", state: "planned",
         stories: [
-          { key: "FB-90", title: "Already picked", status: "tested" },
-          { key: "FB-91", title: "Half way", status: "building" },
+          { key: "FB-90", title: "Already picked", type: "story", status: "tested" },
+          { key: "FB-91", title: "Half way", type: "bug", status: "building" },
         ],
       });
       case "pick_release_story": return Promise.resolve({ story: "FB-100", version: "1.6.0", warnings: [] });
