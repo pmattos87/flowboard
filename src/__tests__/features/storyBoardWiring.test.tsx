@@ -18,7 +18,7 @@ function task(over: Partial<Task>): Task {
     title: "", description: "", type: "story", status: "ready", priority: "medium",
     assignee_id: null, story_points: 0, due_date: null, created_at: "", updated_at: "",
     labels: "", feature_branch: null, review_verdict: null, reviewed_commit: null,
-    findings_url: null, run_stopped: false, risk: false, release_id: null,
+    findings_url: null, run_stopped: false, risk: false, release_id: null, epic_id: null,
     ...over,
   };
 }

@@ -27,7 +27,7 @@ const storyTask = {
   priority: "high", assignee_id: null, story_points: 5, due_date: null,
   created_at: "", updated_at: "", labels: "", feature_branch: "feat/FB-12-export",
   review_verdict: null, reviewed_commit: null, findings_url: null,
-  run_stopped: true, risk: false, release_id: null,
+  run_stopped: true, risk: false, release_id: null, epic_id: null,
 };
 
 function storyView(over: Partial<StoryView> = {}): StoryView {
@@ -36,6 +36,7 @@ function storyView(over: Partial<StoryView> = {}): StoryView {
     assignee: "Pedro", sprint_id: 3, feature_branch: "feat/FB-12-export",
     review: { verdict: null, commit: null, findings_url: null },
     release: null,
+    epic: null,
     flags: { stopped: true, waiting_on_bugs: 2 },
     prs: [],
     depends_on: ["FB-9"],

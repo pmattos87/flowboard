@@ -128,4 +128,14 @@ describe("useUpdateTask", () => {
       description: `"${fakeTask.title}" → done`,
     });
   });
+
+  it.each([7, null])("sends { epic_id: %s } to update_task and invalidates the tasks query", async (epic_id) => {
+    mockInvoke.mockResolvedValueOnce({ ...fakeTask, type: "story", epic_id });
+    const { wrapper, qc } = makeWrapper();
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    const { result } = renderHook(() => useUpdateTask(), { wrapper });
+    await result.current.mutateAsync({ id: 1, payload: { epic_id } });
+    expect(mockInvoke).toHaveBeenCalledWith("update_task", { id: 1, payload: { epic_id } });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: taskKeys.all });
+  });
 });
