@@ -54,6 +54,10 @@ pub struct StoryEditArgs {
     pub description: Option<String>,
     pub priority: Option<String>,
     pub labels: Option<String>,
+    /// Epic key to put the Story in (an open epic of its project), or null to
+    /// take it out; leave it out to keep the current epic
+    #[serde(default, deserialize_with = "crate::commands::deserialize_optional_field")]
+    pub epic: Option<Option<String>>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -236,13 +240,14 @@ impl FlowboardMcp {
         out(ops::story_create(&self.pool, s, AGENT).await)
     }
 
-    #[tool(description = "Edit a Story's title, description, priority or labels")]
+    #[tool(description = "Edit a Story's title, description, priority, labels or epic (a key, or null to take it out)")]
     async fn story_edit(&self, Parameters(p): Parameters<StoryEditArgs>) -> Result<String, String> {
         let e = StoryEdit {
             title: p.title.as_deref(),
             description: p.description.as_deref(),
             priority: p.priority.as_deref(),
             labels: p.labels.as_deref(),
+            epic: p.epic.as_ref().map(|e| e.as_deref()),
         };
         out(ops::story_edit(&self.pool, &p.key, e).await)
     }
@@ -416,7 +421,7 @@ pub async fn serve(pool: SqlitePool) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FlowboardMcp, StoryCreate};
+    use super::{FlowboardMcp, StoryCreate, StoryEditArgs};
 
     #[test]
     fn the_router_serves_the_epic_tools() {
@@ -438,5 +443,20 @@ mod tests {
         assert!(!p.bug);
         let p: StoryCreate = serde_json::from_str(r#"{"project":"SF","title":"t","bug":true}"#).unwrap();
         assert!(p.bug);
+    }
+
+    #[test]
+    fn story_edit_tells_an_absent_epic_from_null() {
+        let schema = schemars::schema_for!(StoryEditArgs);
+        let schema = schema.as_value();
+        let required = schema["required"].as_array().unwrap();
+        assert!(!required.iter().any(|r| r == "epic"), "epic is optional: {schema}");
+
+        let p: StoryEditArgs = serde_json::from_str(r#"{"key":"SF-2"}"#).unwrap();
+        assert_eq!(p.epic, None, "absent keeps the epic");
+        let p: StoryEditArgs = serde_json::from_str(r#"{"key":"SF-2","epic":null}"#).unwrap();
+        assert_eq!(p.epic, Some(None), "null takes the Story out");
+        let p: StoryEditArgs = serde_json::from_str(r#"{"key":"SF-2","epic":"SF-1"}"#).unwrap();
+        assert_eq!(p.epic, Some(Some("SF-1".into())));
     }
 }

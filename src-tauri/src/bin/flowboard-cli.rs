@@ -145,6 +145,9 @@ enum StoryCmd {
         priority: Option<String>,
         #[arg(long)]
         labels: Option<String>,
+        /// Put the Story in this epic (a key), or take it out with `none`
+        #[arg(long)]
+        epic: Option<String>,
     },
     Move { key: String, to: String },
     /// Put into a sprint, carry to another, or take out with `none`
@@ -304,12 +307,13 @@ async fn run(cli: Cli, pool: SqlitePool) -> Result<Value, String> {
             }
             StoryCmd::Show { key } => ops::story_show(p, &key).await,
             StoryCmd::Trail { key } => ops::trail(p, &key).await,
-            StoryCmd::Edit { key, title, description, priority, labels } => {
+            StoryCmd::Edit { key, title, description, priority, labels, epic } => {
                 let e = StoryEdit {
                     title: title.as_deref(),
                     description: description.as_deref(),
                     priority: priority.as_deref(),
                     labels: labels.as_deref(),
+                    epic: epic_arg(epic.as_deref()),
                 };
                 ops::story_edit(p, &key, e).await
             }
@@ -395,6 +399,11 @@ async fn run(cli: Cli, pool: SqlitePool) -> Result<Value, String> {
     }
 }
 
+/// `story edit --epic`: a key puts the Story in that epic, `none` takes it out.
+fn epic_arg(epic: Option<&str>) -> Option<Option<&str>> {
+    epic.map(|k| Some(k).filter(|k| *k != "none"))
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -435,6 +444,21 @@ mod tests {
             Cmd::Story(StoryCmd::Create { bug, .. }) => bug,
             _ => panic!("not story create"),
         }
+    }
+
+    /// `story edit`'s epic as `ops::StoryEdit` takes it.
+    fn story_edit_epic(args: &[&str]) -> Option<Option<String>> {
+        match Cli::try_parse_from(args).unwrap().cmd {
+            Cmd::Story(StoryCmd::Edit { epic, .. }) => super::epic_arg(epic.as_deref()).map(|e| e.map(String::from)),
+            _ => panic!("not story edit"),
+        }
+    }
+
+    #[test]
+    fn story_edit_parses_the_epic_flag() {
+        assert_eq!(story_edit_epic(&["flowboard-cli", "story", "edit", "SF-2"]), None);
+        assert_eq!(story_edit_epic(&["flowboard-cli", "story", "edit", "SF-2", "--epic", "none"]), Some(None));
+        assert_eq!(story_edit_epic(&["flowboard-cli", "story", "edit", "SF-2", "--epic", "SF-1"]), Some(Some("SF-1".into())));
     }
 
     #[test]

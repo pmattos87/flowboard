@@ -437,10 +437,15 @@ async fn a_legacy_project_switches_once_its_open_items_are_mapped() {
     insert(3, None, "bug", "refining").await;
     insert(4, None, "story", "done").await;
     insert(5, Some(4), "subtask", "canceled").await;
+    // Epics (FB-224): open at todo and closed are mapped; in_progress is not.
+    insert(6, None, "epic", "todo").await;
+    insert(7, None, "epic", "done").await;
+    insert(8, None, "epic", "in_progress").await;
 
     let err = ops::project_set(&fx.pool, "LG", Some("factory"), None).await.unwrap_err();
-    assert!(err.contains("2 open item(s)") && err.contains("LG-1, LG-2"), "{err}");
+    assert!(err.contains("3 open item(s)") && err.contains("LG-1, LG-2, LG-8"), "{err}");
     assert!(!err.contains("LG-3"), "a top-level bug at refining is a mapped Story (FB-52): {err}");
+    assert!(!err.contains("LG-6"), "an open epic at todo is mapped: {err}");
 
     let map = |sql: &'static str| {
         let pool = fx.pool.clone();
@@ -448,6 +453,7 @@ async fn a_legacy_project_switches_once_its_open_items_are_mapped() {
     };
     map("UPDATE tasks SET status = 'backlog' WHERE task_number = 1").await;
     map("UPDATE tasks SET status = 'todo' WHERE task_number = 2").await;
+    map("UPDATE tasks SET status = 'todo' WHERE task_number = 8").await;
     ops::project_set(&fx.pool, "LG", Some("factory"), None).await.expect("every open item is mapped");
     assert_eq!(mv(&fx, "LG-1", "refining").await.unwrap()["status"], "refining");
     assert_eq!(mv(&fx, "LG-3", "backlog").await.unwrap()["status"], "backlog", "the bug Story is on the Story ladder");
@@ -1095,4 +1101,120 @@ async fn epic_move_refuses_a_legacy_epic_and_an_unknown_target() {
     let err = ops::epic_move(&pool, &key, "bogus", Actor::Owner).await.unwrap_err();
     assert!(err.contains(&key) && err.contains("from todo to bogus") && err.contains("not an epic status"), "{err}");
     assert_eq!(stored(&pool, &key).await.1, "todo");
+}
+
+// ─── Epic membership (FB-224) ───────────────────────────────────────────────
+
+/// A `story_edit` that only sets the epic (`None` takes the Story out).
+fn set_epic(epic: Option<&str>) -> ops::StoryEdit<'_> {
+    ops::StoryEdit { title: None, description: None, priority: None, labels: None, epic: Some(epic) }
+}
+
+async fn epic_of(pool: &SqlitePool, id: i64) -> Option<i64> {
+    sqlx::query_scalar("SELECT epic_id FROM tasks WHERE id = ?").bind(id).fetch_one(pool).await.unwrap()
+}
+
+async fn link(pool: &SqlitePool, id: i64, epic: i64) {
+    sqlx::query("UPDATE tasks SET epic_id = ? WHERE id = ?").bind(epic).bind(id).execute(pool).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_story_and_a_bug_story_join_an_open_epic_and_leave_it_through_story_edit() {
+    let pool = ts::pool().await;
+    let p = ts::factory_project(&pool, "SF").await;
+    let epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+    let epic_key = key_of(&pool, epic).await;
+    let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+    let bug_story = ts::task(&pool, p, None, None, TaskType::Bug, TaskStatus::Building).await;
+    for id in [story, bug_story] {
+        let key = key_of(&pool, id).await;
+        let out = ops::story_edit(&pool, &key, set_epic(Some(&epic_key))).await.unwrap();
+        assert_eq!(out["epic"], serde_json::json!({ "key": epic_key, "title": "t", "status": "todo" }));
+        assert_eq!(epic_of(&pool, id).await, Some(epic));
+
+        // An edit that leaves the epic out keeps it.
+        let edit = ops::StoryEdit { title: Some("renamed"), description: None, priority: None, labels: None, epic: None };
+        ops::story_edit(&pool, &key, edit).await.unwrap();
+        assert_eq!(epic_of(&pool, id).await, Some(epic));
+
+        let out = ops::story_edit(&pool, &key, set_epic(None)).await.unwrap();
+        assert_eq!(out["epic"], Value::Null);
+        assert_eq!(epic_of(&pool, id).await, None);
+    }
+}
+
+#[tokio::test]
+async fn story_show_names_the_storys_epic_or_null() {
+    let pool = ts::pool().await;
+    let p = ts::factory_project(&pool, "SF").await;
+    let epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+    let linked = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Refining).await;
+    let alone = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Refining).await;
+    link(&pool, linked, epic).await;
+    // A closed epic is still shown on the Stories it holds.
+    sqlx::query("UPDATE tasks SET status = 'done' WHERE id = ?").bind(epic).execute(&pool).await.unwrap();
+
+    let shown = ops::story_show(&pool, &key_of(&pool, linked).await).await.unwrap();
+    assert_eq!(shown["epic"], serde_json::json!({ "key": key_of(&pool, epic).await, "title": "t", "status": "done" }));
+    let shown = ops::story_show(&pool, &key_of(&pool, alone).await).await.unwrap();
+    assert!(shown["epic"].is_null(), "{shown}");
+}
+
+#[tokio::test]
+async fn story_edit_refuses_an_epic_change_that_breaks_membership_and_changes_nothing() {
+    let pool = ts::pool().await;
+    let p = ts::factory_project(&pool, "SF").await;
+    let other = ts::factory_project(&pool, "OT").await;
+    let lg = ts::project(&pool, "LG").await;
+    let open = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+    let done_epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Done).await;
+    let canceled_epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Canceled).await;
+    let foreign = ts::task(&pool, other, None, None, TaskType::Epic, TaskStatus::Todo).await;
+    let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Ready).await;
+    let not_epic = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+    let sub = ts::task(&pool, p, None, Some(story), TaskType::Subtask, TaskStatus::Todo).await;
+    let done_story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Done).await;
+    let canceled_story = ts::task(&pool, p, None, None, TaskType::Bug, TaskStatus::Canceled).await;
+    let legacy_story = ts::task(&pool, lg, None, None, TaskType::Story, TaskStatus::Todo).await;
+    link(&pool, done_story, open).await;
+    link(&pool, canceled_story, open).await;
+
+    let k = |id: i64| {
+        let pool = pool.clone();
+        async move { key_of(&pool, id).await }
+    };
+    let cases: Vec<(i64, Option<String>, &str)> = vec![
+        (story, Some(k(foreign).await), "belongs to another project"),
+        (story, Some(k(done_epic).await), "is done; a closed epic takes no new Stories"),
+        (story, Some(k(canceled_epic).await), "is canceled; a closed epic takes no new Stories"),
+        (story, Some(k(not_epic).await), "is not an epic"),
+        (story, Some("SF-99".into()), "SF-99 not found"),
+        (done_story, None, "is done; a done or canceled Story keeps its epic"),
+        (done_story, Some(k(not_epic).await), "keeps its epic"),
+        (canceled_story, None, "is canceled; a done or canceled Story keeps its epic"),
+        (sub, Some(k(open).await), "is not a Story"),
+        (open, None, "is not a Story"),
+        (open, Some(k(done_epic).await), "is not a Story"),
+        (legacy_story, Some(k(open).await), "legacy project"),
+    ];
+    let row = |id: i64| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_as::<_, (Option<i64>, String, String)>("SELECT epic_id, title, updated_at FROM tasks WHERE id = ?")
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+        }
+    };
+    for (id, epic, needle) in cases {
+        let before = row(id).await;
+        // A refused epic change takes the rest of the edit down with it.
+        let edit = ops::StoryEdit { title: Some("renamed"), ..set_epic(epic.as_deref()) };
+        let err = ops::story_edit(&pool, &k(id).await, edit).await.unwrap_err();
+        assert!(err.contains(needle), "{needle}: {err}");
+        assert_eq!(row(id).await, before, "{needle}: nothing changes");
+    }
+    // Keeping a done Story's epic is not a change.
+    ops::story_edit(&pool, &k(done_story).await, set_epic(Some(&k(open).await))).await.unwrap();
 }

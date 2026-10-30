@@ -568,6 +568,103 @@ mod tests {
         pool.close().await;
     }
 
+    /// FB-224: migration 013 only adds `tasks.epic_id`. Every row of every
+    /// table a 012 database holds (tasks with parents, comments, activity, ...)
+    /// is unchanged, each task's `epic_id` is NULL, and deleting an epic nulls
+    /// the link.
+    #[tokio::test]
+    async fn migration_013_adds_epic_id_and_keeps_every_row() {
+        let path = temp_db("epic-link");
+        migrate_up_to(&path, 13).await;
+        let mut conn = SqliteConnectOptions::from_str(&sqlite_url(&path, "rw"))
+            .unwrap()
+            .foreign_keys(false)
+            .connect()
+            .await
+            .unwrap();
+        for sql in [
+            "INSERT INTO projects (id, name, key, created_at, ladder) VALUES (1, 'F', 'F', '2026-01-01', 'factory')",
+            "INSERT INTO projects (id, name, key, created_at) VALUES (2, 'L', 'L', '2026-01-01')",
+            "INSERT INTO people (id, name, email, factory_role) VALUES (1, 'A', 'a@x', 'owner')",
+            "INSERT INTO sprints (id, project_id, name, status, start_date, end_date) VALUES (1, 1, 'S1', 'active', '2026-01-01', '2026-01-14')",
+            "INSERT INTO releases (id, project_id, version, created_at) VALUES (1, 1, '1.0.0', '2026-01-01')",
+            "INSERT INTO tasks (id, project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, due_date, created_at, updated_at, labels, task_number, feature_branch, review_verdict, reviewed_commit, findings_url, run_stopped, risk, release_id) \
+             VALUES (1, 1, 1, 'Story', 'd', 'story', 'building', 'high', 1, 5, '2026-02-01', '2026-01-01', '2026-01-02', 'a,b', 1, 'feat/F-1-x', 'passed', 'abc', 'http://f', 1, 0, 1)",
+            "INSERT INTO tasks (id, project_id, sprint_id, parent_id, title, type, status, story_points, created_at, updated_at, task_number, risk) VALUES (2, 1, 1, 1, 'Slice', 'subtask', 'done', 5, '2026-01-01', '2026-01-01', 2, 1)",
+            "INSERT INTO tasks (id, project_id, sprint_id, parent_id, title, type, status, created_at, updated_at, task_number) VALUES (3, 1, 1, 1, 'Defect', 'bug', 'todo', '2026-01-01', '2026-01-01', 3)",
+            "INSERT INTO tasks (id, project_id, title, type, status, created_at, updated_at, task_number) VALUES (4, 1, 'Fix', 'bug', 'backlog', '2026-01-01', '2026-01-01', 4)",
+            "INSERT INTO tasks (id, project_id, title, type, status, created_at, updated_at, task_number) VALUES (5, 2, 'Legacy epic', 'epic', 'in_progress', '2026-01-01', '2026-01-01', 1)",
+            "INSERT INTO tasks (id, project_id, parent_id, title, type, status, created_at, updated_at, task_number) VALUES (6, 2, 5, 'Legacy story', 'story', 'todo', '2026-01-01', '2026-01-01', 2)",
+            "INSERT INTO comments (task_id, author_id, body, created_at) VALUES (2, 1, 'hi', '2026-01-01')",
+            "INSERT INTO activity_log (task_id, person_id, action, old_value, new_value, created_at) VALUES (1, 1, 'stage_entered', 'ready', 'building', '2026-01-01')",
+            "INSERT INTO activity_log (task_id, person_id, action, created_at) VALUES (6, 1, 'created', '2026-01-01')",
+            "INSERT INTO time_logs (task_id, person_id, minutes, logged_at) VALUES (2, 1, 30, '2026-01-01')",
+            "INSERT INTO attachments (task_id, filename, filepath, size, uploaded_at) VALUES (3, 'f', '/f', 1, '2026-01-01')",
+            "INSERT INTO task_links (task_id, depends_on_id, created_at) VALUES (1, 4, '2026-01-01')",
+            "INSERT INTO task_prs (task_id, url, created_at, updated_at) VALUES (1, 'http://pr', '2026-01-01', '2026-01-01')",
+            "INSERT INTO project_contacts (project_id, person_id, is_primary) VALUES (1, 1, 1)",
+        ] {
+            sqlx::query(sql).execute(&mut conn).await.unwrap();
+        }
+        let tables: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> '_sqlx_migrations' ORDER BY name",
+        )
+        .fetch_all(&mut conn)
+        .await
+        .unwrap();
+        let mut columns = vec![];
+        for t in tables {
+            let cols: Vec<String> = sqlx::query_scalar(&format!("SELECT name FROM pragma_table_info('{t}')"))
+                .fetch_all(&mut conn)
+                .await
+                .unwrap();
+            assert!(!cols.contains(&"epic_id".to_string()), "{t} has no epic_id before 013");
+            columns.push((t, cols));
+        }
+        let before = snapshot(&mut conn, &columns).await;
+        conn.close().await.unwrap();
+
+        let pool = open_and_migrate(&path).await.unwrap();
+        let mut conn = pool.acquire().await.unwrap();
+        let after = snapshot(&mut conn, &columns).await;
+        for ((table, rows_before), (_, rows_after)) in before.iter().zip(after.iter()) {
+            assert!(!rows_before.is_empty(), "{table} was seeded");
+            assert_eq!(rows_before, rows_after, "table {table} changed during migration 013");
+        }
+        let linked: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE epic_id IS NOT NULL")
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap();
+        assert_eq!(linked, 0, "every existing task starts with no epic");
+        let fk: (String, String) = sqlx::query_as(
+            "SELECT \"table\", on_delete FROM pragma_foreign_key_list('tasks') WHERE \"from\" = 'epic_id'",
+        )
+        .fetch_one(&mut *conn)
+        .await
+        .unwrap();
+        assert_eq!(fk, ("tasks".to_string(), "SET NULL".to_string()));
+        let violations: Vec<(String,)> = sqlx::query_as("SELECT \"table\" FROM pragma_foreign_key_check")
+            .fetch_all(&mut *conn)
+            .await
+            .unwrap();
+        assert!(violations.is_empty(), "FK violations after 013: {violations:?}");
+
+        // The link is live: deleting the epic leaves its Story with no epic.
+        sqlx::query("INSERT INTO tasks (id, project_id, title, type, status, created_at, updated_at, task_number) VALUES (7, 1, 'Epic', 'epic', 'todo', 'now', 'now', 5)")
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE tasks SET epic_id = 7 WHERE id = 4").execute(&mut *conn).await.unwrap();
+        sqlx::query("DELETE FROM tasks WHERE id = 7").execute(&mut *conn).await.unwrap();
+        let epic: Option<i64> = sqlx::query_scalar("SELECT epic_id FROM tasks WHERE id = 4")
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap();
+        assert_eq!(epic, None);
+        drop(conn);
+        pool.close().await;
+    }
+
     #[tokio::test]
     async fn open_existing_accepts_a_current_database() {
         let path = temp_db("current");
