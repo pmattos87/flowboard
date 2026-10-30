@@ -330,6 +330,112 @@ async fn review_start_is_refused_off_building_and_on_a_stopped_run() {
     assert_eq!(rows().await, 0, "a refused review_start must not log");
 }
 
+/// The `new_value` of every `verify_started` row on a Story, oldest first.
+async fn verify_starts(fx: &Fx, key: &str) -> Vec<Value> {
+    ops::trail(&fx.pool, key)
+        .await
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["action"] == "verify_started")
+        .map(|e| e["new"].clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn verify_start_logs_the_subtask_round_about_to_run() {
+    let fx = setup("internal").await;
+    let s = story(&fx, "verify start").await;
+    let sub = subtask(&fx, &s, false).await;
+    ready_in_sprint(&fx, &s).await;
+    mv(&fx, &s, "building").await.unwrap();
+    ops::subtask_move(&fx.pool, &sub, "in_progress", Actor::Agent).await.unwrap();
+
+    ops::verify_start(&fx.pool, &sub, Actor::Agent).await.unwrap();
+    assert_eq!(verify_starts(&fx, &s).await, vec![serde_json::json!({ "subtask": sub, "round": 1 })]);
+
+    ops::subtask_verify(&fx.pool, &sub, false, "tests red", Actor::Agent).await.unwrap();
+    ops::verify_start(&fx.pool, &sub, Actor::Agent).await.unwrap();
+    assert_eq!(
+        verify_starts(&fx, &s).await,
+        vec![
+            serde_json::json!({ "subtask": sub, "round": 1 }),
+            serde_json::json!({ "subtask": sub, "round": 2 }),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn verify_start_is_refused_off_building_on_a_stopped_run_and_off_in_progress() {
+    let fx = setup("internal").await;
+    let s = story(&fx, "refused verify").await;
+    let sub = subtask(&fx, &s, false).await;
+    let rows = || async {
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM activity_log WHERE action = 'verify_started'")
+            .fetch_one(&fx.pool)
+            .await
+            .unwrap()
+    };
+    ready_in_sprint(&fx, &s).await;
+
+    // An in_progress Subtask whose Story isn't building.
+    ops::subtask_move(&fx.pool, &sub, "in_progress", Actor::Agent).await.unwrap();
+    let err = ops::verify_start(&fx.pool, &sub, Actor::Agent).await.unwrap_err();
+    assert!(err.contains("building"), "{err}");
+    assert_eq!(rows().await, 0);
+
+    // A stopped Run.
+    mv(&fx, &s, "building").await.unwrap();
+    ops::run_stop(&fx.pool, &s, "held", Actor::Agent).await.unwrap();
+    let err = ops::verify_start(&fx.pool, &sub, Actor::Agent).await.unwrap_err();
+    assert!(err.contains("stopped"), "{err}");
+    assert_eq!(rows().await, 0);
+    ops::run_restart(&fx.pool, &s, Actor::Owner).await.unwrap();
+
+    // A todo Subtask.
+    ops::subtask_move(&fx.pool, &sub, "todo", Actor::Agent).await.unwrap();
+    let err = ops::verify_start(&fx.pool, &sub, Actor::Agent).await.unwrap_err();
+    assert!(err.contains("not in_progress"), "{err}");
+    assert_eq!(rows().await, 0);
+
+    // A done Subtask.
+    ops::subtask_move(&fx.pool, &sub, "in_progress", Actor::Agent).await.unwrap();
+    ops::subtask_move(&fx.pool, &sub, "done", Actor::Agent).await.unwrap();
+    let err = ops::verify_start(&fx.pool, &sub, Actor::Agent).await.unwrap_err();
+    assert!(err.contains("not in_progress"), "{err}");
+
+    assert_eq!(rows().await, 0, "a refused verify_start must not log");
+}
+
+#[tokio::test]
+async fn verify_start_refuses_in_order_and_numbers_rounds_per_subtask() {
+    let fx = setup("internal").await;
+    let s = story(&fx, "verify order").await;
+    let a = subtask(&fx, &s, false).await;
+    let b = subtask(&fx, &s, false).await;
+    ready_in_sprint(&fx, &s).await;
+
+    // A todo Subtask on a Story that isn't building: the building check comes first.
+    let err = ops::verify_start(&fx.pool, &a, Actor::Agent).await.unwrap_err();
+    assert!(err.contains("Starting a Verify"), "{err}");
+
+    // A todo Subtask on a stopped Run: the stopped check comes before in_progress.
+    mv(&fx, &s, "building").await.unwrap();
+    ops::run_stop(&fx.pool, &s, "held", Actor::Agent).await.unwrap();
+    let err = ops::verify_start(&fx.pool, &a, Actor::Agent).await.unwrap_err();
+    assert!(err.contains("stopped"), "{err}");
+    ops::run_restart(&fx.pool, &s, Actor::Owner).await.unwrap();
+
+    // Another Subtask's failed Verify rounds don't advance this one's round.
+    ops::subtask_move(&fx.pool, &a, "in_progress", Actor::Agent).await.unwrap();
+    ops::subtask_move(&fx.pool, &b, "in_progress", Actor::Agent).await.unwrap();
+    ops::subtask_verify(&fx.pool, &a, false, "tests red", Actor::Agent).await.unwrap();
+    let got = ops::verify_start(&fx.pool, &b, Actor::Agent).await.unwrap();
+    assert_eq!(got, serde_json::json!({ "subtask": b, "round": 1 }));
+    assert_eq!(verify_starts(&fx, &s).await, vec![serde_json::json!({ "subtask": b, "round": 1 })]);
+}
+
 #[tokio::test]
 async fn sprint_entry_and_exit_only_at_ready_and_subtasks_follow() {
     let fx = setup("internal").await;

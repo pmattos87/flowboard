@@ -170,6 +170,7 @@ enum RunCmd {
     },
     Restart { key: String },
     ReviewStart { key: String },
+    VerifyStart { key: String },
 }
 
 #[derive(Subcommand)]
@@ -320,6 +321,7 @@ async fn run(cli: Cli, pool: SqlitePool) -> Result<Value, String> {
         Cmd::Run(RunCmd::Stop { key, reason }) => ops::run_stop(p, &key, &reason, actor).await,
         Cmd::Run(RunCmd::Restart { key }) => ops::run_restart(p, &key, actor).await,
         Cmd::Run(RunCmd::ReviewStart { key }) => ops::review_start(p, &key, actor).await,
+        Cmd::Run(RunCmd::VerifyStart { key }) => ops::verify_start(p, &key, actor).await,
         Cmd::Pr(PrCmd::Open { key, url, target }) => ops::pr_open(p, &key, &url, &target, actor).await,
         Cmd::Pr(PrCmd::Merged { key, url }) => ops::pr_set_state(p, &key, &url, "merged", actor).await,
         Cmd::Pr(PrCmd::Closed { key, url }) => ops::pr_set_state(p, &key, &url, "closed", actor).await,
