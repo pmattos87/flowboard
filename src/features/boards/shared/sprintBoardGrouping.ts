@@ -1,6 +1,7 @@
 import type { Project, Sprint, SprintStatus, Task, TaskStatus } from "@/types";
 import type { SprintFilter } from "@/stores/uiStore";
 import { sortByPriority } from "./boardConstants";
+import { isStoryLevel } from "@/lib/storyLevel";
 
 export type SprintBoardRowKey = number | "backlog";
 
@@ -26,7 +27,8 @@ export interface SprintBoardRow {
  * Within a status group, backlog sprints sort by start date ascending (soonest
  * first) and completed sprints descending (most recent first).
  *
- * Only stories (`type === "story"`) are planned here; tasks/bugs are excluded.
+ * Only Stories (`isStoryLevel`) are planned here; tasks and bug Subtasks are
+ * excluded. On a Factory project a top-level bug is a Story (FB-52).
  * Filter semantics:
  *   - "all"      → every sprint, status-ordered, with the Backlog row in place.
  *   - <sprintId> → just that sprint, then Backlog.
@@ -38,7 +40,7 @@ export function buildSprintBoardRows(
   filter: SprintFilter,
   ladder: Ladder = "legacy",
 ): SprintBoardRow[] {
-  const stories = tasks.filter((t) => t.type === "story");
+  const stories = tasks.filter((t) => isStoryLevel(t, ladder));
 
   const visibleSprints =
     filter === "backlog"
@@ -116,7 +118,7 @@ export function sprintGateToast(ladder: Ladder = "legacy") {
  * "Ready for Development". Applies only to backlog -> sprint moves — moving a
  * story between sprints or back to the backlog is always allowed.
  *
- * FB-90: gated on `type === "story"`. Tasks, bugs and epics never enter the
+ * FB-90: gated on `isStoryLevel`. Tasks, bugs and epics never enter the
  * discovery lifecycle, so without this check they could never be put in a
  * sprint at all from the detail panel or create modal. The Sprint Planning
  * Board already filters to stories, so the check is a no-op for its drops.
@@ -124,12 +126,12 @@ export function sprintGateToast(ladder: Ladder = "legacy") {
  * Takes only the fields it reads so the create modal can check an unsaved draft.
  */
 export function isSprintScheduleBlocked(
-  task: Pick<Task, "type" | "status" | "sprint_id">,
+  task: Pick<Task, "type" | "parent_id" | "status" | "sprint_id">,
   targetKey: SprintBoardRowKey,
   ladder: Ladder = "legacy",
 ): boolean {
   return (
-    task.type === "story" &&
+    isStoryLevel(task, ladder) &&
     targetKey !== "backlog" &&
     task.sprint_id === null &&
     task.status !== plannableStatus(ladder)
@@ -163,7 +165,7 @@ export function isSprintScheduleBlocked(
  * a status and a sprint change in one update there.
  */
 export function computeSprintDropPayload(
-  task: Pick<Task, "type" | "status" | "sprint_id">,
+  task: Pick<Task, "type" | "parent_id" | "status" | "sprint_id">,
   targetKey: SprintBoardRowKey,
   ladder: Ladder = "legacy",
 ): { payload: SprintDropPatch; override: SprintDropPatch } | null {
@@ -171,7 +173,7 @@ export function computeSprintDropPayload(
   if (task.sprint_id === newSprintId) return null;
 
   const patch: SprintDropPatch = { sprint_id: newSprintId };
-  if (task.type === "story" && ladder === "legacy") {
+  if (ladder === "legacy" && isStoryLevel(task, ladder)) {
     if (task.sprint_id === null && newSprintId !== null) {
       patch.status = "todo";
     } else if (task.sprint_id !== null && newSprintId === null) {

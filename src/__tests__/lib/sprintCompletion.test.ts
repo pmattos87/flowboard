@@ -116,6 +116,8 @@ describe("backlogBlockReason", () => {
 
   it("is null on a legacy project whatever the statuses", () => {
     expect(backlogBlockReason(legacy, [row(1, "story", "in_progress")], 1)).toBeNull();
+    // A legacy top-level bug is not a Story (FB-52) and never blocks.
+    expect(backlogBlockReason(legacy, [row(2, "bug", "in_progress")], 1)).toBeNull();
   });
 
   it("is null on a Factory project when every unfinished Story is at ready", () => {
@@ -124,10 +126,18 @@ describe("backlogBlockReason", () => {
       row(2, "story", "done"),
       row(3, "story", "canceled"),
       row(4, "subtask", "building", 1, 1), // a Subtask follows its Story; not checked on its own
-      row(5, "bug", "in_progress"), // top-level bugs move with sprint_id alone
+      row(5, "bug", "in_progress", 1, 1), // a bug Subtask follows its Story too
+      row(8, "bug", "ready"), // a top-level bug is a Story (FB-52), here at ready
       row(6, "story", "building", 2), // another sprint
     ];
     expect(backlogBlockReason(factory, tasks, 1)).toBeNull();
+  });
+
+  it("names a Factory top-level bug past ready, but not a bug Subtask (FB-52)", () => {
+    const tasks = [row(5, "bug", "in_progress"), row(6, "bug", "in_progress", 1, 1), row(1, "story", "ready")];
+    expect(backlogBlockReason(factory, tasks, 1)).toBe(
+      "a Story enters or leaves a sprint only at ready; FB-5 is in_progress",
+    );
   });
 
   it("names every unfinished Story past ready on a Factory project", () => {
@@ -169,6 +179,20 @@ describe("openSubtasksUnderDoneStories", () => {
 
   it("ignores done Stories of another sprint", () => {
     const tasks = [row(1, "story", "done", 2), row(2, "subtask", "todo", 1, 1)];
+    expect(openSubtasksUnderDoneStories("HL", tasks, 1)).toEqual([]);
+  });
+
+  // FB-52: on a Factory project a top-level bug is a Story.
+  it("lists a done Factory bug Story with an open Subtask", () => {
+    const tasks = [row(1, "bug", "done"), row(2, "subtask", "todo", 1, 1)];
+    expect(openSubtasksUnderDoneStories("FB", tasks, 1, "factory")).toEqual([
+      { story: "FB-1", subtasks: ["FB-2"] },
+    ]);
+  });
+
+  it("does not treat a legacy top-level bug as a Story", () => {
+    const tasks = [row(1, "bug", "done"), row(2, "subtask", "todo", 1, 1)];
+    expect(openSubtasksUnderDoneStories("HL", tasks, 1, "legacy")).toEqual([]);
     expect(openSubtasksUnderDoneStories("HL", tasks, 1)).toEqual([]);
   });
 });

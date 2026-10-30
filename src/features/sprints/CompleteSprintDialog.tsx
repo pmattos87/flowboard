@@ -70,7 +70,7 @@ export function CompleteSprintDialog({
   const tasks = loadedTasks ?? NO_TASKS;
   const unfinished = tasks.filter((t) => t.sprint_id === sprint.id && isUnfinished(t.status)).length;
   const backlogReason = backlogBlockReason(project, tasks, sprint.id);
-  const blockers = openSubtasksUnderDoneStories(project.key, tasks, sprint.id);
+  const blockers = openSubtasksUnderDoneStories(project.key, tasks, sprint.id, project.ladder);
 
   const dateError =
     choice === "new" && newSprint.startDate && newSprint.endDate && newSprint.endDate < newSprint.startDate

@@ -90,6 +90,14 @@ task_prs         (id, task_id, url, target, state, created_at, updated_at)
   `backlog`/`refining`/`ready` (reopen; inside a sprint only `ready`). `done` is terminal.
   Subtask ladder: `todo ⇄ in_progress → done`, `todo`/`in_progress` → `canceled`,
   `canceled` → `todo` (reopen).
+- What is a Story on a Factory project (FB-52; no schema change): the parent decides. A
+  `story` or a `bug` with `parent_id` NULL is a Story (a bug Story is a fix) and takes the Story
+  ladder; a `bug` or `subtask` whose parent is a Story is a Subtask (a bug Subtask is a defect
+  found while testing that Story) and takes the Subtask ladder. On a Factory project
+  `update_task` refuses a `parent_id` or `type` change that crosses Story level and Subtask
+  level; `story` <-> `bug` on a top-level row is allowed. On a legacy project a top-level `bug`
+  is not a Story: it keeps dev statuses and is unparented. The predicate is `is_story_level` /
+  `story_level_sql` in `factory/ops.rs`. "Waiting on bugs" counts only `bug` children.
 - A Factory Story's `story_points` is the sum of its non-bug, non-canceled Subtasks' points,
   kept by every write path (CLI, MCP and app); the app refuses a direct edit. `refining → ready`
   is refused while it is 0. Migration `012_story_points_backfill.sql` filled it in once for

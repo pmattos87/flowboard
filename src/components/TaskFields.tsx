@@ -7,6 +7,7 @@ import { usePeople } from "@/hooks/usePeople";
 import { useSprints } from "@/hooks/useSprints";
 import { useProject } from "@/hooks/useProjects";
 import { statusOptionsForType } from "@/features/boards/shared/boardConstants";
+import { isStoryLevel } from "@/lib/storyLevel";
 import {
   computeSprintDropPayload,
   isSprintScheduleBlocked,
@@ -126,10 +127,15 @@ export function TaskFields({ task, state }: { task: Task; state: TaskDraftState 
 
   const peopleSafe = people ?? [];
   const sprintsSafe = sprints ?? [];
-  const storyOptions = (projectTasks ?? []).filter((t) => t.type === "story");
-  const showParent = task.type === "subtask" || task.type === "bug";
+  const ladder = project?.ladder;
+  const storyOptions = (projectTasks ?? []).filter((t) => isStoryLevel(t, ladder));
+  // A Factory top-level bug is a Story (FB-52), so it has no parent to pick.
+  const showParent = (task.type === "subtask" || task.type === "bug") && !isStoryLevel(task, ladder);
   // A Factory Story's points are the sum of its Subtasks' (SF-68).
-  const derivedPoints = project?.ladder === "factory" && task.type === "story";
+  const derivedPoints = ladder === "factory" && isStoryLevel(task, ladder);
+  // A Factory bug Subtask without a parent would be a bug Story, a level change
+  // the backend refuses (FB-52), so a Factory row with a parent can't drop it.
+  const canUnparent = ladder !== "factory" || task.parent_id === null;
 
   // Reparenting to a story inherits the story's sprint so the child stays in the
   // same sprint as its parent (matches the Task Board DnD reparent behavior).
@@ -155,6 +161,7 @@ export function TaskFields({ task, state }: { task: Task; state: TaskDraftState 
         <div>
           <Label className="text-gray-500 text-[11px]">Status</Label>
           <select
+            aria-label="Status"
             value={draft.status}
             onChange={(e) => {
               const v = e.target.value as TaskStatus;
@@ -162,7 +169,7 @@ export function TaskFields({ task, state }: { task: Task; state: TaskDraftState 
             }}
             className={SELECT_CLS}
           >
-            {statusOptionsForType(draft.type, project?.ladder).map((o) => (
+            {statusOptionsForType(draft, project?.ladder).map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
@@ -248,7 +255,7 @@ export function TaskFields({ task, state }: { task: Task; state: TaskDraftState 
             onChange={(e) => handleParentChange(e.target.value)}
             className={SELECT_CLS}
           >
-            <option value="">No parent</option>
+            {canUnparent && <option value="">No parent</option>}
             {storyOptions.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.title}
