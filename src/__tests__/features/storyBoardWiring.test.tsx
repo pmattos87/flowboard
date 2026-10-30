@@ -6,7 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { UserStoryBoard } from "@/features/boards/UserStoryBoard";
 import { DiscoveryBoard } from "@/features/boards/DiscoveryBoard";
 import { Sidebar } from "@/components/Sidebar";
-import { openBugCount, storyPagePath } from "@/features/story/useStoryCardDecor";
+import { epicPagePath, openBugCount, storyPagePath } from "@/features/story/useStoryCardDecor";
 import { useUiStore } from "@/stores/uiStore";
 import type { Project, Task } from "@/types";
 
@@ -74,6 +74,15 @@ describe("storyPagePath and openBugCount", () => {
     expect(storyPagePath(project("legacy"), tasks[0])).toBeNull();
   });
 
+  it("routes only Factory epics to the epic page (FB-224)", () => {
+    const epic = task({ id: 9, task_number: 9, type: "epic", status: "todo", sprint_id: null });
+    expect(epicPagePath(project("factory"), epic)).toBe("/epic/FB-9");
+    expect(storyPagePath(project("factory"), epic)).toBeNull();
+    expect(epicPagePath(project("factory"), tasks[0])).toBeNull();
+    expect(epicPagePath(project("legacy"), epic)).toBeNull();
+    expect(storyPagePath(project("legacy"), epic)).toBeNull();
+  });
+
   it("counts open bug Subtasks only", () => {
     expect(openBugCount(tasks[0], tasks)).toBe(1);
   });
@@ -111,6 +120,22 @@ describe("legacy Story board", () => {
     fireEvent.click(await screen.findByText("Dropped story"));
     expect(useUiStore.getState().selectedTaskId).toBe(5);
     expect(screen.queryByText("stopped")).not.toBeInTheDocument();
+  });
+});
+
+describe("legacy epic", () => {
+  it("still opens the slide-over from the Discovery board", async () => {
+    const legacyEpic = task({ id: 9, task_number: 9, type: "epic", status: "refining", sprint_id: null, title: "Legacy epic" });
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "get_project") return Promise.resolve(project("legacy"));
+      if (cmd === "list_projects") return Promise.resolve([project("legacy")]);
+      if (cmd === "list_tasks") return Promise.resolve([legacyEpic]);
+      return Promise.resolve([]);
+    });
+    useUiStore.setState({ activeProjectId: 1, selectedTaskId: null });
+    renderAt(<DiscoveryBoard />);
+    fireEvent.click(await screen.findByText("Legacy epic"));
+    expect(useUiStore.getState().selectedTaskId).toBe(9);
   });
 });
 
