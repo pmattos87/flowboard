@@ -1292,35 +1292,42 @@ fn check_epic_link(task: &Row, epic: Option<&Row>) -> Result<(), String> {
 
 // ─── The app's edits ────────────────────────────────────────────────────────
 
-/// Refuse the app's epic edit on task `id` when [`check_epic_link`] does.
-/// `epic_id` is the payload's three-state field; absent changes nothing. The
-/// caller writes the column. This read is only a fail-fast: the caller must
-/// repeat the check with [`app_check_epic_in`] inside its write transaction.
+/// Refuse the app's epic edit on task `id` when [`check_epic_link`] does, and
+/// return the edit the caller should write: `None` when the payload's
+/// three-state `epic_id` is absent or echoes the row's current epic (an echo
+/// is not an epic edit, so the write keeps whatever epic is stored then). This
+/// read is only a fail-fast: the caller must repeat the check with
+/// [`app_check_epic_in`] inside its write transaction.
 ///
 /// On a Factory project an epic change must come alone: `status` and
 /// `sprint_id` (the payload's fields, an echo of the current value is not a
 /// change) go through [`app_move`], which commits on its own, so a combined
-/// edit refused after that move would leave the move behind (FB-224).
+/// edit refused after that move would leave the move behind (FB-224). When
+/// this returns an epic change, the caller drops those echoes too, so nothing
+/// commits before the write that re-checks the epic.
 pub async fn app_check_epic(
     pool: &SqlitePool,
     id: i64,
     epic_id: Option<Option<i64>>,
     status: Option<&str>,
     sprint_id: Option<Option<i64>>,
-) -> Result<(), String> {
+) -> Result<Option<Option<i64>>, String> {
     if epic_id.is_none() {
-        return Ok(());
+        return Ok(None);
     }
     let mut tx = pool.begin().await.map_err(err)?;
     let row = load_by_id(&mut tx, id).await?;
-    let moves = status.is_some_and(|s| s != row.status) || sprint_id.is_some_and(|s| s != row.sprint_id);
-    let out = if row.ladder == "factory" && epic_id != Some(row.epic_id) && moves {
+    let out = if epic_id == Some(row.epic_id) {
+        Ok(None)
+    } else if row.ladder == "factory"
+        && (status.is_some_and(|s| s != row.status) || sprint_id.is_some_and(|s| s != row.sprint_id))
+    {
         Err(format!(
             "on a Factory project, change {}'s epic separately from its status and sprint",
             row.key()
         ))
     } else {
-        app_check_epic_in(&mut tx, id, epic_id).await
+        app_check_epic_in(&mut tx, id, epic_id).await.map(|()| epic_id)
     };
     tx.rollback().await.map_err(err)?;
     out

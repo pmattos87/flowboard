@@ -264,7 +264,15 @@ pub async fn update_task_inner(
     let before = get_task_inner(pool, id).await?;
     factory::ops::app_check_points(pool, id, payload.story_points).await?;
     factory::ops::app_check_level(pool, id, payload.parent_id, payload.r#type.as_deref()).await?;
-    factory::ops::app_check_epic(pool, id, payload.epic_id, payload.status.as_deref(), payload.sprint_id).await?;
+    payload.epic_id =
+        factory::ops::app_check_epic(pool, id, payload.epic_id, payload.status.as_deref(), payload.sprint_id).await?;
+    if payload.epic_id.is_some() {
+        // An actual epic change passed the check, so any status or sprint in
+        // the payload echoes the row: drop them, so `app_move` commits nothing
+        // that the epic re-check below could then refuse (FB-224).
+        payload.status = None;
+        payload.sprint_id = None;
+    }
     if factory::ops::app_move(pool, id, payload.status.as_deref(), payload.sprint_id).await? {
         payload.status = None;
         payload.sprint_id = None;
@@ -1791,6 +1799,60 @@ mod tests {
         let payload = TaskUpdate { status: Some("refining".into()), epic_id: Some(Some(epic)), ..empty_update() };
         let row = update_task_inner(&pool, story, payload).await.unwrap();
         assert_eq!((row.status.as_str(), row.epic_id), ("refining", Some(epic)));
+    }
+
+    #[tokio::test]
+    async fn a_status_move_echoing_the_epic_keeps_a_membership_changed_after_the_guard() {
+        use crate::test_support::{self as ts, TaskStatus, TaskType};
+        let pool = ts::pool().await;
+        let p = ts::factory_project(&pool, "SF").await;
+        let epic_a = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let epic_b = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+        link(&pool, story, epic_a).await;
+        let trail = count_activity(&pool, story).await;
+
+        // Another writer moves the Story to epic B after the epic guard has read
+        // it in A: the trigger fires inside the cancel `app_move` commits, so the
+        // change lands between the guard and the edit's final write, with no
+        // timing involved.
+        sqlx::query(&format!(
+            "CREATE TRIGGER move_to_b AFTER UPDATE OF status ON tasks
+             WHEN NEW.id = {story} AND NEW.status = 'canceled'
+             BEGIN UPDATE tasks SET epic_id = {epic_b} WHERE id = {story}; END"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // `epic_id` echoes A as the guard read it: not an epic edit, so the
+        // cancel applies in full and the Story keeps the epic stored at write
+        // time, instead of committing the cancel and then being refused.
+        let payload = TaskUpdate { status: Some("canceled".into()), epic_id: Some(Some(epic_a)), ..empty_update() };
+        let row = update_task_inner(&pool, story, payload).await.unwrap();
+        assert_eq!((row.status.as_str(), row.epic_id), ("canceled", Some(epic_b)));
+        assert_eq!(count_activity(&pool, story).await, trail + 1, "one status trail entry for the cancel");
+    }
+
+    #[tokio::test]
+    async fn an_epic_change_echoing_the_status_is_refused_whole_when_the_story_is_canceled_after_the_guard() {
+        use crate::test_support::{self as ts, TaskStatus, TaskType};
+        let pool = ts::file_pool("epic-change-status-echo-canceled").await;
+        let p = ts::factory_project(&pool, "SF").await;
+        let epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+        let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+        let trail = count_activity(&pool, story).await;
+
+        // The guard reads the Story in backlog (the payload's status echoes it);
+        // another writer cancels it before the edit writes. The epic change is
+        // refused at the write, and the edit commits nothing of its own.
+        let payload = TaskUpdate { status: Some("backlog".into()), epic_id: Some(Some(epic)), ..empty_update() };
+        let cancel = format!("UPDATE tasks SET status = 'canceled' WHERE id = {story}");
+        let err = edit_under_concurrent_write(&pool, story, payload, &cancel).await.unwrap_err();
+        assert!(err.contains("keeps its epic"), "{err}");
+        let row = get_task_inner(&pool, story).await.unwrap();
+        assert_eq!((row.status.as_str(), row.epic_id), ("canceled", None), "the other writer's cancel stands, no epic");
+        assert_eq!(count_activity(&pool, story).await, trail, "the refused edit wrote no trail");
     }
 
     #[tokio::test]
