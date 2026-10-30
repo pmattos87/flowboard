@@ -236,10 +236,17 @@ pub async fn complete_sprint_inner(
         }
     };
 
-    // A done Story still holding unfinished children can't be closed out.
+    // A done Story still holding unfinished children can't be closed out. On a Factory
+    // project a bug Story counts too (FB-52); a legacy project keeps `type = 'story'`.
+    // Mirrors `openSubtasksUnderDoneStories` in src/lib/sprintCompletion.ts.
+    let is_story = if ladder == "factory" {
+        factory::ops::story_level_sql("s")
+    } else {
+        "s.type = 'story'".to_string()
+    };
     let blocked: Vec<(i64, i64)> = sqlx::query_as(&format!(
         r#"SELECT s.task_number, c.task_number FROM tasks s JOIN tasks c ON c.parent_id = s.id
-            WHERE s.sprint_id = ? AND s.type = 'story' AND s.status = 'done' AND c.{UNFINISHED}
+            WHERE s.sprint_id = ? AND {is_story} AND s.status = 'done' AND c.{UNFINISHED}
             ORDER BY s.task_number, c.task_number"#
     ))
     .bind(sprint_id)
@@ -656,6 +663,41 @@ mod tests {
         let err = complete_sprint_inner(&pool, a, to(b)).await.unwrap_err();
         assert!(err.contains("LG-2") && err.contains("LG-4") && !err.contains("LG-3"), "{err}");
         assert_eq!(snapshot(&pool).await, before);
+    }
+
+    #[tokio::test]
+    async fn a_done_factory_story_or_bug_story_with_an_open_subtask_refuses_completion() {
+        for kind in [K::Story, K::Bug] {
+            let pool = pool().await;
+            let p = factory_project(&pool, "SF").await;
+            let a = sprint(&pool, p, "S1", "2026-10-01", S::Active).await;
+            let b = sprint(&pool, p, "S2", "2026-10-15", S::Backlog).await;
+            let done = task(&pool, p, Some(a), None, kind, T::Done).await; // SF-1
+            task(&pool, p, Some(a), Some(done), K::Subtask, T::Done).await; // SF-2
+            task(&pool, p, Some(a), Some(done), K::Bug, T::Building).await; // SF-3
+
+            let before = snapshot(&pool).await;
+            let err = complete_sprint_inner(&pool, a, to(b)).await.unwrap_err();
+            assert!(
+                err.contains("SF-1 is done but has open Subtasks (SF-3)") && !err.contains("SF-2"),
+                "{kind:?}: {err}"
+            );
+            assert_eq!(snapshot(&pool).await, before, "{kind:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_done_legacy_top_level_bug_with_an_open_child_does_not_refuse_completion() {
+        let pool = pool().await;
+        let p = project(&pool, "LG").await;
+        let a = sprint(&pool, p, "S1", "2026-10-01", S::Active).await;
+        let b = sprint(&pool, p, "S2", "2026-10-15", S::Backlog).await;
+        let bug = task(&pool, p, Some(a), None, K::Bug, T::Done).await;
+        let child = task(&pool, p, Some(a), Some(bug), K::Subtask, T::InProgress).await;
+
+        complete_sprint_inner(&pool, a, to(b)).await.unwrap();
+        assert_eq!(row(&pool, bug).await, (Some(a), "done".into()));
+        assert_eq!(row(&pool, child).await, (Some(b), "in_progress".into()));
     }
 
     #[tokio::test]
