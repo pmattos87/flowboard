@@ -159,6 +159,8 @@ export interface TaskUpdatePayload {
   story_points?: number;
   due_date?: string | null;
   labels?: string;
+  /** FB-224: the Story's epic; null takes it out of its epic. */
+  epic_id?: number | null;
 }
 
 export interface TaskListFilters {

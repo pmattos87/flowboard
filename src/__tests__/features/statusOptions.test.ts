@@ -21,4 +21,15 @@ describe("statusOptionsForType", () => {
       expect(values).toEqual(["todo", "in_progress", "in_review", "canceled", "done"]);
     }
   });
+
+  // FB-224: a Factory epic has its own small lifecycle, never the Story ladder.
+  it("offers a Factory epic exactly todo, done and canceled", () => {
+    const values = statusOptionsForType({ type: "epic", parent_id: null }, "factory").map((o) => o.value);
+    expect([...values].sort()).toEqual(["canceled", "done", "todo"]);
+  });
+
+  it("leaves legacy epic options unchanged", () => {
+    const values = statusOptionsForType({ type: "epic", parent_id: null }, "legacy").map((o) => o.value);
+    expect(values).toEqual(["todo", "refining", "ready_for_development", "in_progress", "in_review", "canceled", "done"]);
+  });
 });

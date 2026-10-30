@@ -17,6 +17,7 @@ import type { StoryView, TrailEvent } from "@/types";
 import { StoryFlags } from "./StoryFlags";
 import { StorySubtasks } from "./StorySubtasks";
 import { StoryRun } from "./StoryRun";
+import { StoryEpicField } from "./StoryEpicField";
 import { branchUrl, githubRepoUrl, prLabel } from "./githubLinks";
 
 // The dedicated Story page of a Factory project (SF-61). It replaces the
@@ -194,6 +195,7 @@ export function StoryPage() {
         <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700">
           Assignee: {story.assignee ?? "—"}
         </span>
+        <StoryEpicField story={task} project={project} tasks={tasks ?? []} />
       </div>
       <input
         value={draft.title}

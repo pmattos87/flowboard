@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { StoryPage } from "@/features/story/StoryPage";
 import type { StoryView } from "@/types";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { toast } from "sonner";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(() => Promise.resolve()) }));
@@ -27,7 +28,7 @@ const storyTask = {
   priority: "high", assignee_id: null, story_points: 5, due_date: null,
   created_at: "", updated_at: "", labels: "", feature_branch: "feat/FB-12-export",
   review_verdict: null, reviewed_commit: null, findings_url: null,
-  run_stopped: true, risk: false, release_id: null,
+  run_stopped: true, risk: false, release_id: null, epic_id: null,
 };
 
 function storyView(over: Partial<StoryView> = {}): StoryView {
@@ -36,6 +37,7 @@ function storyView(over: Partial<StoryView> = {}): StoryView {
     assignee: "Pedro", sprint_id: 3, feature_branch: "feat/FB-12-export",
     review: { verdict: null, commit: null, findings_url: null },
     release: null,
+    epic: null,
     flags: { stopped: true, waiting_on_bugs: 2 },
     prs: [],
     depends_on: ["FB-9"],
@@ -195,5 +197,87 @@ describe("StoryPage", () => {
     renderPage();
     expect(await screen.findByText("Flowboard is not a Factory project.")).toBeInTheDocument();
     expect(mockInvoke).not.toHaveBeenCalledWith("get_story", expect.anything());
+  });
+});
+
+// FB-224: the header's Epic picker lists the project's open epics plus "None".
+describe("StoryPage — Epic field", () => {
+  const epic = (over: object) => ({
+    ...storyTask, type: "epic", status: "todo", sprint_id: null, story_points: 0, feature_branch: null,
+    run_stopped: false, ...over,
+  });
+  const openEpic = epic({ id: 20, task_number: 40, title: "Hosted web app" });
+  const doneEpic = epic({ id: 21, task_number: 41, title: "Finished goal", status: "done" });
+  const canceledEpic = epic({ id: 22, task_number: 42, title: "Dropped goal", status: "canceled" });
+  const otherProjectEpic = epic({ id: 23, project_id: 2, task_number: 43, title: "Other project goal" });
+
+  function setupEpics(task: object = storyTask, updateTask: () => Promise<unknown> = () => Promise.resolve(task)) {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "list_projects") return Promise.resolve([factoryProject]);
+      if (cmd === "get_project") return Promise.resolve(factoryProject);
+      if (cmd === "list_tasks") return Promise.resolve([task, openEpic, doneEpic, canceledEpic, otherProjectEpic]);
+      if (cmd === "get_story") return Promise.resolve(storyView({ flags: { stopped: false, waiting_on_bugs: 0 } }));
+      if (cmd === "update_task") return updateTask();
+      return Promise.resolve([]);
+    });
+  }
+
+  beforeEach(() => vi.mocked(toast.error).mockReset());
+
+  it("lists only the open epics of the Story's project plus None", async () => {
+    setupEpics();
+    renderPage();
+    const picker = (await screen.findByRole("combobox", { name: "Epic" })) as HTMLSelectElement;
+    expect(Array.from(picker.options).map((o) => o.text)).toEqual(["None", "FB-40 Hosted web app"]);
+    expect(picker.value).toBe("");
+    expect(picker).toBeEnabled();
+  });
+
+  it("sets the epic, and None clears it", async () => {
+    const user = userEvent.setup();
+    setupEpics({ ...storyTask, epic_id: null });
+    renderPage();
+    const picker = await screen.findByRole("combobox", { name: "Epic" });
+    await user.selectOptions(picker, "20");
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("update_task", { id: 7, payload: { epic_id: 20 } }),
+    );
+    await user.selectOptions(picker, "");
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("update_task", { id: 7, payload: { epic_id: null } }),
+    );
+  });
+
+  it("disables the picker for a done or a canceled Story", async () => {
+    for (const status of ["done", "canceled"]) {
+      setupEpics({ ...storyTask, status, epic_id: 20 });
+      const { unmount } = renderPage();
+      const picker = (await screen.findByRole("combobox", { name: "Epic" })) as HTMLSelectElement;
+      expect(picker).toBeDisabled();
+      expect(picker.value).toBe("20");
+      unmount();
+    }
+  });
+
+  it("keeps showing a closed epic the Story still belongs to", async () => {
+    setupEpics({ ...storyTask, epic_id: 21 });
+    renderPage();
+    const picker = (await screen.findByRole("combobox", { name: "Epic" })) as HTMLSelectElement;
+    expect(picker.value).toBe("21");
+    expect(Array.from(picker.options).map((o) => o.text)).toEqual([
+      "None", "FB-41 Finished goal (done)", "FB-40 Hosted web app",
+    ]);
+  });
+
+  it("toasts the backend's reason when the change is refused", async () => {
+    const user = userEvent.setup();
+    setupEpics(storyTask, () => Promise.reject("FB-40 is done and takes no new Stories"));
+    renderPage();
+    const picker = (await screen.findByRole("combobox", { name: "Epic" })) as HTMLSelectElement;
+    await user.selectOptions(picker, "20");
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("FB-40 is done and takes no new Stories")),
+    );
+    expect(picker.value).toBe("");
   });
 });

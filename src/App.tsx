@@ -14,6 +14,7 @@ import RoadmapPage from "@/features/roadmap/RoadmapPage";
 import ReportsPage from "@/features/reports/ReportsPage";
 import ReleasesPage from "@/features/releases/ReleasesPage";
 import { StoryPage } from "@/features/story/StoryPage";
+import { EpicPage } from "@/features/story/EpicPage";
 import { ActiveRunsPage } from "@/features/story/ActiveRunsPage";
 import { useBackupFinishedSync } from "@/hooks/useBackup";
 import { useDbChangeSync } from "@/hooks/useDbChangeSync";
@@ -39,6 +40,7 @@ function App() {
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/releases" element={<ReleasesPage />} />
           <Route path="/story/:key" element={<StoryPage />} />
+          <Route path="/epic/:key" element={<EpicPage />} />
           <Route path="/runs" element={<ActiveRunsPage />} />
           <Route path="/people" element={<People />} />
           <Route path="/inbox" element={<Inbox />} />
