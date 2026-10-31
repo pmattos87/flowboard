@@ -124,14 +124,68 @@ pub async fn update_sprint(
     update_sprint_inner(pool.inner(), id, payload).await
 }
 
-#[tauri::command]
-pub async fn delete_sprint(pool: State<'_, SqlitePool>, id: i64) -> Result<(), String> {
+/// Statuses a Story-level row may hold when its sprint is deleted: each one
+/// still matches a Discovery column once `ON DELETE SET NULL` clears its
+/// `sprint_id` (FB-93). Any other status, off-ladder ones included, blocks.
+const FACTORY_DELETE_ALLOWED: &str = "('backlog','refining','ready','canceled')";
+const LEGACY_DELETE_ALLOWED: &str = "('todo','refining','ready_for_development','canceled')";
+
+/// Delete a sprint, unless it holds a Story-level row that would then render
+/// on no board (FB-93). Story-level follows `isStoryLevel`: on a Factory
+/// project a top-level `story` or `bug`, on a legacy project a `story`;
+/// epics and Subtasks never block. The check and the delete share one
+/// transaction, so a refusal changes nothing. A missing sprint is a no-op.
+pub async fn delete_sprint_inner(pool: &SqlitePool, id: i64) -> Result<(), String> {
+    let e = |e: sqlx::Error| e.to_string();
+    let mut tx = pool.begin().await.map_err(e)?;
+
+    let project: Option<(String, String)> = sqlx::query_as(
+        "SELECT p.key, p.ladder FROM sprints s JOIN projects p ON p.id = s.project_id WHERE s.id = ?",
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(e)?;
+
+    if let Some((project_key, ladder)) = project {
+        let (is_story, allowed) = if ladder == "factory" {
+            (factory::ops::story_level_sql("t"), FACTORY_DELETE_ALLOWED)
+        } else {
+            ("t.type = 'story'".to_string(), LEGACY_DELETE_ALLOWED)
+        };
+        let blocking: Vec<i64> = sqlx::query_scalar(&format!(
+            r#"SELECT t.task_number FROM tasks t
+                WHERE t.sprint_id = ? AND {is_story} AND t.status NOT IN {allowed}
+                ORDER BY t.task_number"#
+        ))
+        .bind(id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(e)?;
+        if !blocking.is_empty() {
+            let keys = blocking
+                .iter()
+                .map(|n| format!("{project_key}-{n}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(format!(
+                "this sprint holds Stories that would appear on no board without it ({keys}); \
+                 move them out of the sprint first"
+            ));
+        }
+    }
+
     sqlx::query("DELETE FROM sprints WHERE id = ?")
         .bind(id)
-        .execute(pool.inner())
+        .execute(&mut *tx)
         .await
-        .map_err(|e| e.to_string())?;
-    Ok(())
+        .map_err(e)?;
+    tx.commit().await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn delete_sprint(pool: State<'_, SqlitePool>, id: i64) -> Result<(), String> {
+    delete_sprint_inner(pool.inner(), id).await
 }
 
 // ─── Complete sprint (FB-97) ────────────────────────────────────────────────
@@ -378,7 +432,7 @@ pub async fn complete_sprint(
 
 #[cfg(test)]
 mod tests {
-    use super::{complete_sprint_inner, update_sprint_inner, CompleteTarget, SprintUpdate};
+    use super::{complete_sprint_inner, delete_sprint_inner, update_sprint_inner, CompleteTarget, SprintUpdate};
     use crate::factory::ops::{self, Actor, NewStory, NewSubtask};
     use crate::test_support::{
         factory_project, pool, project, sprint, task, SprintStatus as S, TaskStatus as T, TaskType as K,
@@ -744,5 +798,113 @@ mod tests {
         let done = sprint(&pool, p, "S0", "2026-09-01", S::Completed).await;
         let s = update_sprint_inner(&pool, done, status_update(Some("completed"), Some("renamed"))).await.unwrap();
         assert_eq!((s.name.as_str(), s.status.as_str()), ("renamed", "completed"));
+    }
+
+    // ─── delete_sprint (FB-93) ──────────────────────────────────────────────
+
+    async fn sprint_exists(pool: &SqlitePool, id: i64) -> bool {
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM sprints WHERE id = ?").bind(id).fetch_one(pool).await.unwrap() == 1
+    }
+
+    async fn key(pool: &SqlitePool, id: i64) -> String {
+        sqlx::query_scalar("SELECT p.key || '-' || t.task_number FROM tasks t JOIN projects p ON p.id = t.project_id WHERE t.id = ?")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    /// For every status, a lone Story in a fresh sprint: the delete is refused (naming the
+    /// Story, changing nothing) exactly when the status is outside `allowed`; otherwise the
+    /// sprint goes and the Story keeps its status with `sprint_id` NULL.
+    async fn each_status_blocks_unless_allowed(factory: bool, allowed: &[&str]) {
+        let pool = pool().await;
+        let p = if factory { factory_project(&pool, "SF").await } else { project(&pool, "LG").await };
+        let mut refused = 0;
+        for status in T::ALL {
+            let s = sprint(&pool, p, status.as_str(), "2026-10-01", S::Active).await;
+            let story = task(&pool, p, Some(s), None, K::Story, status).await;
+            if allowed.contains(&status.as_str()) {
+                delete_sprint_inner(&pool, s).await.unwrap();
+                assert!(!sprint_exists(&pool, s).await, "{}", status.as_str());
+                assert_eq!(row(&pool, story).await, (None, status.as_str().to_string()));
+            } else {
+                refused += 1;
+                let before = snapshot(&pool).await;
+                let err = delete_sprint_inner(&pool, s).await.unwrap_err();
+                assert!(err.contains(&key(&pool, story).await), "{}: {err}", status.as_str());
+                assert!(err.contains("move them out of the sprint first"), "{err}");
+                assert_eq!(snapshot(&pool).await, before, "a refused delete changes nothing");
+                assert!(sprint_exists(&pool, s).await);
+            }
+        }
+        assert_eq!(refused, T::ALL.len() - allowed.len());
+    }
+
+    #[tokio::test]
+    async fn delete_sprint_on_a_factory_project_refuses_a_story_past_ready() {
+        each_status_blocks_unless_allowed(true, &["backlog", "refining", "ready", "canceled"]).await;
+    }
+
+    #[tokio::test]
+    async fn delete_sprint_on_a_legacy_project_refuses_a_started_story() {
+        each_status_blocks_unless_allowed(false, &["todo", "refining", "ready_for_development", "canceled"]).await;
+    }
+
+    #[tokio::test]
+    async fn delete_sprint_names_every_blocking_story_and_changes_nothing() {
+        let pool = pool().await;
+        let p = factory_project(&pool, "SF").await;
+        let s = sprint(&pool, p, "S1", "2026-10-01", S::Active).await;
+        let building = task(&pool, p, Some(s), None, K::Story, T::Building).await;
+        let ready = task(&pool, p, Some(s), None, K::Story, T::Ready).await;
+        let bug_story = task(&pool, p, Some(s), None, K::Bug, T::Tested).await;
+        let child = task(&pool, p, Some(s), Some(building), K::Subtask, T::Done).await;
+        let before = snapshot(&pool).await;
+
+        let err = delete_sprint_inner(&pool, s).await.unwrap_err();
+        let (b, r, g, c) = (key(&pool, building).await, key(&pool, ready).await, key(&pool, bug_story).await, key(&pool, child).await);
+        assert!(err.contains(&format!("{b}, {g}")), "a top-level bug Story blocks too: {err}");
+        assert!(!err.contains(&r) && !err.contains(&c), "allowed rows are not named: {err}");
+        assert_eq!(snapshot(&pool).await, before);
+        assert!(sprint_exists(&pool, s).await);
+    }
+
+    #[tokio::test]
+    async fn delete_sprint_ignores_epics_subtasks_and_legacy_bugs() {
+        let pool = pool().await;
+        let f = factory_project(&pool, "SF").await;
+        let l = project(&pool, "LG").await;
+        for (p, factory) in [(f, true), (l, false)] {
+            let s = sprint(&pool, p, "S1", "2026-10-01", S::Active).await;
+            let parent = task(&pool, p, None, None, K::Story, if factory { T::Backlog } else { T::Todo }).await;
+            let mut rows = vec![
+                task(&pool, p, Some(s), None, K::Epic, T::Done).await,
+                task(&pool, p, Some(s), Some(parent), K::Subtask, T::Done).await,
+                // A bug with a parent is a bug Subtask on both ladders.
+                task(&pool, p, Some(s), Some(parent), K::Bug, T::InProgress).await,
+                task(&pool, p, Some(s), None, K::Subtask, T::InProgress).await,
+            ];
+            if !factory {
+                // On legacy a top-level bug is just a bug, not a Story.
+                rows.push(task(&pool, p, Some(s), None, K::Bug, T::InProgress).await);
+            }
+            delete_sprint_inner(&pool, s).await.unwrap();
+            assert!(!sprint_exists(&pool, s).await);
+            for id in rows {
+                assert_eq!(row(&pool, id).await.0, None, "sprint_id cleared as before");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn delete_sprint_with_no_stories_or_no_sprint_succeeds() {
+        let pool = pool().await;
+        for p in [factory_project(&pool, "SF").await, project(&pool, "LG").await] {
+            let s = sprint(&pool, p, "S1", "2026-10-01", S::Completed).await;
+            delete_sprint_inner(&pool, s).await.unwrap();
+            assert!(!sprint_exists(&pool, s).await);
+        }
+        delete_sprint_inner(&pool, 9999).await.unwrap();
     }
 }
