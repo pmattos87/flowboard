@@ -650,8 +650,13 @@ pub struct NewStory<'a> {
     pub labels: &'a str,
     /// true files a bug Story (a fix) instead of a feature Story (FB-52).
     pub bug: bool,
+    /// An open epic of the same project to file the Story in (FB-292), under
+    /// the same membership rule as `story_edit` ([`check_epic_link`]).
+    pub epic: Option<&'a str>,
 }
 
+/// Create a Story in backlog, in `s.epic` if given. A refused epic rolls the
+/// insert back, so nothing is created.
 pub async fn story_create(pool: &SqlitePool, s: NewStory<'_>, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let (pid, ladder, _) = project_id(&mut tx, s.project).await?;
@@ -660,9 +665,23 @@ pub async fn story_create(pool: &SqlitePool, s: NewStory<'_>, actor: Actor) -> R
     }
     let owner = role_person(&mut tx, "owner").await?;
     let kind = if s.bug { "bug" } else { "story" };
+    let epic = match s.epic {
+        Some(k) => Some(load(&mut tx, k).await?),
+        None => None,
+    };
     let id = insert_task(&mut tx, pid, None, None, kind, "backlog", s.title, s.description, s.priority, Some(owner), 0, false, s.labels).await?;
     log(&mut tx, id, actor, "created", "", "backlog").await?;
-    let story = load_by_id(&mut tx, id).await?;
+    let mut story = load_by_id(&mut tx, id).await?;
+    if let Some(epic) = &epic {
+        check_epic_link(&story, Some(epic))?;
+        sqlx::query("UPDATE tasks SET epic_id = ? WHERE id = ?")
+            .bind(epic.id)
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(err)?;
+        story.epic_id = Some(epic.id);
+    }
     let out = story_json(&mut tx, &story).await?;
     tx.commit().await.map_err(err)?;
     Ok(out)
@@ -1272,6 +1291,75 @@ pub async fn epic_move(pool: &SqlitePool, key: &str, to: &str, actor: Actor) -> 
     let out = epic_json(&load_by_id(&mut tx, epic.id).await?);
     tx.commit().await.map_err(err)?;
     Ok(out)
+}
+
+/// An epic and its Stories (FB-292), canceled ones included, by task number.
+/// Read-only.
+pub async fn epic_show(pool: &SqlitePool, key: &str) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let epic = load_epic(&mut tx, key).await?;
+    let stories: Vec<(String, String, String, String)> = sqlx::query_as(&format!(
+        r#"SELECT p.key || '-' || t.task_number, t.title, t.type, t.status FROM tasks t
+             JOIN projects p ON p.id = t.project_id
+            WHERE t.epic_id = ? AND {} ORDER BY t.task_number"#,
+        story_level_sql("t")
+    ))
+    .bind(epic.id)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(err)?;
+    Ok(json!({
+        "key": epic.key(),
+        "title": epic.title,
+        "status": epic.status,
+        "description": epic.description,
+        "stories": stories
+            .into_iter()
+            .map(|(k, t, kind, s)| json!({ "key": k, "title": t, "type": kind, "status": s }))
+            .collect::<Vec<_>>(),
+    }))
+}
+
+/// A Factory project's epics (FB-292) at `status` (`todo`, the default, for
+/// open ones; `done`, `canceled` or `all`), by task number. Each carries its
+/// Story counts by Story status, holding only the statuses that occur;
+/// canceled Stories are counted. Read-only.
+pub async fn epic_list(pool: &SqlitePool, project: &str, status: Option<&str>) -> Result<Value, String> {
+    let status = status.unwrap_or("todo");
+    if !matches!(status, "todo" | "done" | "canceled" | "all") {
+        return Err(format!("'{status}' is not an epic list status (todo, done, canceled, all)"));
+    }
+    let mut tx = pool.begin().await.map_err(err)?;
+    let (pid, ladder, _) = project_id(&mut tx, project).await?;
+    if ladder != "factory" {
+        return Err(format!("{project} is a legacy project; the Factory does not write to it"));
+    }
+    let epics: Vec<(i64, i64, String, String)> = sqlx::query_as(
+        r#"SELECT id, task_number, title, status FROM tasks
+            WHERE project_id = ? AND type = 'epic' AND parent_id IS NULL AND (? = 'all' OR status = ?)
+            ORDER BY task_number"#,
+    )
+    .bind(pid)
+    .bind(status)
+    .bind(status)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(err)?;
+    let key = project.to_uppercase();
+    let mut out = Vec::with_capacity(epics.len());
+    for (id, n, title, epic_status) in epics {
+        let counts: Vec<(String, i64)> = sqlx::query_as(&format!(
+            "SELECT t.status, COUNT(*) FROM tasks t WHERE t.epic_id = ? AND {} GROUP BY t.status ORDER BY t.status",
+            story_level_sql("t")
+        ))
+        .bind(id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(err)?;
+        let stories: serde_json::Map<String, Value> = counts.into_iter().map(|(s, c)| (s, json!(c))).collect();
+        out.push(json!({ "key": format!("{key}-{n}"), "title": title, "status": epic_status, "stories": stories }));
+    }
+    Ok(json!({ "project": key, "epics": out }))
 }
 
 /// The membership rule (FB-224) for putting `task` in `epic`, or taking it out

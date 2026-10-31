@@ -491,7 +491,7 @@ mod tests {
         let p = factory_project(&pool, "SF").await;
         let a = sprint(&pool, p, "S1", "2026-10-01", S::Active).await;
         let b = sprint(&pool, p, "S2", "2026-10-15", S::Active).await;
-        let key = ops::story_create(&pool, NewStory { project: "SF", title: "s", description: "", priority: "medium", labels: "", bug }, Actor::Owner)
+        let key = ops::story_create(&pool, NewStory { project: "SF", title: "s", description: "", priority: "medium", labels: "", bug, epic: None }, Actor::Owner)
             .await
             .unwrap()["key"]
             .as_str()
@@ -566,7 +566,7 @@ mod tests {
         let pool = pool().await;
         let p = factory_project(&pool, "SF").await;
         let a = sprint(&pool, p, "S1", "2026-10-01", S::Active).await;
-        let key = ops::story_create(&pool, NewStory { project: "SF", title: "s", description: "", priority: "medium", labels: "", bug: false }, Actor::Owner)
+        let key = ops::story_create(&pool, NewStory { project: "SF", title: "s", description: "", priority: "medium", labels: "", bug: false, epic: None }, Actor::Owner)
             .await
             .unwrap()["key"]
             .as_str()
@@ -597,7 +597,7 @@ mod tests {
         let p = factory_project(&pool, "SF").await;
         let a = sprint(&pool, p, "S1", "2026-10-01", S::Active).await;
         for title in ["ready one", "building one"] {
-            let key = ops::story_create(&pool, NewStory { project: "SF", title, description: "", priority: "medium", labels: "", bug: false }, Actor::Owner)
+            let key = ops::story_create(&pool, NewStory { project: "SF", title, description: "", priority: "medium", labels: "", bug: false, epic: None }, Actor::Owner)
                 .await
                 .unwrap()["key"]
                 .as_str()

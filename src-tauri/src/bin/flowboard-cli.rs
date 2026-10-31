@@ -131,6 +131,9 @@ enum StoryCmd {
         /// File a bug Story (a fix) instead of a feature Story
         #[arg(long)]
         bug: bool,
+        /// File the Story in this open epic (a key, e.g. SF-1)
+        #[arg(long)]
+        epic: Option<String>,
     },
     Show { key: String },
     /// The Story's Run trail
@@ -185,6 +188,15 @@ enum EpicCmd {
     },
     /// Close (done) or cancel (canceled) an open epic
     Move { key: String, to: String },
+    /// Show an epic and its Stories, canceled ones included
+    Show { key: String },
+    /// A Factory project's epics with their Story counts by status
+    List {
+        project: String,
+        /// Which epics: todo (open), done, canceled or all
+        #[arg(long, default_value = "todo", value_parser = ["todo", "done", "canceled", "all"])]
+        status: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -295,7 +307,7 @@ async fn run(cli: Cli, pool: SqlitePool) -> Result<Value, String> {
             ops::contact_remove(p, &project, person_id).await
         }
         Cmd::Story(s) => match s {
-            StoryCmd::Create { project, title, description, priority, labels, bug } => {
+            StoryCmd::Create { project, title, description, priority, labels, bug, epic } => {
                 let s = NewStory {
                     project: &project,
                     title: &title,
@@ -303,6 +315,7 @@ async fn run(cli: Cli, pool: SqlitePool) -> Result<Value, String> {
                     priority: &priority,
                     labels: &labels,
                     bug,
+                    epic: epic.as_deref(),
                 };
                 ops::story_create(p, s, actor).await
             }
@@ -354,6 +367,8 @@ async fn run(cli: Cli, pool: SqlitePool) -> Result<Value, String> {
             ops::epic_create(p, e, actor).await
         }
         Cmd::Epic(EpicCmd::Move { key, to }) => ops::epic_move(p, &key, &to, actor).await,
+        Cmd::Epic(EpicCmd::Show { key }) => ops::epic_show(p, &key).await,
+        Cmd::Epic(EpicCmd::List { project, status }) => ops::epic_list(p, &project, Some(&status)).await,
         Cmd::Review { key, verdict, commit, findings } => {
             ops::review_record(p, &key, &verdict, &commit, findings.as_deref(), actor).await
         }
@@ -429,16 +444,42 @@ async fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Cmd, StoryCmd};
+    use super::{Cli, Cmd, EpicCmd, StoryCmd};
     use clap::{CommandFactory, Parser};
 
     #[test]
     fn epic_help_lists_create_and_move() {
         let help = Cli::command().find_subcommand_mut("epic").expect("an epic subcommand").render_help().to_string();
-        for sub in ["create", "move"] {
+        for sub in ["create", "move", "show", "list"] {
             assert!(help.lines().any(|l| l.trim_start().starts_with(sub)), "`epic --help` lacks {sub}:
 {help}");
         }
+    }
+
+    #[test]
+    fn epic_list_help_documents_the_status_values_and_default() {
+        let mut cli = Cli::command();
+        let help = cli
+            .find_subcommand_mut("epic")
+            .and_then(|e| e.find_subcommand_mut("list"))
+            .expect("an epic list subcommand")
+            .render_long_help()
+            .to_string();
+        for needle in ["--status", "todo", "done", "canceled", "all", "[default: todo]"] {
+            assert!(help.contains(needle), "`epic list --help` lacks {needle}:
+{help}");
+        }
+    }
+
+    #[test]
+    fn epic_list_status_defaults_to_todo_and_refuses_other_values() {
+        let status = |args: &[&str]| match Cli::try_parse_from(args).unwrap().cmd {
+            Cmd::Epic(EpicCmd::List { status, .. }) => status,
+            _ => panic!("not epic list"),
+        };
+        assert_eq!(status(&["flowboard-cli", "epic", "list", "SF"]), "todo");
+        assert_eq!(status(&["flowboard-cli", "epic", "list", "SF", "--status", "all"]), "all");
+        assert!(Cli::try_parse_from(["flowboard-cli", "epic", "list", "SF", "--status", "open"]).is_err());
     }
 
     fn story_create_bug(args: &[&str]) -> bool {
@@ -467,5 +508,27 @@ mod tests {
     fn story_create_parses_the_bug_flag() {
         assert!(story_create_bug(&["flowboard-cli", "story", "create", "SF", "a fix", "--bug"]));
         assert!(!story_create_bug(&["flowboard-cli", "story", "create", "SF", "a feature"]));
+    }
+
+    #[test]
+    fn story_create_parses_the_epic_flag() {
+        let epic = |args: &[&str]| match Cli::try_parse_from(args).unwrap().cmd {
+            Cmd::Story(StoryCmd::Create { epic, .. }) => epic,
+            _ => panic!("not story create"),
+        };
+        assert_eq!(epic(&["flowboard-cli", "story", "create", "SF", "t", "--epic", "SF-1"]).as_deref(), Some("SF-1"));
+        assert_eq!(epic(&["flowboard-cli", "story", "create", "SF", "t"]), None);
+    }
+
+    #[test]
+    fn story_create_help_documents_the_epic_flag() {
+        let help = Cli::command()
+            .find_subcommand_mut("story")
+            .and_then(|c| c.find_subcommand_mut("create"))
+            .expect("a story create subcommand")
+            .render_help()
+            .to_string();
+        assert!(help.contains("--epic") && help.contains("open epic"), "`story create --help` lacks --epic:
+{help}");
     }
 }
