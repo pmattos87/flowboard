@@ -5,7 +5,8 @@ import { useProject } from "@/hooks/useProjects";
 import { useSprints } from "@/hooks/useSprints";
 import { RefreshButton } from "@/components/RefreshButton";
 import { KanbanBoard } from "./shared/KanbanBoard";
-import { isStoryBoardRow, storyBoardColumns } from "./shared/invisibleStories";
+import { invisibleStories, isStoryBoardRow, storyBoardColumns } from "./shared/invisibleStories";
+import { InvisibleStoriesStrip } from "./shared/InvisibleStoriesStrip";
 import { useStoryCardDecor } from "@/features/story/useStoryCardDecor";
 import { SprintFilterSelect } from "./shared/SprintFilterSelect";
 import { matchesSprintFilter, sprintFilterLabel } from "./shared/sprintFilter";
@@ -46,6 +47,9 @@ export function UserStoryBoard() {
           <SprintFilterSelect projectId={activeProjectId} includeBacklog={false} />
         </div>
       </div>
+      {project && (
+        <InvisibleStoriesStrip stories={invisibleStories(allTasks ?? [], project.ladder)} projectKey={project.key} />
+      )}
       {tasks.length === 0 ? (
         <div className="flex items-center justify-center h-64 text-gray-500 text-sm">
           No stories in {sprintFilterLabel(boardSprintFilter, sprints)}.

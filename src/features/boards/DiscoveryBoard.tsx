@@ -6,7 +6,8 @@ import { useProject } from "@/hooks/useProjects";
 import { RefreshButton } from "@/components/RefreshButton";
 import { KanbanBoard } from "./shared/KanbanBoard";
 import { DiscoveryEpicBoard } from "./shared/DiscoveryEpicBoard";
-import { discoveryColumns, isDiscoveryRow } from "./shared/invisibleStories";
+import { discoveryColumns, invisibleStories, isDiscoveryRow } from "./shared/invisibleStories";
+import { InvisibleStoriesStrip } from "./shared/InvisibleStoriesStrip";
 import { factoryDiscoveryStories } from "./shared/epicGrouping";
 import { useStoryCardDecor } from "@/features/story/useStoryCardDecor";
 
@@ -72,6 +73,9 @@ export function DiscoveryBoard() {
           </div>
         )}
       </div>
+      {project && (
+        <InvisibleStoriesStrip stories={invisibleStories(allTasks ?? [], project.ladder)} projectKey={project.key} />
+      )}
       {grouped && project ? (
         <DiscoveryEpicBoard tasks={allTasks ?? []} people={people} project={project} decorate={decorate} />
       ) : (
