@@ -1239,6 +1239,126 @@ async fn epic_move_refuses_a_legacy_epic_and_an_unknown_target() {
     assert_eq!(stored(&pool, &key).await.1, "todo");
 }
 
+// ─── Epic reads (FB-292) ────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn epic_show_returns_the_epic_and_its_stories_by_task_number() {
+    let pool = ts::pool().await;
+    let p = ts::factory_project(&pool, "SF").await;
+    let epic = ops::epic_create(
+        &pool,
+        ops::NewEpic { project: "SF", title: "hosted web app", description: "the goal", priority: "medium", labels: "" },
+        Actor::Agent,
+    )
+    .await
+    .unwrap();
+    let key = epic["key"].as_str().unwrap().to_string();
+    let epic_id: i64 = sqlx::query_scalar("SELECT id FROM tasks WHERE type = 'epic'").fetch_one(&pool).await.unwrap();
+    let other_epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+    let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+    let bug_story = ts::task(&pool, p, None, None, TaskType::Bug, TaskStatus::Canceled).await;
+    let sub = ts::task(&pool, p, None, Some(story), TaskType::Subtask, TaskStatus::Todo).await;
+    let elsewhere = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+    // Linked in reverse so the order comes from the task number, not the link.
+    link(&pool, bug_story, epic_id).await;
+    link(&pool, story, epic_id).await;
+    link(&pool, sub, epic_id).await; // not Story-level: never listed
+    link(&pool, elsewhere, other_epic).await;
+
+    let shown = ops::epic_show(&pool, &key).await.unwrap();
+    assert_eq!(
+        shown,
+        serde_json::json!({
+            "key": key,
+            "title": "hosted web app",
+            "status": "todo",
+            "description": "the goal",
+            "stories": [
+                { "key": key_of(&pool, story).await, "title": "t", "type": "story", "status": "backlog" },
+                { "key": key_of(&pool, bug_story).await, "title": "t", "type": "bug", "status": "canceled" },
+            ],
+        })
+    );
+}
+
+#[tokio::test]
+async fn epic_show_refuses_an_unknown_key_a_story_and_a_legacy_epic() {
+    let (pool, p, _) = epic_fixture().await;
+    let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+    let lg = ts::project(&pool, "LG").await;
+    let legacy = ts::task(&pool, lg, None, None, TaskType::Epic, TaskStatus::Todo).await;
+    let cases = [
+        ("SF-99".to_string(), "SF-99 not found"),
+        (key_of(&pool, story).await, "is not an epic"),
+        (key_of(&pool, legacy).await, "legacy project"),
+    ];
+    for (key, needle) in cases {
+        let err = ops::epic_show(&pool, &key).await.unwrap_err();
+        assert!(err.contains(needle), "{needle}: {err}");
+    }
+}
+
+#[tokio::test]
+async fn epic_list_filters_by_status_and_counts_stories_by_status() {
+    let pool = ts::pool().await;
+    let p = ts::factory_project(&pool, "SF").await;
+    let open = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+    let empty = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+    let done = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Done).await;
+    let canceled = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Canceled).await;
+    for (status, kind) in [
+        (TaskStatus::Backlog, TaskType::Story),
+        (TaskStatus::Building, TaskType::Story),
+        (TaskStatus::Building, TaskType::Bug),
+        (TaskStatus::Canceled, TaskType::Story),
+    ] {
+        let id = ts::task(&pool, p, None, None, kind, status).await;
+        link(&pool, id, open).await;
+    }
+    let host = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Done).await;
+    link(&pool, host, done).await;
+    // A Subtask carrying the epic is not Story-level: never counted.
+    let sub = ts::task(&pool, p, None, Some(host), TaskType::Subtask, TaskStatus::Todo).await;
+    link(&pool, sub, done).await;
+
+    let k = |id: i64| {
+        let pool = pool.clone();
+        async move { key_of(&pool, id).await }
+    };
+    let entry = |key: String, status: &str, stories: Value| serde_json::json!({ "key": key, "title": "t", "status": status, "stories": stories });
+    let open_entry = entry(k(open).await, "todo", serde_json::json!({ "backlog": 1, "building": 2, "canceled": 1 }));
+    let empty_entry = entry(k(empty).await, "todo", serde_json::json!({}));
+    let done_entry = entry(k(done).await, "done", serde_json::json!({ "done": 1 }));
+    let canceled_entry = entry(k(canceled).await, "canceled", serde_json::json!({}));
+
+    let listed = |status: Option<&'static str>| {
+        let pool = pool.clone();
+        async move { ops::epic_list(&pool, "sf", status).await.unwrap() }
+    };
+    let todo = listed(None).await;
+    assert_eq!(todo["project"], "SF");
+    assert_eq!(todo["epics"], serde_json::json!([open_entry, empty_entry]), "no status lists the open epics");
+    assert_eq!(listed(Some("todo")).await["epics"], todo["epics"]);
+    assert_eq!(listed(Some("done")).await["epics"], serde_json::json!([done_entry]));
+    assert_eq!(listed(Some("canceled")).await["epics"], serde_json::json!([canceled_entry]));
+    assert_eq!(
+        listed(Some("all")).await["epics"],
+        serde_json::json!([open_entry, empty_entry, done_entry, canceled_entry])
+    );
+}
+
+#[tokio::test]
+async fn epic_list_refuses_a_bad_status_an_unknown_project_and_a_legacy_project() {
+    let (pool, _, _) = epic_fixture().await;
+    ts::project(&pool, "LG").await;
+    let err = ops::epic_list(&pool, "SF", Some("open")).await.unwrap_err();
+    assert!(err.contains("'open'") && err.contains("todo, done, canceled, all"), "{err}");
+    let err = ops::epic_list(&pool, "ZZ", None).await.unwrap_err();
+    assert!(err.contains("project ZZ not found"), "{err}");
+    let err = ops::epic_list(&pool, "LG", None).await.unwrap_err();
+    assert!(err.contains("legacy project"), "{err}");
+}
+
 // ─── Epic membership (FB-224) ───────────────────────────────────────────────
 
 /// A `story_edit` that only sets the epic (`None` takes the Story out).

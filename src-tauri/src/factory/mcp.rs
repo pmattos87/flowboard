@@ -74,6 +74,13 @@ pub struct EpicCreate {
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
+pub struct EpicList {
+    pub project: String,
+    /// todo (open, the default) | done | canceled | all
+    pub status: Option<String>,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
 pub struct Move {
     pub key: String,
     /// Target status
@@ -361,6 +368,17 @@ impl FlowboardMcp {
         out(ops::epic_move(&self.pool, &p.key, &p.to, AGENT).await)
     }
 
+    #[tool(description = "Show an epic: key, title, status, description and its Stories (key, title, type, status), canceled ones included")]
+    async fn epic_show(&self, Parameters(p): Parameters<Key>) -> Result<String, String> {
+        out(ops::epic_show(&self.pool, &p.key).await)
+    }
+
+    #[tool(description = "List a Factory project's epics with their status and Story counts by status (canceled Stories counted). \
+                          status: todo (open, the default), done, canceled or all")]
+    async fn epic_list(&self, Parameters(p): Parameters<EpicList>) -> Result<String, String> {
+        out(ops::epic_list(&self.pool, &p.project, p.status.as_deref()).await)
+    }
+
     #[tool(description = "Show a project's ladder, kind and client contacts")]
     async fn project_show(&self, Parameters(p): Parameters<Project>) -> Result<String, String> {
         out(ops::project_show(&self.pool, &p.project).await)
@@ -426,14 +444,28 @@ pub async fn serve(pool: SqlitePool) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FlowboardMcp, StoryCreate, StoryEditArgs};
+    use super::{EpicList, FlowboardMcp, StoryCreate, StoryEditArgs};
 
     #[test]
     fn the_router_serves_the_epic_tools() {
         let router = FlowboardMcp::tool_router();
-        for tool in ["epic_create", "epic_move"] {
+        for tool in ["epic_create", "epic_move", "epic_show", "epic_list"] {
             assert!(router.has_route(tool), "{tool} is not in the MCP tool router");
         }
+    }
+
+    #[test]
+    fn epic_list_takes_an_optional_status() {
+        let schema = schemars::schema_for!(EpicList);
+        let schema = schema.as_value();
+        let required = schema["required"].as_array().unwrap();
+        assert!(required.iter().any(|r| r == "project"), "project is required: {schema}");
+        assert!(!required.iter().any(|r| r == "status"), "status is optional: {schema}");
+
+        let p: EpicList = serde_json::from_str(r#"{"project":"SF"}"#).unwrap();
+        assert_eq!(p.status, None, "absent falls to the todo default");
+        let p: EpicList = serde_json::from_str(r#"{"project":"SF","status":"all"}"#).unwrap();
+        assert_eq!(p.status.as_deref(), Some("all"));
     }
 
     #[test]
