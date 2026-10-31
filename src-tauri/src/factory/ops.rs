@@ -650,8 +650,13 @@ pub struct NewStory<'a> {
     pub labels: &'a str,
     /// true files a bug Story (a fix) instead of a feature Story (FB-52).
     pub bug: bool,
+    /// An open epic of the same project to file the Story in (FB-292), under
+    /// the same membership rule as `story_edit` ([`check_epic_link`]).
+    pub epic: Option<&'a str>,
 }
 
+/// Create a Story in backlog, in `s.epic` if given. A refused epic rolls the
+/// insert back, so nothing is created.
 pub async fn story_create(pool: &SqlitePool, s: NewStory<'_>, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let (pid, ladder, _) = project_id(&mut tx, s.project).await?;
@@ -660,9 +665,23 @@ pub async fn story_create(pool: &SqlitePool, s: NewStory<'_>, actor: Actor) -> R
     }
     let owner = role_person(&mut tx, "owner").await?;
     let kind = if s.bug { "bug" } else { "story" };
+    let epic = match s.epic {
+        Some(k) => Some(load(&mut tx, k).await?),
+        None => None,
+    };
     let id = insert_task(&mut tx, pid, None, None, kind, "backlog", s.title, s.description, s.priority, Some(owner), 0, false, s.labels).await?;
     log(&mut tx, id, actor, "created", "", "backlog").await?;
-    let story = load_by_id(&mut tx, id).await?;
+    let mut story = load_by_id(&mut tx, id).await?;
+    if let Some(epic) = &epic {
+        check_epic_link(&story, Some(epic))?;
+        sqlx::query("UPDATE tasks SET epic_id = ? WHERE id = ?")
+            .bind(epic.id)
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(err)?;
+        story.epic_id = Some(epic.id);
+    }
     let out = story_json(&mut tx, &story).await?;
     tx.commit().await.map_err(err)?;
     Ok(out)

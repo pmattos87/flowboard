@@ -53,7 +53,7 @@ async fn setup(kind: &str) -> Fx {
 async fn story(fx: &Fx, title: &str) -> String {
     let s = ops::story_create(
         &fx.pool,
-        NewStory { project: "SF", title, description: "", priority: "medium", labels: "", bug: false },
+        NewStory { project: "SF", title, description: "", priority: "medium", labels: "", bug: false, epic: None },
         Actor::Owner,
     )
     .await
@@ -468,7 +468,7 @@ async fn legacy_projects_are_refused() {
     let fx = setup("internal").await;
     let err = ops::story_create(
         &fx.pool,
-        NewStory { project: "LG", title: "x", description: "", priority: "medium", labels: "", bug: false },
+        NewStory { project: "LG", title: "x", description: "", priority: "medium", labels: "", bug: false, epic: None },
         Actor::Owner,
     )
     .await
@@ -773,7 +773,7 @@ async fn missing_factory_roles_give_an_actionable_error() {
     ops::people_set_role(&fx.pool, fx.pedro, None).await.unwrap();
     let err = ops::story_create(
         &fx.pool,
-        NewStory { project: "SF", title: "x", description: "", priority: "medium", labels: "", bug: false },
+        NewStory { project: "SF", title: "x", description: "", priority: "medium", labels: "", bug: false, epic: None },
         Actor::Owner,
     )
     .await
@@ -1031,7 +1031,7 @@ async fn a_legacy_top_level_bug_keeps_its_editable_points_and_app_path() {
 async fn bug_story(fx: &Fx, title: &str) -> Value {
     ops::story_create(
         &fx.pool,
-        NewStory { project: "SF", title, description: "", priority: "medium", labels: "", bug: true },
+        NewStory { project: "SF", title, description: "", priority: "medium", labels: "", bug: true, epic: None },
         Actor::Owner,
     )
     .await
@@ -1473,4 +1473,70 @@ async fn story_edit_refuses_an_epic_change_that_breaks_membership_and_changes_no
     }
     // Keeping a done Story's epic is not a change.
     ops::story_edit(&pool, &k(done_story).await, set_epic(Some(&k(open).await))).await.unwrap();
+}
+
+// ─── story_create into an epic (FB-292) ─────────────────────────────────────
+
+/// `story_create` on SF with `epic`, a bug Story when `bug`.
+async fn create_in(pool: &SqlitePool, epic: Option<&str>, bug: bool) -> Result<Value, String> {
+    ops::story_create(
+        pool,
+        NewStory { project: "SF", title: "s", description: "", priority: "medium", labels: "", bug, epic },
+        Actor::Agent,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn story_create_files_a_story_and_a_bug_story_into_an_open_epic() {
+    let pool = ts::pool().await;
+    let p = ts::factory_project(&pool, "SF").await;
+    let epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Todo).await;
+    let epic_key = key_of(&pool, epic).await;
+    for (bug, kind) in [(false, "story"), (true, "bug")] {
+        let out = create_in(&pool, Some(&epic_key), bug).await.unwrap();
+        assert_eq!(out["type"], kind);
+        assert_eq!(out["epic"], serde_json::json!({ "key": epic_key, "title": "t", "status": "todo" }));
+        let id: i64 = sqlx::query_scalar("SELECT MAX(id) FROM tasks").fetch_one(&pool).await.unwrap();
+        assert_eq!(key_of(&pool, id).await, out["key"].as_str().unwrap());
+        assert_eq!(epic_of(&pool, id).await, Some(epic), "{kind}: stored in the epic");
+    }
+    // Without `epic` the Story is created outside any epic, as before.
+    let out = create_in(&pool, None, false).await.unwrap();
+    assert!(out["epic"].is_null(), "{out}");
+}
+
+#[tokio::test]
+async fn story_create_refuses_a_closed_unknown_non_epic_or_foreign_epic_and_creates_nothing() {
+    let pool = ts::pool().await;
+    let p = ts::factory_project(&pool, "SF").await;
+    let other = ts::factory_project(&pool, "OT").await;
+    let done_epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Done).await;
+    let canceled_epic = ts::task(&pool, p, None, None, TaskType::Epic, TaskStatus::Canceled).await;
+    let not_epic = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+    let foreign = ts::task(&pool, other, None, None, TaskType::Epic, TaskStatus::Todo).await;
+    let cases = [
+        (key_of(&pool, done_epic).await, "is done; a closed epic takes no new Stories"),
+        (key_of(&pool, canceled_epic).await, "is canceled; a closed epic takes no new Stories"),
+        ("SF-99".to_string(), "SF-99 not found"),
+        (key_of(&pool, not_epic).await, "is not an epic"),
+        (key_of(&pool, foreign).await, "belongs to another project"),
+    ];
+    let count = || {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tasks WHERE project_id = ?").bind(p).fetch_one(&pool).await.unwrap()
+        }
+    };
+    let before = count().await;
+    for (key, needle) in cases {
+        let err = create_in(&pool, Some(&key), false).await.unwrap_err();
+        assert!(err.contains(needle), "{needle}: {err}");
+        assert_eq!(count().await, before, "{needle}: no Story is created");
+        let created: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM activity_log WHERE action = 'created'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(created, 0, "{needle}: no created activity");
+    }
 }

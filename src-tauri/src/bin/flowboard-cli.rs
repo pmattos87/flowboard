@@ -131,6 +131,9 @@ enum StoryCmd {
         /// File a bug Story (a fix) instead of a feature Story
         #[arg(long)]
         bug: bool,
+        /// File the Story in this open epic (a key, e.g. SF-1)
+        #[arg(long)]
+        epic: Option<String>,
     },
     Show { key: String },
     /// The Story's Run trail
@@ -304,7 +307,7 @@ async fn run(cli: Cli, pool: SqlitePool) -> Result<Value, String> {
             ops::contact_remove(p, &project, person_id).await
         }
         Cmd::Story(s) => match s {
-            StoryCmd::Create { project, title, description, priority, labels, bug } => {
+            StoryCmd::Create { project, title, description, priority, labels, bug, epic } => {
                 let s = NewStory {
                     project: &project,
                     title: &title,
@@ -312,6 +315,7 @@ async fn run(cli: Cli, pool: SqlitePool) -> Result<Value, String> {
                     priority: &priority,
                     labels: &labels,
                     bug,
+                    epic: epic.as_deref(),
                 };
                 ops::story_create(p, s, actor).await
             }
@@ -504,5 +508,27 @@ mod tests {
     fn story_create_parses_the_bug_flag() {
         assert!(story_create_bug(&["flowboard-cli", "story", "create", "SF", "a fix", "--bug"]));
         assert!(!story_create_bug(&["flowboard-cli", "story", "create", "SF", "a feature"]));
+    }
+
+    #[test]
+    fn story_create_parses_the_epic_flag() {
+        let epic = |args: &[&str]| match Cli::try_parse_from(args).unwrap().cmd {
+            Cmd::Story(StoryCmd::Create { epic, .. }) => epic,
+            _ => panic!("not story create"),
+        };
+        assert_eq!(epic(&["flowboard-cli", "story", "create", "SF", "t", "--epic", "SF-1"]).as_deref(), Some("SF-1"));
+        assert_eq!(epic(&["flowboard-cli", "story", "create", "SF", "t"]), None);
+    }
+
+    #[test]
+    fn story_create_help_documents_the_epic_flag() {
+        let help = Cli::command()
+            .find_subcommand_mut("story")
+            .and_then(|c| c.find_subcommand_mut("create"))
+            .expect("a story create subcommand")
+            .render_help()
+            .to_string();
+        assert!(help.contains("--epic") && help.contains("open epic"), "`story create --help` lacks --epic:
+{help}");
     }
 }
