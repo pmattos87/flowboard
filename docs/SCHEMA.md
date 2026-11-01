@@ -87,7 +87,7 @@ tasks         + epic_id → tasks(id) ON DELETE SET NULL   -- migration 013_epic
 releases         (id, project_id, version, state, created_at, released_at)
                  -- state: 'planned' | 'user_testing' | 'released' | 'canceled'; UNIQUE(project_id, version)
 project_contacts (project_id, person_id, is_primary)   -- client contacts; one primary per project
-task_links       (task_id, depends_on_id, created_at)  -- Story depends-on (warns on Release pick)
+task_links       (task_id, depends_on_id, created_at)  -- Story depends-on (warns on Release pick; also drives blocked-by, FB-99)
 task_prs         (id, task_id, url, target, state, created_at, updated_at)
                  -- state: 'open' | 'merged' | 'closed'
 ```
