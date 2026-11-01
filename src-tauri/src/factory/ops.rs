@@ -31,6 +31,25 @@ fn err(e: sqlx::Error) -> String {
     e.to_string()
 }
 
+/// The one stored form of a labels string (FB-99), applied on every write from
+/// the app and the CLI/MCP: each label trimmed of spaces, tabs, CR and LF, empties
+/// dropped, exact duplicates removed, the rest sorted and joined with ",".
+/// Case and inner spaces are kept ("Phase 1"; "QA" and "qa" are two labels).
+///
+/// The sort folds case for A-Z only, then breaks ties by the exact bytes. That
+/// is exactly `ORDER BY lower(x), x` in SQLite (no ICU), which migration 014
+/// uses to normalize existing rows, so "Decisão" lands in the same place in both.
+pub fn normalize_labels(raw: &str) -> String {
+    let mut labels: Vec<&str> = raw
+        .split(',')
+        .map(|l| l.trim_matches([' ', '\t', '\r', '\n']))
+        .filter(|l| !l.is_empty())
+        .collect();
+    labels.sort_by(|a, b| a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase()).then(a.cmp(b)));
+    labels.dedup();
+    labels.join(",")
+}
+
 #[derive(Debug, Clone, FromRow)]
 struct Row {
     id: i64,
@@ -279,6 +298,18 @@ async fn open_subtasks(tx: &mut Tx<'_>, story_id: i64, only_bugs: bool) -> Resul
 
 // ─── Read ───────────────────────────────────────────────────────────────────
 
+/// Statuses at which a depends-on Story stops blocking its dependents (FB-99):
+/// its work has reached the integration branch, or it was dropped. Every other
+/// status blocks, off-ladder legacy ones included.
+const UNBLOCKING_STATUSES: &[&str] = &["integrated_tests", "tested", "user_testing", "done", "canceled"];
+
+/// SQL condition that holds when the task aliased `alias` is a blocking
+/// dependency, i.e. its status is not one of [`UNBLOCKING_STATUSES`].
+fn blocking_sql(alias: &str) -> String {
+    let list = UNBLOCKING_STATUSES.iter().map(|s| format!("'{s}'")).collect::<Vec<_>>().join(",");
+    format!("{alias}.status NOT IN ({list})")
+}
+
 async fn story_json(tx: &mut Tx<'_>, story: &Row) -> Result<Value, String> {
     let subtasks = sqlx::query_as::<_, Row>(&format!(
         "{ROW_SQL} WHERE t.parent_id = ? ORDER BY t.task_number"
@@ -298,6 +329,16 @@ async fn story_json(tx: &mut Tx<'_>, story: &Row) -> Result<Value, String> {
              JOIN tasks t ON t.id = l.depends_on_id JOIN projects p ON p.id = t.project_id
             WHERE l.task_id = ? ORDER BY t.task_number"#,
     )
+    .bind(story.id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(err)?;
+    let blocked_by: Vec<String> = sqlx::query_scalar(&format!(
+        r#"SELECT p.key || '-' || t.task_number FROM task_links l
+             JOIN tasks t ON t.id = l.depends_on_id JOIN projects p ON p.id = t.project_id
+            WHERE l.task_id = ? AND {} ORDER BY t.task_number"#,
+        blocking_sql("t")
+    ))
     .bind(story.id)
     .fetch_all(&mut **tx)
     .await
@@ -350,6 +391,7 @@ async fn story_json(tx: &mut Tx<'_>, story: &Row) -> Result<Value, String> {
         "flags": { "stopped": story.run_stopped != 0, "waiting_on_bugs": waiting_on_bugs },
         "prs": prs.into_iter().map(|(url, target, state)| json!({ "url": url, "target": target, "state": state })).collect::<Vec<_>>(),
         "depends_on": depends_on,
+        "blocked_by": blocked_by,
         "subtasks": subtasks.iter().map(|s| json!({
             "key": s.key(),
             "title": s.title,
@@ -366,6 +408,37 @@ pub async fn story_show(pool: &SqlitePool, key: &str) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let story = load_story(&mut tx, key).await?;
     story_json(&mut tx, &story).await
+}
+
+/// The blocked Stories of a project (FB-99): a map from each Story key that has
+/// at least one blocking dependency to those dependencies' keys, in task-number
+/// order. Stories with no blocking dependency are left out. Depends-on links
+/// are a Factory concept, so a legacy project gets `{}`.
+pub async fn project_blocked_by(pool: &SqlitePool, key: &str) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let (id, ladder, _) = project_id(&mut tx, key).await?;
+    if ladder != "factory" {
+        return Ok(json!({}));
+    }
+    let rows: Vec<(String, String)> = sqlx::query_as(&format!(
+        r#"SELECT p.key || '-' || s.task_number, p.key || '-' || t.task_number
+             FROM task_links l
+             JOIN tasks s ON s.id = l.task_id
+             JOIN tasks t ON t.id = l.depends_on_id
+             JOIN projects p ON p.id = t.project_id
+            WHERE s.project_id = ? AND {}
+            ORDER BY s.task_number, t.task_number"#,
+        blocking_sql("t")
+    ))
+    .bind(id)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(err)?;
+    let mut out = serde_json::Map::new();
+    for (story, dep) in rows {
+        out.entry(story).or_insert_with(|| json!([])).as_array_mut().unwrap().push(Value::String(dep));
+    }
+    Ok(Value::Object(out))
 }
 
 pub async fn trail(pool: &SqlitePool, key: &str) -> Result<Value, String> {
@@ -727,7 +800,7 @@ async fn insert_task(
     .bind(assignee_id)
     .bind(story_points)
     .bind(risk)
-    .bind(labels)
+    .bind(normalize_labels(labels))
     .fetch_one(&mut **tx)
     .await
     .map_err(err)
@@ -768,7 +841,7 @@ pub async fn story_edit(pool: &SqlitePool, key: &str, e: StoryEdit<'_>) -> Resul
     .bind(e.title.unwrap_or(&story.title))
     .bind(e.description.unwrap_or(&story.description))
     .bind(priority)
-    .bind(e.labels.unwrap_or(&story.labels))
+    .bind(normalize_labels(e.labels.unwrap_or(&story.labels)))
     .bind(epic_id)
     .bind(story.id)
     .execute(&mut *tx)

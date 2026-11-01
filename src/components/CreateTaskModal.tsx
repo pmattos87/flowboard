@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { LabelInput } from "@/components/LabelInput";
+import { parseLabels } from "@/lib/labels";
 import {
   Dialog,
   DialogContent,
@@ -293,8 +295,8 @@ export function CreateTaskModal() {
               </div>
             </div>
 
-            {/* Story points + Due date + Labels */}
-            <div className={cn("grid gap-3", factoryEpic ? "grid-cols-2" : "grid-cols-3")}>
+            {/* Story points + Due date */}
+            <div className={cn("grid gap-3", factoryEpic ? "grid-cols-1" : "grid-cols-2")}>
               {!factoryEpic && (
               <div className="space-y-1.5">
                 <Label htmlFor="task-points" className="text-gray-300">Points</Label>
@@ -321,16 +323,18 @@ export function CreateTaskModal() {
                   className="bg-gray-800 border-gray-700 text-gray-100"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="task-labels" className="text-gray-300">Labels</Label>
-                <Input
-                  id="task-labels"
-                  value={form.labels}
-                  onChange={(e) => setForm((f) => ({ ...f, labels: e.target.value }))}
-                  placeholder="bug, ui"
-                  className="bg-gray-800 border-gray-700 text-gray-100"
-                />
-              </div>
+            </div>
+
+            {/* Labels */}
+            <div className="space-y-1.5">
+              <Label htmlFor="task-labels" className="text-gray-300">Labels</Label>
+              <LabelInput
+                id="task-labels"
+                projectId={activeProjectId}
+                value={parseLabels(form.labels)}
+                onChange={(next) => setForm((f) => ({ ...f, labels: next.join(",") }))}
+                className="min-h-9"
+              />
             </div>
 
             {/* Description */}

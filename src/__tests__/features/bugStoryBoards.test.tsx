@@ -168,7 +168,7 @@ describe("StoryPage with a bug Story", () => {
       assignee: "Pedro", sprint_id: 7, feature_branch: null,
       review: { verdict: null, commit: null, findings_url: null },
       release: null, epic: null, flags: { stopped: false, waiting_on_bugs: 0 },
-      prs: [], depends_on: [], subtasks: [], description: "",
+      prs: [], depends_on: [], blocked_by: [], subtasks: [], description: "",
     };
     setup("factory", [task({ id: 3, task_number: 9, title: "Crash on save", status: "building", sprint_id: 7 })], view);
     renderAt(<StoryPage />, "/story/FB-9", "/story/:key");

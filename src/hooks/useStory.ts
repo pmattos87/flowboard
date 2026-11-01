@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { getStory, getStoryTrail, listActiveRuns, restartRun } from "@/lib/commands";
+import { getBlockedBy, getStory, getStoryTrail, listActiveRuns, restartRun } from "@/lib/commands";
 import { taskKeys } from "@/hooks/useTasks";
+import type { Project } from "@/types";
 
 // Under the tasks prefix, so every task mutation (a Subtask drag, a Details
 // edit) refreshes the Story view and its trail too.
@@ -9,6 +10,7 @@ export const storyKeys = {
   detail: (key: string) => [...taskKeys.all, "story", key] as const,
   trail: (key: string) => [...taskKeys.all, "story", key, "trail"] as const,
   active: () => [...taskKeys.all, "active_runs"] as const,
+  blockedBy: (projectKey: string) => [...taskKeys.all, "blocked_by", projectKey] as const,
 };
 
 /** Stories exist only on Factory projects; pass `enabled = false` otherwise. */
@@ -25,6 +27,16 @@ export function useStoryTrail(key: string | undefined, enabled = true) {
     queryKey: storyKeys.trail(key ?? ""),
     queryFn: () => getStoryTrail(key as string),
     enabled: enabled && key != null,
+  });
+}
+
+/** The project's blocked Stories (FB-99). Fetches only for a Factory project; on any other
+ *  (or none) it stays idle with `data` undefined. */
+export function useBlockedBy(project: Pick<Project, "key" | "ladder"> | null | undefined) {
+  return useQuery({
+    queryKey: storyKeys.blockedBy(project?.key ?? ""),
+    queryFn: () => getBlockedBy(project?.key as string),
+    enabled: project?.ladder === "factory",
   });
 }
 

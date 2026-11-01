@@ -1,4 +1,4 @@
-import { useUiStore } from "@/stores/uiStore";
+import { selectLabelFilter, useUiStore } from "@/stores/uiStore";
 import { useTasks } from "@/hooks/useTasks";
 import { usePeople } from "@/hooks/usePeople";
 import { useProject } from "@/hooks/useProjects";
@@ -13,6 +13,8 @@ import { buildEpicRows } from "./shared/epicGrouping";
 import { FACTORY_STORY_COLUMNS } from "./shared/boardConstants";
 import { useStoryCardDecor } from "@/features/story/useStoryCardDecor";
 import { SprintFilterSelect } from "./shared/SprintFilterSelect";
+import { LabelFilterSelect } from "./shared/LabelFilterSelect";
+import { matchesLabelFilter } from "@/lib/labels";
 import { matchesSprintFilter, sprintFilterLabel } from "./shared/sprintFilter";
 
 export function UserStoryBoard() {
@@ -20,6 +22,7 @@ export function UserStoryBoard() {
   const boardSprintFilter = useUiStore((s) => s.boardSprintFilter);
   const grouping = useUiStore((s) => s.storyBoardGrouping);
   const setGrouping = useUiStore((s) => s.setStoryBoardGrouping);
+  const labelFilter = useUiStore(selectLabelFilter(activeProjectId));
   const { data: allTasks } = useTasks(activeProjectId != null ? { project_id: activeProjectId } : undefined);
   const { data: people = [] } = usePeople();
   const { data: project } = useProject(activeProjectId);
@@ -40,7 +43,8 @@ export function UserStoryBoard() {
   // (Discovery BACKLOG vs. this board's TO DO).
   const tasks = (allTasks ?? [])
     .filter((t) => isStoryBoardRow(t, project?.ladder))
-    .filter((t) => matchesSprintFilter(t, boardSprintFilter));
+    .filter((t) => matchesSprintFilter(t, boardSprintFilter))
+    .filter((t) => matchesLabelFilter(t, labelFilter));
   const isFactory = project?.ladder === "factory";
   const grouped = isFactory && grouping === "epic";
 
@@ -54,6 +58,7 @@ export function UserStoryBoard() {
         <div className="ml-auto flex items-center gap-3">
           {isFactory && <GroupingToggle value={grouping} onChange={setGrouping} />}
           <SprintFilterSelect projectId={activeProjectId} includeBacklog={false} />
+          <LabelFilterSelect projectId={activeProjectId} />
         </div>
       </div>
       {project && (
@@ -61,7 +66,8 @@ export function UserStoryBoard() {
       )}
       {tasks.length === 0 ? (
         <div className="flex items-center justify-center h-64 text-gray-500 text-sm">
-          No stories in {sprintFilterLabel(boardSprintFilter, sprints)}.
+          No stories in {sprintFilterLabel(boardSprintFilter, sprints)}
+          {labelFilter !== null && ` with the label "${labelFilter}"`}.
         </div>
       ) : grouped && project ? (
         <EpicSwimlaneBoard

@@ -167,7 +167,7 @@ pub async fn create_task_inner(
     .bind(payload.assignee_id)
     .bind(payload.story_points.unwrap_or(0))
     .bind(payload.due_date)
-    .bind(payload.labels.unwrap_or_default())
+    .bind(factory::ops::normalize_labels(&payload.labels.unwrap_or_default()))
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| e.to_string())?;
@@ -295,7 +295,7 @@ pub async fn update_task_inner(
     let new_assignee_id = payload.assignee_id.unwrap_or(current.assignee_id);
     let new_story_points = payload.story_points.unwrap_or(current.story_points);
     let new_due_date = payload.due_date.unwrap_or(current.due_date.clone());
-    let new_labels = payload.labels.unwrap_or(current.labels.clone());
+    let new_labels = factory::ops::normalize_labels(&payload.labels.unwrap_or(current.labels.clone()));
     // Absent `epic_id` leaves the column out of the write (see the UPDATE), so a
     // concurrent membership change since `current` was read is kept (FB-224).
     let write_epic = payload.epic_id.is_some();
@@ -1892,5 +1892,77 @@ mod tests {
         for id in [sub, bug_sub] {
             assert_eq!(reparent(&pool, id, Some(other_story)).await.unwrap().parent_id, Some(other_story));
         }
+    }
+
+    /// FB-213: every write path stores labels in their one normalized form.
+    #[tokio::test]
+    async fn every_write_path_stores_normalized_labels() {
+        use crate::factory::ops::{self, Actor, NewStory, NewSubtask, StoryEdit};
+        use crate::test_support as ts;
+        const MESSY: &str = " tooling , qa,,qa ,Phase 1";
+        const CLEAN: &str = "Phase 1,qa,tooling";
+        let pool = ts::pool().await;
+        let lg = ts::project(&pool, "LG").await;
+        ts::factory_project(&pool, "SF").await;
+        let last_labels = || {
+            let pool = pool.clone();
+            async move {
+                sqlx::query_scalar::<_, String>("SELECT labels FROM tasks ORDER BY id DESC LIMIT 1")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap()
+            }
+        };
+
+        // App: create_task, then update_task.
+        let created = create_task_inner(
+            &pool,
+            TaskCreate {
+                project_id: lg,
+                sprint_id: None,
+                parent_id: None,
+                title: "T".into(),
+                description: None,
+                r#type: None,
+                status: None,
+                priority: None,
+                assignee_id: None,
+                story_points: None,
+                due_date: None,
+                labels: Some(MESSY.into()),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(created.labels, CLEAN, "create_task");
+        sqlx::query("UPDATE tasks SET labels = 'x' WHERE id = ?").bind(created.id).execute(&pool).await.unwrap();
+        let updated = update_task_inner(&pool, created.id, TaskUpdate { labels: Some(MESSY.into()), ..empty_update() })
+            .await
+            .unwrap();
+        assert_eq!(updated.labels, CLEAN, "update_task");
+
+        // MCP/CLI: story_create, story_edit, subtask_create.
+        let story = ops::story_create(
+            &pool,
+            NewStory { project: "SF", title: "s", description: "", priority: "medium", labels: MESSY, bug: false, epic: None },
+            Actor::Owner,
+        )
+        .await
+        .unwrap();
+        assert_eq!(last_labels().await, CLEAN, "story_create");
+        let key = story["key"].as_str().unwrap().to_string();
+        sqlx::query("UPDATE tasks SET labels = 'x' WHERE id = (SELECT MAX(id) FROM tasks)").execute(&pool).await.unwrap();
+        let edit = StoryEdit { title: None, description: None, priority: None, labels: Some(MESSY), epic: None };
+        ops::story_edit(&pool, &key, edit).await.unwrap();
+        assert_eq!(last_labels().await, CLEAN, "story_edit");
+        // An edit that leaves labels alone still stores the normalized form.
+        sqlx::query("UPDATE tasks SET labels = ? WHERE id = (SELECT MAX(id) FROM tasks)").bind(MESSY).execute(&pool).await.unwrap();
+        let edit = StoryEdit { title: Some("t2"), description: None, priority: None, labels: None, epic: None };
+        ops::story_edit(&pool, &key, edit).await.unwrap();
+        assert_eq!(last_labels().await, CLEAN, "story_edit without labels");
+        // subtask_create takes no labels, so a Subtask starts with none.
+        let sub = NewSubtask { story: &key, title: "sub", description: "", bug: false, story_points: 1, risk: false };
+        ops::subtask_create(&pool, sub, Actor::Agent).await.unwrap();
+        assert_eq!(last_labels().await, ops::normalize_labels(""), "subtask_create");
     }
 }

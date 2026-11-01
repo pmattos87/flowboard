@@ -4,6 +4,7 @@ import type {
   ActivityLog,
   Attachment,
   BackupStatus,
+  BlockedByMap,
   Comment,
   Person,
   Project,
@@ -122,6 +123,9 @@ export const removeReleaseStory = (storyKey: string) =>
 
 export const getStory = (key: string) => invoke<StoryView>("get_story", { key });
 export const getStoryTrail = (key: string) => invoke<TrailEvent[]>("get_story_trail", { key });
+/** The project's blocked Stories; rejects with "project X not found" for an unknown key. */
+export const getBlockedBy = (projectKey: string) =>
+  invoke<BlockedByMap>("get_blocked_by", { projectKey });
 export const restartRun = (key: string) => invoke<StoryView>("restart_run", { key });
 export const listActiveRuns = () => invoke<ActiveRun[]>("list_active_runs");
 /** Opens a GitHub page in the browser; the capability allows https://github.com/* only. */
