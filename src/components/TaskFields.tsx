@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LabelInput } from "@/components/LabelInput";
+import { parseLabels } from "@/lib/labels";
 import { useTasks, useUpdateTask } from "@/hooks/useTasks";
 import { usePeople } from "@/hooks/usePeople";
 import { useSprints } from "@/hooks/useSprints";
@@ -266,7 +268,7 @@ export function TaskFields({ task, state }: { task: Task; state: TaskDraftState 
       )}
 
       {/* Secondary row */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <div>
           <Label className="text-gray-500 text-[11px]">Points</Label>
           <Input
@@ -296,16 +298,18 @@ export function TaskFields({ task, state }: { task: Task; state: TaskDraftState 
             className="bg-gray-800 border-gray-700 text-gray-100 h-8 text-sm"
           />
         </div>
-        <div>
+        <div className="col-span-2">
           <Label className="text-gray-500 text-[11px]">Labels</Label>
-          <Input
-            value={draft.labels}
-            onChange={(e) => setDraft((d) => ({ ...d, labels: e.target.value }))}
-            onBlur={() => {
-              if (draft.labels !== task.labels) save({ labels: draft.labels });
+          <LabelInput
+            projectId={task.project_id}
+            aria-label="Labels"
+            value={parseLabels(draft.labels)}
+            onChange={(next) => {
+              const labels = next.join(",");
+              setDraft((d) => ({ ...d, labels }));
+              if (labels !== (task.labels ?? "")) save({ labels });
             }}
-            placeholder="bug, ui"
-            className="bg-gray-800 border-gray-700 text-gray-100 h-8 text-sm"
+            className="min-h-8"
           />
         </div>
       </div>

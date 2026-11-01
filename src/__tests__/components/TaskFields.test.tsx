@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { ReactNode } from "react";
 import { renderHook, act, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import userEvent from "@testing-library/user-event";
 import { TaskFields, useTaskDraft } from "@/components/TaskFields";
 import type { Task } from "@/types";
 
@@ -205,5 +206,63 @@ describe("TaskFields bug Stories", () => {
     await waitFor(() => expect(Array.from(select.options).map((o) => o.textContent)).toContain("Feature story"));
     expect(Array.from(select.options).map((o) => o.textContent)).not.toContain("Crash fix");
     expect(screen.getByLabelText("Points")).not.toHaveAttribute("readonly");
+  });
+});
+
+// FB-99: the labels field is a chip input that saves the joined labels.
+describe("TaskFields labels", () => {
+  function renderLabels(labels: string) {
+    vi.mocked(invoke).mockImplementation((cmd) => {
+      if (cmd === "get_project") return Promise.resolve({ id: 1, ladder: "legacy" });
+      if (cmd === "list_tasks")
+        return Promise.resolve([
+          { ...baseTask, labels },
+          { ...baseTask, id: 8, labels: "backend" },
+          { ...baseTask, id: 9, project_id: 2, labels: "billing" },
+        ]);
+      return Promise.resolve([]);
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <PointsField task={{ ...baseTask, labels }} />
+      </QueryClientProvider>,
+    );
+    return screen.getByRole("combobox", { name: "Labels" });
+  }
+
+  const updateCalls = () => vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === "update_task");
+
+  it("saves the joined labels after a suggestion is picked", async () => {
+    const user = userEvent.setup();
+    const input = renderLabels("api");
+    await user.type(input, "b");
+    await user.click(await screen.findByRole("option", { name: "backend" }));
+    expect(screen.queryByRole("option", { name: "billing" })).not.toBeInTheDocument();
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("update_task", { id: 7, payload: { labels: "api,backend" } });
+  });
+
+  it("saves the joined labels after a new label is entered", async () => {
+    const user = userEvent.setup();
+    const input = renderLabels("api");
+    await user.type(input, "ui{Enter}");
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("update_task", { id: 7, payload: { labels: "api,ui" } });
+  });
+
+  it("drops a removed chip from the saved string", async () => {
+    const user = userEvent.setup();
+    renderLabels("api,ui");
+    await user.click(screen.getByRole("button", { name: "Remove label api" }));
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("update_task", { id: 7, payload: { labels: "ui" } });
+  });
+
+  it("does not save when nothing changed", async () => {
+    const user = userEvent.setup();
+    const input = renderLabels("api");
+    await user.click(input);
+    await user.tab();
+    await user.type(input, "api{Enter}");
+    await user.tab();
+    expect(updateCalls()).toHaveLength(0);
   });
 });
