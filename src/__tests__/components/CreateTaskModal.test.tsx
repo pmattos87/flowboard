@@ -453,3 +453,41 @@ describe("CreateTaskModal — Factory epics (FB-224)", () => {
     expect(mockToast.warning).not.toHaveBeenCalled();
   });
 });
+
+// FB-99: the labels field is a chip input with the project's labels as suggestions.
+describe("CreateTaskModal — labels", () => {
+  it("sends the chosen chips joined in create_task", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ createTaskModalOpen: true, activeProjectId: 1 });
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === "list_tasks")
+        return Promise.resolve([
+          { id: 1, project_id: 1, labels: "api" },
+          { id: 2, project_id: 2, labels: "apex" },
+        ]);
+      if (cmd === "create_task") return Promise.resolve({ id: 99, title: "Labelled" });
+      return Promise.resolve([]);
+    });
+    renderModal();
+
+    await waitFor(() => expect(screen.getByLabelText(/title/i)).toBeInTheDocument());
+    await user.type(screen.getByLabelText(/title/i), "Labelled");
+    const labels = screen.getByRole("combobox", { name: "Labels" });
+    await user.type(labels, "ap");
+    await user.click(await screen.findByRole("option", { name: "api" }));
+    expect(screen.queryByRole("option", { name: "apex" })).not.toBeInTheDocument();
+    await user.type(labels, "ui{Enter}");
+    // Enter added a chip, it did not submit the form
+    expect(mockInvoke).not.toHaveBeenCalledWith("create_task", expect.anything());
+    await user.click(screen.getByRole("button", { name: "Remove label ui" }));
+    await user.type(labels, "docs{Enter}");
+    await user.click(screen.getByRole("button", { name: /create subtask/i }));
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith(
+        "create_task",
+        expect.objectContaining({ payload: expect.objectContaining({ labels: "api,docs" }) }),
+      ),
+    );
+  });
+});

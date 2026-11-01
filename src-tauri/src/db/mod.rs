@@ -665,6 +665,68 @@ mod tests {
         pool.close().await;
     }
 
+    /// FB-213: migration 014 leaves every row's labels equal to
+    /// `normalize_labels` of what it held, non-ASCII labels included, touches
+    /// nothing else, and running its SQL again changes nothing.
+    #[tokio::test]
+    async fn migration_014_normalizes_every_rows_labels() {
+        use crate::factory::ops::normalize_labels;
+        let path = temp_db("normalize-labels");
+        migrate_up_to(&path, 14).await;
+        let mut conn = SqliteConnectOptions::from_str(&sqlite_url(&path, "rw"))
+            .unwrap()
+            .foreign_keys(false)
+            .connect()
+            .await
+            .unwrap();
+        let originals = [
+            "",
+            "qa,tooling",
+            "tooling,qa",
+            " qa, tooling ,",
+            "tooling,,qa,qa",
+            "Decisão,api",
+            "decisão, Decisão ,api,Ábaco,zeta",
+            "Phase 1, phase 1 ,QA,qa",
+            " , ,",
+            "\tfila,contratos\r\n",
+            "single",
+        ];
+        sqlx::query("INSERT INTO projects (id, name, key, created_at) VALUES (1, 'P', 'P', '2026-01-01')")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        for (i, labels) in originals.iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO tasks (id, project_id, title, type, status, created_at, updated_at, labels, task_number) \
+                 VALUES (?, 1, 't', 'story', 'todo', '2026-01-01', '2026-01-02', ?, ?)",
+            )
+            .bind(i as i64 + 1)
+            .bind(labels)
+            .bind(i as i64 + 1)
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        }
+        conn.close().await.unwrap();
+
+        let pool = open_and_migrate(&path).await.unwrap();
+        const ROWS: &str = "SELECT id, labels, updated_at FROM tasks ORDER BY id";
+        let after: Vec<(i64, String, String)> = sqlx::query_as(ROWS).fetch_all(&pool).await.unwrap();
+        assert_eq!(after.len(), originals.len());
+        for ((id, labels, updated_at), original) in after.iter().zip(originals) {
+            assert_eq!(labels, &normalize_labels(original), "row {id}: {original:?}");
+            assert_eq!(updated_at, "2026-01-02", "row {id}: updated_at is left alone");
+        }
+        assert_eq!(after[5].1, "api,Decisão");
+        assert_eq!(after[6].1, "api,Decisão,decisão,zeta,Ábaco");
+
+        sqlx::raw_sql(include_str!("../../migrations/014_normalize_labels.sql")).execute(&pool).await.unwrap();
+        let again: Vec<(i64, String, String)> = sqlx::query_as(ROWS).fetch_all(&pool).await.unwrap();
+        assert_eq!(again, after, "running 014 again changes nothing");
+        pool.close().await;
+    }
+
     #[tokio::test]
     async fn open_existing_accepts_a_current_database() {
         let path = temp_db("current");

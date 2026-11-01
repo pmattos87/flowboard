@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import React from "react";
 import { toast } from "sonner";
-import { useActiveRuns, useRestartRun, useStory, useStoryTrail } from "@/hooks/useStory";
+import { storyKeys, useActiveRuns, useBlockedBy, useRestartRun, useStory, useStoryTrail } from "@/hooks/useStory";
 import { taskKeys } from "@/hooks/useTasks";
 
 vi.mock("sonner", () => ({
@@ -55,6 +55,48 @@ describe("useStoryTrail", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(mockInvoke).toHaveBeenCalledWith("get_story_trail", { key: "FB-7" });
     expect(result.current.data).toHaveLength(1);
+  });
+});
+
+describe("useBlockedBy", () => {
+  const factory = { key: "FB", ladder: "factory" as const };
+
+  it("calls get_blocked_by with the project's key", async () => {
+    mockInvoke.mockResolvedValueOnce({ "FB-9": ["FB-3", "FB-5"] });
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useBlockedBy(factory), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockInvoke).toHaveBeenCalledWith("get_blocked_by", { projectKey: "FB" });
+    expect(result.current.data).toEqual({ "FB-9": ["FB-3", "FB-5"] });
+  });
+
+  it("does not call it for a legacy project or no project", () => {
+    const { wrapper } = makeWrapper();
+    const legacy = renderHook(() => useBlockedBy({ key: "OLD", ladder: "legacy" }), { wrapper });
+    const none = renderHook(() => useBlockedBy(undefined), { wrapper });
+    expect(legacy.result.current.fetchStatus).toBe("idle");
+    expect(none.result.current.fetchStatus).toBe("idle");
+    expect(mockInvoke).not.toHaveBeenCalled();
+  });
+
+  it("sits under taskKeys.all, so invalidating it refetches", async () => {
+    mockInvoke.mockResolvedValueOnce({ "FB-9": ["FB-3"] });
+    const { wrapper, qc } = makeWrapper();
+    const { result } = renderHook(() => useBlockedBy(factory), { wrapper });
+    await waitFor(() => expect(result.current.data).toEqual({ "FB-9": ["FB-3"] }));
+    expect(storyKeys.blockedBy("FB").slice(0, taskKeys.all.length)).toEqual([...taskKeys.all]);
+
+    mockInvoke.mockResolvedValueOnce({});
+    await qc.invalidateQueries({ queryKey: taskKeys.all });
+    await waitFor(() => expect(result.current.data).toEqual({}));
+    expect(mockInvoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("exposes the error state when the command fails", async () => {
+    mockInvoke.mockRejectedValueOnce("project FB not found");
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useBlockedBy(factory), { wrapper });
+    await waitFor(() => expect(result.current.isError).toBe(true));
   });
 });
 

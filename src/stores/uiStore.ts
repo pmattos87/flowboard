@@ -52,6 +52,10 @@ interface UiState {
 
   storyBoardGrouping: StoryBoardGrouping;
   setStoryBoardGrouping: (g: StoryBoardGrouping) => void;
+  /** Board label filter per project id (FB-99). Session-only, never persisted; a missing entry means no filter. */
+  labelFilters: Record<number, string>;
+  /** Sets one project's label filter; null clears it. */
+  setLabelFilter: (projectId: number, label: string | null) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -106,4 +110,18 @@ export const useUiStore = create<UiState>((set) => ({
 
   storyBoardGrouping: "none",
   setStoryBoardGrouping: (g) => set({ storyBoardGrouping: g }),
+  labelFilters: {},
+  setLabelFilter: (projectId, label) =>
+    set((state) => {
+      const next = { ...state.labelFilters };
+      if (label === null) delete next[projectId];
+      else next[projectId] = label;
+      return { labelFilters: next };
+    }),
 }));
+
+/** Selector for one project's label filter: `useUiStore(selectLabelFilter(id))`. Null when none is set. */
+export const selectLabelFilter =
+  (projectId: number | null) =>
+  (state: UiState): string | null =>
+    projectId == null ? null : state.labelFilters[projectId] ?? null;

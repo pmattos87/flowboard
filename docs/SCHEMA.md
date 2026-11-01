@@ -35,7 +35,13 @@ Important Rules
     `time_logs.task_id`, `time_logs.person_id`, `attachments.task_id`,
     `activity_log.task_id`, `activity_log.person_id`
 - `updated_at` must be automatically updated on any task modification.
-- Labels are stored as comma-separated string.
+- Labels are stored as comma-separated string, in one normalized form (FB-99): each label
+  trimmed of spaces, tabs, CR and LF, empties dropped, exact duplicates removed, the rest
+  sorted by `lower(label)` (A-Z folded only, as SQLite's `lower()`) then by the exact text,
+  joined with `,`. Case and inner spaces are kept (`Phase 1`; `QA` and `qa` are two labels).
+  Every write path applies it (`factory::ops::normalize_labels`, used by `create_task`,
+  `update_task`, `story_create`, `story_edit`, `subtask_create`, `epic_create`). Migration
+  `014_normalize_labels.sql` normalizes existing rows once (data only; `updated_at` untouched).
 - Timestamps use ISO strings.
 - `created_at` / `updated_at` should be set in the backend.
 - `tasks.task_number` is `INTEGER NOT NULL`, assigned per-project on insert
@@ -81,7 +87,7 @@ tasks         + epic_id → tasks(id) ON DELETE SET NULL   -- migration 013_epic
 releases         (id, project_id, version, state, created_at, released_at)
                  -- state: 'planned' | 'user_testing' | 'released' | 'canceled'; UNIQUE(project_id, version)
 project_contacts (project_id, person_id, is_primary)   -- client contacts; one primary per project
-task_links       (task_id, depends_on_id, created_at)  -- Story depends-on (warns on Release pick)
+task_links       (task_id, depends_on_id, created_at)  -- Story depends-on (warns on Release pick; also drives blocked-by, FB-99)
 task_prs         (id, task_id, url, target, state, created_at, updated_at)
                  -- state: 'open' | 'merged' | 'closed'
 ```

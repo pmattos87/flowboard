@@ -1,4 +1,4 @@
-import { useUiStore } from "@/stores/uiStore";
+import { selectLabelFilter, useUiStore } from "@/stores/uiStore";
 import { useTasks } from "@/hooks/useTasks";
 import { usePeople } from "@/hooks/usePeople";
 import { useProject } from "@/hooks/useProjects";
@@ -11,11 +11,14 @@ import { InvisibleStoriesStrip } from "./shared/InvisibleStoriesStrip";
 import { FACTORY_DISCOVERY_COLUMNS } from "./shared/boardConstants";
 import { buildEpicRows, factoryDiscoveryStories } from "./shared/epicGrouping";
 import { useStoryCardDecor } from "@/features/story/useStoryCardDecor";
+import { matchesLabelFilter } from "@/lib/labels";
+import { LabelFilterSelect } from "./shared/LabelFilterSelect";
 
 export function DiscoveryBoard() {
   const activeProjectId = useUiStore((s) => s.activeProjectId);
   const grouping = useUiStore((s) => s.discoveryGrouping);
   const setGrouping = useUiStore((s) => s.setDiscoveryGrouping);
+  const labelFilter = useUiStore(selectLabelFilter(activeProjectId));
   const { data: allTasks } = useTasks(activeProjectId != null ? { project_id: activeProjectId } : undefined);
   const { data: people = [] } = usePeople();
   const { data: project } = useProject(activeProjectId);
@@ -31,9 +34,10 @@ export function DiscoveryBoard() {
 
   const isFactory = project?.ladder === "factory";
   // On a Factory project epics are never cards (FB-224); legacy keeps them.
-  const tasks = isFactory
+  const cards = isFactory
     ? factoryDiscoveryStories(allTasks ?? [])
     : (allTasks ?? []).filter((t) => isDiscoveryRow(t, project?.ladder));
+  const tasks = cards.filter((t) => matchesLabelFilter(t, labelFilter));
   const grouped = isFactory && grouping === "epic";
 
   return (
@@ -50,14 +54,20 @@ export function DiscoveryBoard() {
               : "Backlog — stories and epics not yet assigned to a sprint."}
           </p>
         </div>
-        {isFactory && <GroupingToggle value={grouping} onChange={setGrouping} className="ml-auto" />}
+        <div className="ml-auto flex items-center gap-3">
+          {isFactory && <GroupingToggle value={grouping} onChange={setGrouping} />}
+          <LabelFilterSelect projectId={activeProjectId} />
+        </div>
       </div>
       {project && (
         <InvisibleStoriesStrip stories={invisibleStories(allTasks ?? [], project.ladder)} projectKey={project.key} />
       )}
       {grouped && project ? (
         <EpicSwimlaneBoard
-          rows={buildEpicRows(tasks, allTasks ?? [], { keepEmptyOpenEpics: true })}
+          rows={buildEpicRows(cards, allTasks ?? [], { keepEmptyOpenEpics: true }).map((row) => ({
+            ...row,
+            stories: row.stories.filter((s) => matchesLabelFilter(s, labelFilter)),
+          }))}
           tasks={allTasks ?? []}
           columns={FACTORY_DISCOVERY_COLUMNS}
           emptyMessage="No epics or Stories in the backlog yet."
