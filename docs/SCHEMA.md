@@ -150,4 +150,9 @@ client_contacts  (client_id, person_id, is_primary)    -- PK (client_id, person_
   Contacts are set only with `flowboard-cli contact add/remove <client id> <person id>`;
   `flowboard-cli client list` lists clients; `flowboard-cli project set --client <id|none>`
   sets or clears a project's client.
+- Ordering: `projects.position` orders projects inside their group (one group per client, plus
+  the internal group); `clients.position` orders the Clients section. A project whose client
+  changes (the app's `update_project`, or `flowboard-cli project set --client`) goes to the
+  end of its new group (`MAX(position) + 1` among that group's projects); setting the same
+  client again, or any other update, keeps its position.
 - Deleting a client leaves its projects in place, internal again, and drops its contacts.
