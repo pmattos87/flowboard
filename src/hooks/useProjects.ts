@@ -70,10 +70,15 @@ export function useReorderProjects() {
       await qc.cancelQueries({ queryKey: projectKeys.list() });
       const previous = qc.getQueryData<Project[]>(projectKeys.list());
       if (previous) {
+        // orderedIds may be one sidebar group: reorder those ids among the slots they
+        // already hold and leave every other project where it is.
         const byId = new Map(previous.map((p) => [p.id, p]));
-        const reordered = orderedIds
+        const inOrder = orderedIds
           .map((id) => byId.get(id))
           .filter((p): p is Project => p != null);
+        const moved = new Set(inOrder.map((p) => p.id));
+        let slot = 0;
+        const reordered = previous.map((p) => (moved.has(p.id) ? inOrder[slot++] : p));
         qc.setQueryData<Project[]>(projectKeys.list(), reordered);
       }
       return { previous };

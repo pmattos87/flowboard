@@ -140,6 +140,17 @@ describe("useReorderProjects", () => {
     const cached = qc.getQueryData<{ id: number }[]>(projectKeys.list());
     expect(cached?.map((p) => p.id)).toEqual([3, 1, 2]);
   });
+
+  it("a partial reorder keeps the other projects in their own slots (FB-206)", async () => {
+    mockInvoke.mockResolvedValueOnce(undefined);
+    const { wrapper, qc } = makeWrapper();
+    qc.setQueryData(projectKeys.list(), [1, 2, 3, 4, 5].map((id) => ({ ...fakeProject, id })));
+    const { result } = renderHook(() => useReorderProjects(), { wrapper });
+    // One group (ids 2 and 4) swaps; 1, 3 and 5 belong to other groups.
+    await result.current.mutateAsync([4, 2]);
+    const cached = qc.getQueryData<{ id: number }[]>(projectKeys.list());
+    expect(cached?.map((p) => p.id)).toEqual([1, 4, 3, 2, 5]);
+  });
 });
 
 describe("project client field (FB-202)", () => {
