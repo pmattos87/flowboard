@@ -1,6 +1,6 @@
 //! `flowboard-cli mcp`: a stdio MCP server over the same domain operations as
 //! the CLI. Every call acts as the Agent. Setup operations (factory roles,
-//! project ladder/kind, contacts) stay CLI-only, so an agent cannot switch a
+//! project ladder/client, clients and contacts) stay CLI-only, so an agent cannot switch a
 //! project's ladder.
 
 use super::ops::{self, Actor, NewEpic, NewStory, NewSubtask, StoryEdit};

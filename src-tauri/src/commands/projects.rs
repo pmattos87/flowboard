@@ -17,9 +17,16 @@ pub struct Project {
     pub position: i64,
     /// Software Factory: 'legacy' | 'factory' status ladder.
     pub ladder: String,
-    /// Software Factory: 'internal' | 'client'.
+    /// The project's client (FB-202); NULL means internal.
+    pub client_id: Option<i64>,
+    /// Software Factory: 'internal' | 'client'. Not stored: derived from
+    /// `client_id` by [`PROJECT_SQL`].
     pub kind: String,
 }
+
+/// Every project column plus the derived `kind` (client iff `client_id` is set).
+const PROJECT_SQL: &str =
+    "SELECT *, CASE WHEN client_id IS NULL THEN 'internal' ELSE 'client' END AS kind FROM projects";
 
 #[derive(Debug, Deserialize)]
 pub struct ProjectCreate {
@@ -65,7 +72,7 @@ pub async fn create_project(
 
 #[tauri::command]
 pub async fn list_projects(pool: State<'_, SqlitePool>) -> Result<Vec<Project>, String> {
-    sqlx::query_as::<_, Project>("SELECT * FROM projects ORDER BY position ASC, created_at DESC")
+    sqlx::query_as::<_, Project>(&format!("{PROJECT_SQL} ORDER BY position ASC, created_at DESC"))
         .fetch_all(pool.inner())
         .await
         .map_err(|e| e.to_string())
@@ -73,7 +80,7 @@ pub async fn list_projects(pool: State<'_, SqlitePool>) -> Result<Vec<Project>, 
 
 #[tauri::command]
 pub async fn get_project(pool: State<'_, SqlitePool>, id: i64) -> Result<Project, String> {
-    sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = ?")
+    sqlx::query_as::<_, Project>(&format!("{PROJECT_SQL} WHERE id = ?"))
         .bind(id)
         .fetch_one(pool.inner())
         .await
@@ -135,7 +142,39 @@ pub async fn reorder_projects(
 
 #[cfg(test)]
 mod tests {
-    use super::ProjectUpdate;
+    use super::{Project, ProjectUpdate, PROJECT_SQL};
+    use crate::test_support as ts;
+
+    /// FB-202: `kind` is not stored; the Project JSON derives it from `client_id`.
+    #[tokio::test]
+    async fn project_kind_is_derived_from_its_client() {
+        let pool = ts::pool().await;
+        let internal = ts::project(&pool, "IN").await;
+        let client_project = ts::project(&pool, "CL").await;
+        let acme = ts::client(&pool, "Acme").await;
+        sqlx::query("UPDATE projects SET client_id = ? WHERE id = ?")
+            .bind(acme)
+            .bind(client_project)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let get = |id: i64| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query_as::<_, Project>(&format!("{PROJECT_SQL} WHERE id = ?"))
+                    .bind(id)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap()
+            }
+        };
+        let project = get(internal).await;
+        assert_eq!((project.client_id, project.kind.as_str()), (None, "internal"));
+        let project = get(client_project).await;
+        assert_eq!((project.client_id, project.kind.as_str()), (Some(acme), "client"));
+        let json = serde_json::to_value(&project).unwrap();
+        assert_eq!((json["kind"].clone(), json["client_id"].clone()), ("client".into(), acme.into()));
+    }
 
     #[test]
     fn absent_logo_data_keeps_current() {

@@ -157,6 +157,15 @@ pub async fn factory_project(pool: &SqlitePool, key: &str) -> i64 {
     id
 }
 
+/// A client named `name` (FB-202), with no projects or contacts; returns its id.
+pub async fn client(pool: &SqlitePool, name: &str) -> i64 {
+    sqlx::query_scalar("INSERT INTO clients (name) VALUES (?) RETURNING id")
+        .bind(name)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
 /// A sprint starting and ending on `start`, with an empty goal; returns its id.
 pub async fn sprint(pool: &SqlitePool, project_id: i64, name: &str, start: &str, status: SprintStatus) -> i64 {
     sqlx::query_scalar(

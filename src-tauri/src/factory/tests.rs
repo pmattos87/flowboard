@@ -45,8 +45,14 @@ async fn setup(kind: &str) -> Fx {
     .unwrap();
     ops::people_set_role(&pool, pedro, Some("owner")).await.unwrap();
     ops::people_set_role(&pool, agent, Some("agent")).await.unwrap();
-    ops::project_set(&pool, "SF", Some("factory"), Some(kind)).await.unwrap();
-    ops::contact_add(&pool, "SF", client, true).await.unwrap();
+    ops::project_set(&pool, "SF", Some("factory"), None).await.unwrap();
+    // FB-202: a project is a client project iff it has a client; the contact
+    // belongs to the client.
+    if kind == "client" {
+        let c = ts::client(&pool, "Acme").await;
+        ops::project_set(&pool, "SF", None, Some(Some(c))).await.unwrap();
+        ops::contact_add(&pool, c, client, true).await.unwrap();
+    }
     Fx { pool, pedro, agent, client, sprint }
 }
 
@@ -894,12 +900,13 @@ async fn points_of(pool: &SqlitePool, id: i64) -> i64 {
 async fn bug_story_fixture() -> (SqlitePool, i64, i64, String) {
     let pool = ts::pool().await;
     let p = ts::factory_project(&pool, "SF").await;
-    ops::project_set(&pool, "SF", None, Some("client")).await.unwrap();
+    let acme = ts::client(&pool, "Acme").await;
+    ops::project_set(&pool, "SF", None, Some(Some(acme))).await.unwrap();
     let client: i64 = sqlx::query_scalar("INSERT INTO people (name, email) VALUES ('Client', 'client@test') RETURNING id")
         .fetch_one(&pool)
         .await
         .unwrap();
-    ops::contact_add(&pool, "SF", client, true).await.unwrap();
+    ops::contact_add(&pool, acme, client, true).await.unwrap();
     let sprint = ts::sprint(&pool, p, "S1", "2026-10-01", SprintStatus::Active).await;
     let bug = ts::task(&pool, p, None, None, TaskType::Bug, TaskStatus::Backlog).await;
     let key = key_of(&pool, bug).await;
@@ -1353,4 +1360,105 @@ async fn story_edit_refuses_an_epic_change_that_breaks_membership_and_changes_no
     }
     // Keeping a done Story's epic is not a change.
     ops::story_edit(&pool, &k(done_story).await, set_epic(Some(&k(open).await))).await.unwrap();
+}
+
+// ─── Clients (FB-202) ───────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn a_project_with_no_client_is_internal_and_refuses_user_testing() {
+    let fx = setup("internal").await;
+    let shown = ops::project_show(&fx.pool, "SF").await.unwrap();
+    assert_eq!(shown["kind"], "internal");
+    assert_eq!(shown["client"], Value::Null);
+    assert_eq!(shown["contacts"], serde_json::json!([]));
+
+    let s = tested(&fx, "internal").await;
+    let err = mv(&fx, &s, "user_testing").await.unwrap_err();
+    assert!(err.contains("user_testing"), "{err}");
+    assert_eq!(status(&fx, &s).await, "tested");
+}
+
+#[tokio::test]
+async fn a_project_with_a_client_is_a_client_project_listing_the_clients_contacts() {
+    let fx = setup("client").await;
+    let shown = ops::project_show(&fx.pool, "SF").await.unwrap();
+    assert_eq!(shown["kind"], "client");
+    assert_eq!(shown["client"]["name"], "Acme");
+    assert_eq!(
+        shown["contacts"],
+        serde_json::json!([{ "person_id": fx.client, "name": "Client", "primary": true }])
+    );
+    // Clearing the client makes it internal again; the contacts stay on the client.
+    let shown = ops::project_set(&fx.pool, "SF", None, Some(None)).await.unwrap();
+    assert_eq!(shown["kind"], "internal");
+    assert_eq!(shown["contacts"], serde_json::json!([]));
+    let clients = ops::client_list(&fx.pool).await.unwrap();
+    assert_eq!(clients[0]["contacts"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn user_testing_goes_to_the_current_primary_contact_of_the_projects_client() {
+    let fx = setup("client").await;
+    let acme: i64 = ops::project_show(&fx.pool, "SF").await.unwrap()["client"]["id"].as_i64().unwrap();
+    // A second primary on the same client replaces the first.
+    let shown = ops::contact_add(&fx.pool, acme, fx.pedro, true).await.unwrap();
+    let primaries: Vec<i64> = shown["contacts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["primary"] == true)
+        .map(|c| c["person_id"].as_i64().unwrap())
+        .collect();
+    assert_eq!(primaries, vec![fx.pedro]);
+    assert_eq!(shown["contacts"].as_array().unwrap().len(), 2, "the old primary stays a contact");
+
+    let s = tested(&fx, "client").await;
+    mv(&fx, &s, "user_testing").await.unwrap();
+    assert_eq!(assignee(&fx, &s).await, Some(fx.pedro));
+
+    // Another client's primary never applies to SF.
+    let other = crate::test_support::client(&fx.pool, "Other").await;
+    ops::contact_add(&fx.pool, other, fx.agent, true).await.unwrap();
+    let s2 = tested(&fx, "client 2").await;
+    mv(&fx, &s2, "user_testing").await.unwrap();
+    assert_eq!(assignee(&fx, &s2).await, Some(fx.pedro));
+
+    // With no primary left, user_testing is refused and names the client command.
+    ops::contact_remove(&fx.pool, acme, fx.pedro).await.unwrap();
+    let s3 = tested(&fx, "client 3").await;
+    let err = mv(&fx, &s3, "user_testing").await.unwrap_err();
+    assert!(err.contains("contact add <client id>"), "{err}");
+    assert_eq!(status(&fx, &s3).await, "tested");
+}
+
+#[tokio::test]
+async fn client_list_and_contact_commands_work_by_client_id() {
+    let pool = ts::pool().await;
+    ts::project(&pool, "LG").await;
+    let b = ts::client(&pool, "Beta").await;
+    let a = ts::client(&pool, "Alpha").await;
+    sqlx::query("UPDATE clients SET position = ? WHERE id = ?").bind(1).bind(b).execute(&pool).await.unwrap();
+
+    let shown = ops::contact_add(&pool, a, ts::AGENT, false).await.unwrap();
+    assert_eq!(shown["id"], a);
+    assert_eq!(shown["contacts"], serde_json::json!([{ "person_id": ts::AGENT, "name": "Claude", "primary": false }]));
+    let list = ops::client_list(&pool).await.unwrap();
+    let names: Vec<&str> = list.as_array().unwrap().iter().map(|c| c["name"].as_str().unwrap()).collect();
+    assert_eq!(names, vec!["Alpha", "Beta"], "sidebar order");
+
+    let shown = ops::contact_remove(&pool, a, ts::AGENT).await.unwrap();
+    assert_eq!(shown["contacts"], serde_json::json!([]));
+
+    assert!(ops::contact_add(&pool, 999, ts::AGENT, true).await.unwrap_err().contains("client 999 not found"));
+    assert!(ops::contact_add(&pool, a, 999, true).await.unwrap_err().contains("person 999 not found"));
+    assert!(ops::contact_remove(&pool, 999, ts::AGENT).await.unwrap_err().contains("client 999 not found"));
+
+    // project set --client: an unknown client is refused and changes nothing.
+    let err = ops::project_set(&pool, "LG", None, Some(Some(999))).await.unwrap_err();
+    assert!(err.contains("client 999 not found"), "{err}");
+    assert_eq!(ops::project_show(&pool, "LG").await.unwrap()["kind"], "internal");
+    let shown = ops::project_set(&pool, "LG", None, Some(Some(b))).await.unwrap();
+    assert_eq!((shown["kind"].as_str(), shown["client"]["id"].as_i64()), (Some("client"), Some(b)));
+    let shown = ops::project_set(&pool, "LG", None, None).await.unwrap();
+    assert_eq!(shown["kind"], "client", "no --client keeps the client");
 }
