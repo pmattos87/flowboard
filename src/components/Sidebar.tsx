@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { NavLink } from "react-router-dom";
 import {
   BarChart3,
@@ -11,6 +12,7 @@ import {
   Lightbulb,
   Map as MapIcon,
   Package,
+  Pencil,
   Plus,
   Settings as SettingsIcon,
   Workflow,
@@ -32,9 +34,15 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { useProjects, useReorderProjects } from "@/hooks/useProjects";
-import { useClients, useReorderClients } from "@/hooks/useClients";
+import {
+  useClients,
+  useCreateClient,
+  useRenameClient,
+  useReorderClients,
+} from "@/hooks/useClients";
 import { ProjectBadge } from "@/components/ProjectBadge";
 import { BackupWarning } from "@/components/BackupWarning";
+import { ClientNameDialog } from "@/components/ClientNameDialog";
 import { isClientExpanded, useUiStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
 import type { Client, Project } from "@/types";
@@ -163,23 +171,45 @@ function SortableClientGroup({ client, projects }: { client: Client; projects: P
   const data: SortData = { kind: "client", id: client.id, group: "clients" };
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: `client-${client.id}`, data });
+  const renameClient = useRenameClient();
+  const [renaming, setRenaming] = useState(false);
   const Chevron = expanded ? ChevronDown : ChevronRight;
   const listId = `client-${client.id}-projects`;
 
   return (
     <li ref={setNodeRef} style={sortableStyle(transform, transition, isDragging)}>
-      <button
-        type="button"
-        onClick={() => toggleExpanded(client.id)}
-        {...attributes}
-        {...listeners}
-        aria-expanded={expanded}
-        aria-controls={listId}
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm text-gray-300 hover:bg-gray-900 hover:text-gray-100 transition-colors text-left touch-none"
-      >
-        <Chevron className="h-3.5 w-3.5 shrink-0 text-gray-500" aria-hidden="true" />
-        <span className="truncate">{client.name}</span>
-      </button>
+      <div className="group flex items-center rounded-md hover:bg-gray-900">
+        {/* Only this button carries the drag listeners, so the rename button never starts a drag. */}
+        <button
+          type="button"
+          onClick={() => toggleExpanded(client.id)}
+          {...attributes}
+          {...listeners}
+          aria-expanded={expanded}
+          aria-controls={listId}
+          className="flex-1 min-w-0 flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm text-gray-300 hover:text-gray-100 transition-colors text-left touch-none"
+        >
+          <Chevron className="h-3.5 w-3.5 shrink-0 text-gray-500" aria-hidden="true" />
+          <span className="truncate">{client.name}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setRenaming(true)}
+          aria-label={`Rename ${client.name}`}
+          className="mr-1 p-1 rounded text-gray-500 hover:text-gray-200 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 transition-opacity"
+        >
+          <Pencil className="h-3 w-3" aria-hidden="true" />
+        </button>
+      </div>
+      <ClientNameDialog
+        open={renaming}
+        onOpenChange={setRenaming}
+        title="Rename client"
+        submitLabel="Save"
+        initialName={client.name}
+        isPending={renameClient.isPending}
+        onSubmit={(name) => renameClient.mutateAsync({ id: client.id, name })}
+      />
       {expanded && (
         <div id={listId}>
           {projects.length > 0 ? (
@@ -208,6 +238,8 @@ export function Sidebar() {
   const openCreateProject = useUiStore((s) => s.setCreateProjectModalOpen);
   const reorderProjects = useReorderProjects();
   const reorderClients = useReorderClients();
+  const createClient = useCreateClient();
+  const [creatingClient, setCreatingClient] = useState(false);
 
   // 5px activation distance so a plain click still selects (no accidental drag).
   const sensors = useSensors(
@@ -277,6 +309,14 @@ export function Sidebar() {
         <section aria-label="Clients" className="px-2 mt-3">
           <div className="flex items-center justify-between">
             <SectionLabel>Clients</SectionLabel>
+            <button
+              type="button"
+              onClick={() => setCreatingClient(true)}
+              aria-label="Create client"
+              className="mr-1 rounded text-gray-500 hover:text-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
           </div>
           <SortableContext
             items={clientList.map((c) => `client-${c.id}`)}
@@ -294,6 +334,14 @@ export function Sidebar() {
           </SortableContext>
         </section>
       </DndContext>
+      <ClientNameDialog
+        open={creatingClient}
+        onOpenChange={setCreatingClient}
+        title="Create client"
+        submitLabel="Create client"
+        isPending={createClient.isPending}
+        onSubmit={(name) => createClient.mutateAsync(name)}
+      />
 
       <nav className="mt-6 px-2 space-y-0.5">
         {navItems.map(({ to, label, icon: Icon }) => (

@@ -218,3 +218,65 @@ describe("Sidebar drag-to-reorder (FB-206)", () => {
     await waitFor(() => expect(reorderCalls()).toEqual([]));
   });
 });
+
+describe("Sidebar client management (FB-207)", () => {
+  it("creates a client from the Clients header +, with submit disabled while the name is blank", async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    await screen.findByText("Acme App");
+
+    await user.click(within(section("Clients")).getByRole("button", { name: "Create client" }));
+    const dialog = await screen.findByRole("dialog");
+    const submit = within(dialog).getByRole("button", { name: "Create client" });
+    expect(submit).toBeDisabled();
+
+    const input = within(dialog).getByLabelText("Client name");
+    await user.type(input, "   ");
+    expect(submit).toBeDisabled();
+
+    await user.clear(input);
+    await user.type(input, "Gamma");
+    expect(submit).toBeEnabled();
+    await user.click(submit);
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("create_client", { name: "Gamma" });
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("renames a client with its id and the new name", async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    await screen.findByText("Acme App");
+
+    await user.click(screen.getByRole("button", { name: "Rename Beta" }));
+    const dialog = await screen.findByRole("dialog");
+    const input = within(dialog).getByLabelText("Client name");
+    expect(input).toHaveValue("Beta");
+
+    await user.clear(input);
+    expect(within(dialog).getByRole("button", { name: "Save" })).toBeDisabled();
+    await user.type(input, "Beta Corp");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("rename_client", { id: 20, name: "Beta Corp" });
+    });
+  });
+
+  it("pressing the rename button does not start a client drag", async () => {
+    renderSidebar();
+    await screen.findByText("Acme App");
+    stubRects();
+
+    const rename = screen.getByRole("button", { name: "Rename Acme" });
+    fireEvent.pointerDown(rename, { clientX: 50, clientY: 10, pointerId: 1, button: 0, isPrimary: true });
+    fireEvent.pointerMove(rename, { clientX: 50, clientY: 20, pointerId: 1 });
+    fireEvent.pointerMove(rename, { clientX: 50, clientY: 110, pointerId: 1 });
+    fireEvent.pointerUp(rename, { clientX: 50, clientY: 110, pointerId: 1 });
+
+    await new Promise((r) => setTimeout(r, 50));
+    await waitFor(() => expect(reorderCalls()).toEqual([]));
+  });
+});

@@ -13,6 +13,7 @@ import {
 import { useUiStore } from "@/stores/uiStore";
 import { seedDemoData } from "@/lib/commands";
 import { ProjectBadge } from "@/components/ProjectBadge";
+import { ClientSelect } from "@/components/ClientSelect";
 import { fileToLogoDataUrl } from "@/lib/image";
 import { cn } from "@/lib/utils";
 import { BackupSettings } from "@/features/backup/BackupSettings";
@@ -51,6 +52,7 @@ export default function Settings() {
   const [key, setKey] = useState("");
   const [description, setDescription] = useState("");
   const [logoData, setLogoData] = useState<string | null>(null);
+  const [clientId, setClientId] = useState<number | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -67,6 +69,7 @@ export default function Settings() {
       setKey(project.key);
       setDescription(project.description);
       setLogoData(project.logo_data);
+      setClientId(project.client_id);
       setConfirmingDelete(false);
       setError(null);
     }
@@ -79,7 +82,8 @@ export default function Settings() {
     (trimmedName !== project.name ||
       trimmedKey !== project.key ||
       description !== project.description ||
-      logoData !== project.logo_data);
+      logoData !== project.logo_data ||
+      clientId !== project.client_id);
   const valid =
     trimmedName.length > 0 && /^[A-Z0-9]{2,5}$/.test(trimmedKey);
   const canSave = dirty && valid && !updateProject.isPending;
@@ -108,6 +112,7 @@ export default function Settings() {
           key: trimmedKey,
           description,
           logo_data: logoData,
+          client_id: clientId,
         },
       });
       setSavedAt(Date.now());
@@ -208,6 +213,8 @@ export default function Settings() {
                     className="bg-gray-800 border-gray-700 text-gray-100 uppercase"
                   />
                 </div>
+
+                <ClientSelect id="settings-client" value={clientId} onChange={setClientId} />
 
                 <div className="space-y-1.5">
                   <Label htmlFor="settings-description" className="text-gray-300">
