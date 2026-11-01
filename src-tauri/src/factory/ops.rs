@@ -621,7 +621,8 @@ pub async fn project_set(
         if let Some(c) = client_id {
             require_client(&mut tx, c).await?;
         }
-        sqlx::query("UPDATE projects SET client_id = ? WHERE id = ?")
+        // Same rule as the app's update_project: a new client means last in its group.
+        sqlx::query(crate::commands::projects::SET_CLIENT_SQL)
             .bind(client_id)
             .bind(id)
             .execute(&mut *tx)
