@@ -265,4 +265,68 @@ describe("TaskFields labels", () => {
     await user.tab();
     expect(updateCalls()).toHaveLength(0);
   });
+
+  // FB-303 (Review B1): a removal while the add is still in flight must be sent,
+  // even though it matches the stale server value.
+  it("sends a chip removal while the previous label save is still pending", async () => {
+    const user = userEvent.setup();
+    const input = renderLabels("");
+    let stored = "";
+    const pending: Array<() => void> = [];
+    const base = vi.mocked(invoke).getMockImplementation();
+    vi.mocked(invoke).mockImplementation((cmd, args) => {
+      if (cmd === "update_task") {
+        const { payload } = args as { payload: { labels: string } };
+        return new Promise((resolve) => {
+          pending.push(() => {
+            stored = payload.labels;
+            resolve(undefined);
+          });
+        });
+      }
+      return base ? base(cmd, args) : Promise.resolve(undefined);
+    });
+
+    await user.type(input, "qa{Enter}");
+    await user.click(screen.getByRole("button", { name: "Remove label qa" }));
+
+    expect(updateCalls().map(([, a]) => a)).toEqual([
+      { id: 7, payload: { labels: "qa" } },
+      { id: 7, payload: { labels: "" } },
+    ]);
+    await act(async () => {
+      pending.forEach((finish) => finish());
+    });
+    expect(stored).toBe("");
+  });
+
+  // FB-303 QA: the refetches land in order after the add and the removal; the
+  // FB-124 re-sync must settle the chips on the last write without sending more.
+  it("settles on the removal once the stale and final refetches arrive", async () => {
+    const user = userEvent.setup();
+    vi.mocked(invoke).mockImplementation((cmd) => {
+      if (cmd === "get_project") return Promise.resolve({ id: 1, ladder: "legacy" });
+      if (cmd === "update_task") return new Promise(() => {});
+      return Promise.resolve([]);
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = (labels: string) => (
+      <QueryClientProvider client={qc}>
+        <PointsField task={{ ...baseTask, labels }} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(view(""));
+    const input = screen.getByRole("combobox", { name: "Labels" });
+
+    await user.type(input, "qa{Enter}");
+    await user.click(screen.getByRole("button", { name: "Remove label qa" }));
+    rerender(view("qa"));
+    rerender(view(""));
+
+    expect(screen.queryByRole("button", { name: "Remove label qa" })).not.toBeInTheDocument();
+    expect(updateCalls().map(([, a]) => a)).toEqual([
+      { id: 7, payload: { labels: "qa" } },
+      { id: 7, payload: { labels: "" } },
+    ]);
+  });
 });

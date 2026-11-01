@@ -306,8 +306,12 @@ export function TaskFields({ task, state }: { task: Task; state: TaskDraftState 
             value={parseLabels(draft.labels)}
             onChange={(next) => {
               const labels = next.join(",");
+              // Compare with the draft, not task.labels: the draft holds the
+              // last value sent, which the server prop lags while a save is
+              // pending (FB-303).
+              if (labels === draft.labels) return;
               setDraft((d) => ({ ...d, labels }));
-              if (labels !== (task.labels ?? "")) save({ labels });
+              save({ labels });
             }}
             className="min-h-8"
           />
