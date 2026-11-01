@@ -1371,3 +1371,141 @@ fn normalize_labels_gives_one_form_per_set_of_labels() {
     let once = ops::normalize_labels("b, a ,A");
     assert_eq!(ops::normalize_labels(&once), once, "normalizing twice changes nothing");
 }
+
+// ─── Blocked-by (FB-99) ─────────────────────────────────────────────────────
+
+/// A Story created through the ladder on `project`; returns its key.
+async fn new_story(pool: &SqlitePool, project: &str) -> String {
+    let s = ops::story_create(
+        pool,
+        NewStory { project, title: "s", description: "", priority: "medium", labels: "", bug: false },
+        Actor::Owner,
+    )
+    .await
+    .unwrap();
+    s["key"].as_str().unwrap().to_string()
+}
+
+async fn blocked_by(pool: &SqlitePool, key: &str) -> Vec<String> {
+    let shown = ops::story_show(pool, key).await.unwrap();
+    serde_json::from_value(shown["blocked_by"].clone()).unwrap()
+}
+
+#[tokio::test]
+async fn a_dependency_blocks_until_integrated_tests() {
+    let pool = ts::pool().await;
+    let p = ts::factory_project(&pool, "SF").await;
+    let sprint = ts::sprint(&pool, p, "S1", "2026-10-01", SprintStatus::Active).await;
+    let dep = new_story(&pool, "SF").await;
+    let story = new_story(&pool, "SF").await;
+    ops::link_add(&pool, &story, &dep).await.unwrap();
+    let mv = |to: &'static str| ops::story_move(&pool, &dep, to, Actor::Owner);
+
+    assert_eq!(blocked_by(&pool, &story).await, [dep.clone()], "blocked at backlog");
+    mv("refining").await.unwrap();
+    let sub = new_subtask(&pool, &dep, false, 2).await;
+    assert_eq!(blocked_by(&pool, &story).await, [dep.clone()], "blocked at refining");
+    mv("ready").await.unwrap();
+    ops::story_set_sprint(&pool, &dep, Some(sprint)).await.unwrap();
+    assert_eq!(blocked_by(&pool, &story).await, [dep.clone()], "blocked at ready");
+    mv("building").await.unwrap();
+    assert_eq!(blocked_by(&pool, &story).await, [dep.clone()], "blocked at building");
+    ops::subtask_move(&pool, &sub, "in_progress", Actor::Agent).await.unwrap();
+    ops::subtask_move(&pool, &sub, "done", Actor::Agent).await.unwrap();
+    mv("integrated_tests").await.unwrap();
+    assert!(blocked_by(&pool, &story).await.is_empty(), "free once the dependency is integrated");
+    // The dependency is still listed; only the blocking view changes.
+    assert_eq!(ops::story_show(&pool, &story).await.unwrap()["depends_on"], serde_json::json!([dep]));
+    // An off-ladder legacy status blocks too.
+    sqlx::query("UPDATE tasks SET status = 'in_review' WHERE id = (SELECT id FROM tasks WHERE project_id = ? AND task_number = 1)")
+        .bind(p)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(blocked_by(&pool, &story).await, [dep.clone()], "a legacy status blocks");
+}
+
+#[tokio::test]
+async fn a_canceled_dependency_does_not_block() {
+    let pool = ts::pool().await;
+    ts::factory_project(&pool, "SF").await;
+    let dep = new_story(&pool, "SF").await;
+    let story = new_story(&pool, "SF").await;
+    ops::link_add(&pool, &story, &dep).await.unwrap();
+    ops::story_move(&pool, &dep, "refining", Actor::Owner).await.unwrap();
+    assert_eq!(blocked_by(&pool, &story).await, [dep.clone()]);
+    ops::story_move(&pool, &dep, "canceled", Actor::Owner).await.unwrap();
+    assert!(blocked_by(&pool, &story).await.is_empty());
+}
+
+#[tokio::test]
+async fn project_blocked_by_maps_only_that_projects_blocked_stories() {
+    let pool = ts::pool().await;
+    ts::factory_project(&pool, "SF").await;
+    ts::factory_project(&pool, "OT").await;
+    let lg = ts::project(&pool, "LG").await;
+
+    let a = new_story(&pool, "SF").await;
+    let b = new_story(&pool, "SF").await;
+    let c = new_story(&pool, "SF").await;
+    let free = new_story(&pool, "SF").await;
+    let gone = new_story(&pool, "SF").await;
+    ops::link_add(&pool, &c, &b).await.unwrap();
+    ops::link_add(&pool, &c, &a).await.unwrap();
+    ops::link_add(&pool, &b, &a).await.unwrap();
+    ops::link_add(&pool, &free, &gone).await.unwrap();
+    ops::story_move(&pool, &gone, "canceled", Actor::Owner).await.unwrap();
+    let ot_a = new_story(&pool, "OT").await;
+    let ot_b = new_story(&pool, "OT").await;
+    ops::link_add(&pool, &ot_b, &ot_a).await.unwrap();
+
+    let map = ops::project_blocked_by(&pool, "sf").await.unwrap();
+    assert_eq!(map, serde_json::json!({ b.clone(): [a.clone()], c.clone(): [a.clone(), b.clone()] }));
+    let map = ops::project_blocked_by(&pool, "OT").await.unwrap();
+    assert_eq!(map, serde_json::json!({ ot_b: [ot_a] }));
+
+    // A legacy project gets `{}`, even with a link row written straight to SQL.
+    let x = ts::task(&pool, lg, None, None, TaskType::Story, TaskStatus::Todo).await;
+    let y = ts::task(&pool, lg, None, None, TaskType::Story, TaskStatus::Todo).await;
+    sqlx::query("INSERT INTO task_links (task_id, depends_on_id, created_at) VALUES (?, ?, '')")
+        .bind(y)
+        .bind(x)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(ops::project_blocked_by(&pool, "LG").await.unwrap(), serde_json::json!({}));
+    assert!(ops::project_blocked_by(&pool, "NOPE").await.unwrap_err().contains("not found"));
+}
+
+#[tokio::test]
+async fn every_post_integration_status_unblocks_in_both_views() {
+    let pool = ts::pool().await;
+    let p = ts::factory_project(&pool, "SF").await;
+    let dep = new_story(&pool, "SF").await;
+    let story = new_story(&pool, "SF").await;
+    ops::link_add(&pool, &story, &dep).await.unwrap();
+    for status in ["tested", "user_testing", "done", "integrated_tests", "canceled"] {
+        sqlx::query("UPDATE tasks SET status = ? WHERE project_id = ? AND task_number = 1")
+            .bind(status)
+            .bind(p)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(blocked_by(&pool, &story).await.is_empty(), "{status} does not block");
+        assert_eq!(ops::project_blocked_by(&pool, "SF").await.unwrap(), serde_json::json!({}), "{status} does not block");
+    }
+    for status in ["backlog", "refining", "ready", "building", "in_review", "todo"] {
+        sqlx::query("UPDATE tasks SET status = ? WHERE project_id = ? AND task_number = 1")
+            .bind(status)
+            .bind(p)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(blocked_by(&pool, &story).await, [dep.clone()], "{status} blocks");
+        assert_eq!(
+            ops::project_blocked_by(&pool, "SF").await.unwrap(),
+            serde_json::json!({ story.clone(): [dep.clone()] }),
+            "{status} blocks"
+        );
+    }
+}
