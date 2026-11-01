@@ -185,6 +185,8 @@ export interface StoryView {
   prs: { url: string; target: string; state: string }[];
   /** Keys of the Stories this one depends on. */
   depends_on: string[];
+  /** The `depends_on` keys still blocking it, in task_number order; `[]` when not blocked (FB-99). */
+  blocked_by: string[];
   subtasks: {
     key: string;
     title: string;
@@ -195,6 +197,10 @@ export interface StoryView {
   }[];
   description: string;
 }
+
+/** `get_blocked_by`: blocked Story key → blocking dependency keys in task_number order.
+ *  Stories not blocked are absent; `{}` on a legacy project (FB-99). */
+export type BlockedByMap = Record<string, string[]>;
 
 /** One `list_active_runs` row: a Factory Story with a Run under way. */
 export interface ActiveRun {

@@ -41,6 +41,7 @@ function storyView(over: Partial<StoryView> = {}): StoryView {
     flags: { stopped: true, waiting_on_bugs: 2 },
     prs: [],
     depends_on: ["FB-9"],
+    blocked_by: [],
     subtasks: [],
     description: "Brief text",
     ...over,
