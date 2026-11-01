@@ -46,7 +46,15 @@ interface UiState {
   discoveryGrouping: DiscoveryGrouping;
   setDiscoveryGrouping: (g: DiscoveryGrouping) => void;
   toggleDiscoveryGrouping: () => void;
+
+  /** Sidebar client groups the user collapsed (FB-202). Absent = expanded. Session-only. */
+  collapsedClientIds: Record<number, true>;
+  toggleClientExpanded: (clientId: number) => void;
 }
+
+/** A client group is expanded unless the user collapsed it, so new clients start expanded. */
+export const isClientExpanded = (state: Pick<UiState, "collapsedClientIds">, clientId: number) =>
+  !state.collapsedClientIds[clientId];
 
 export const useUiStore = create<UiState>((set) => ({
   activeProjectId: null,
@@ -97,4 +105,13 @@ export const useUiStore = create<UiState>((set) => ({
   setDiscoveryGrouping: (g) => set({ discoveryGrouping: g }),
   toggleDiscoveryGrouping: () =>
     set((state) => ({ discoveryGrouping: state.discoveryGrouping === "none" ? "epic" : "none" })),
+
+  collapsedClientIds: {},
+  toggleClientExpanded: (clientId) =>
+    set((state) => {
+      const next = { ...state.collapsedClientIds };
+      if (next[clientId]) delete next[clientId];
+      else next[clientId] = true;
+      return { collapsedClientIds: next };
+    }),
 }));

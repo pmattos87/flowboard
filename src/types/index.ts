@@ -30,8 +30,18 @@ export interface Project {
   position: number;
   /** Software Factory status ladder. */
   ladder: "legacy" | "factory";
-  /** Software Factory project kind. */
+  /** The project's client (FB-202); null = internal. */
+  client_id: number | null;
+  /** Software Factory project kind. Not stored: "client" iff `client_id` is set. */
   kind: "internal" | "client";
+}
+
+/** An organization that groups its projects in the sidebar (FB-202). */
+export interface Client {
+  id: number;
+  name: string;
+  /** Manual sort order within the sidebar's Clients section (ascending). */
+  position: number;
 }
 
 export interface Person {
