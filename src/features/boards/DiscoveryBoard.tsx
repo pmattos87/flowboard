@@ -1,20 +1,15 @@
-import { Columns3, Layers } from "lucide-react";
-import { useUiStore, type DiscoveryGrouping } from "@/stores/uiStore";
+import { useUiStore } from "@/stores/uiStore";
 import { useTasks } from "@/hooks/useTasks";
 import { usePeople } from "@/hooks/usePeople";
 import { useProject } from "@/hooks/useProjects";
 import { RefreshButton } from "@/components/RefreshButton";
 import { KanbanBoard } from "./shared/KanbanBoard";
 import { EpicSwimlaneBoard } from "./shared/EpicSwimlaneBoard";
+import { GroupingToggle } from "./shared/GroupingToggle";
 import { DISCOVERY_COLUMNS, FACTORY_DISCOVERY_COLUMNS } from "./shared/boardConstants";
 import { buildEpicRows, factoryDiscoveryStories } from "./shared/epicGrouping";
 import { useStoryCardDecor } from "@/features/story/useStoryCardDecor";
 import { isStoryLevel } from "@/lib/storyLevel";
-
-const GROUPING_OPTIONS: { value: DiscoveryGrouping; label: string; Icon: typeof Layers }[] = [
-  { value: "none", label: "No grouping", Icon: Columns3 },
-  { value: "epic", label: "Group by epic", Icon: Layers },
-];
 
 export function DiscoveryBoard() {
   const activeProjectId = useUiStore((s) => s.activeProjectId);
@@ -56,24 +51,7 @@ export function DiscoveryBoard() {
               : "Backlog — stories and epics not yet assigned to a sprint."}
           </p>
         </div>
-        {isFactory && (
-          <div role="group" aria-label="Grouping" className="ml-auto flex items-center rounded border border-gray-700 p-0.5">
-            {GROUPING_OPTIONS.map(({ value, label, Icon }) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setGrouping(value)}
-                aria-pressed={grouping === value}
-                className={`flex items-center gap-1.5 text-xs rounded px-2.5 py-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                  grouping === value ? "bg-gray-800 text-white" : "text-gray-400 hover:text-white"
-                }`}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
+        {isFactory && <GroupingToggle value={grouping} onChange={setGrouping} className="ml-auto" />}
       </div>
       {grouped && project ? (
         <EpicSwimlaneBoard
