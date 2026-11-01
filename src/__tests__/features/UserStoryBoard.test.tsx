@@ -125,7 +125,7 @@ describe("UserStoryBoard — with project", () => {
     renderBoard();
     await waitFor(() => expect(screen.getByText("User story alpha")).toBeInTheDocument());
     expect(useUiStore.getState().boardSprintFilter).toBe("all");
-    const select = screen.getByRole("combobox") as HTMLSelectElement;
+    const select = screen.getByRole("combobox", { name: "Sprint filter" }) as HTMLSelectElement;
     expect(select.value).toBe("all");
   });
 });

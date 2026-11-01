@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { Person, Project, Task } from "@/types";
 import { epicProgress } from "@/lib/epicProgress";
+import { matchesLabelFilter } from "@/lib/labels";
 import { epicPagePath } from "@/features/story/useStoryCardDecor";
 import { KanbanBoard } from "./KanbanBoard";
 import { ProgressBar } from "./TaskBoardGroupedKanban";
@@ -16,6 +17,8 @@ interface DiscoveryEpicBoardProps {
   people: Person[];
   project: Project;
   decorate?: (task: Task) => CardDecor;
+  /** Shows only the cards carrying this label; epic progress still counts every Story. */
+  labelFilter: string | null;
 }
 
 function RowHeader({
@@ -77,9 +80,12 @@ function RowHeader({
 }
 
 /** The Factory Discovery board grouped by epic (FB-224): one collapsible row per epic. */
-export function DiscoveryEpicBoard({ tasks, people, project, decorate }: DiscoveryEpicBoardProps) {
+export function DiscoveryEpicBoard({ tasks, people, project, decorate, labelFilter }: DiscoveryEpicBoardProps) {
   const [collapsed, setCollapsed] = useState<Set<EpicGroupKey>>(new Set());
-  const rows = buildEpicRows(tasks);
+  const rows = buildEpicRows(tasks).map((row) => ({
+    ...row,
+    stories: row.stories.filter((s) => matchesLabelFilter(s, labelFilter)),
+  }));
 
   function toggle(key: EpicGroupKey) {
     setCollapsed((prev) => {
