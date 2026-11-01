@@ -31,6 +31,25 @@ fn err(e: sqlx::Error) -> String {
     e.to_string()
 }
 
+/// The one stored form of a labels string (FB-99), applied on every write from
+/// the app and the CLI/MCP: each label trimmed of spaces, tabs, CR and LF, empties
+/// dropped, exact duplicates removed, the rest sorted and joined with ",".
+/// Case and inner spaces are kept ("Phase 1"; "QA" and "qa" are two labels).
+///
+/// The sort folds case for A-Z only, then breaks ties by the exact bytes. That
+/// is exactly `ORDER BY lower(x), x` in SQLite (no ICU), which migration 014
+/// uses to normalize existing rows, so "Decisão" lands in the same place in both.
+pub fn normalize_labels(raw: &str) -> String {
+    let mut labels: Vec<&str> = raw
+        .split(',')
+        .map(|l| l.trim_matches([' ', '\t', '\r', '\n']))
+        .filter(|l| !l.is_empty())
+        .collect();
+    labels.sort_by(|a, b| a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase()).then(a.cmp(b)));
+    labels.dedup();
+    labels.join(",")
+}
+
 #[derive(Debug, Clone, FromRow)]
 struct Row {
     id: i64,
@@ -708,7 +727,7 @@ async fn insert_task(
     .bind(assignee_id)
     .bind(story_points)
     .bind(risk)
-    .bind(labels)
+    .bind(normalize_labels(labels))
     .fetch_one(&mut **tx)
     .await
     .map_err(err)
@@ -749,7 +768,7 @@ pub async fn story_edit(pool: &SqlitePool, key: &str, e: StoryEdit<'_>) -> Resul
     .bind(e.title.unwrap_or(&story.title))
     .bind(e.description.unwrap_or(&story.description))
     .bind(priority)
-    .bind(e.labels.unwrap_or(&story.labels))
+    .bind(normalize_labels(e.labels.unwrap_or(&story.labels)))
     .bind(epic_id)
     .bind(story.id)
     .execute(&mut *tx)

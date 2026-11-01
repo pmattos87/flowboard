@@ -1354,3 +1354,20 @@ async fn story_edit_refuses_an_epic_change_that_breaks_membership_and_changes_no
     // Keeping a done Story's epic is not a change.
     ops::story_edit(&pool, &k(done_story).await, set_epic(Some(&k(open).await))).await.unwrap();
 }
+
+/// FB-213: the stored form of a labels string ignores order, spacing, empties
+/// and duplicates, but keeps case and inner spaces.
+#[test]
+fn normalize_labels_gives_one_form_per_set_of_labels() {
+    for raw in [" qa, tooling ,", "tooling,qa", "tooling,,qa,qa"] {
+        assert_eq!(ops::normalize_labels(raw), "qa,tooling", "{raw:?}");
+    }
+    assert_eq!(ops::normalize_labels(" Phase 1 ,api"), "api,Phase 1");
+    assert_eq!(ops::normalize_labels("qa,QA"), "QA,qa", "case is kept and ties go to the exact bytes");
+    assert_eq!(ops::normalize_labels("qa,\tQA\r\n,qa"), "QA,qa");
+    assert_eq!(ops::normalize_labels("api,Decisão,decisão,Bug"), "api,Bug,Decisão,decisão");
+    assert_eq!(ops::normalize_labels(""), "");
+    assert_eq!(ops::normalize_labels(" , ,"), "");
+    let once = ops::normalize_labels("b, a ,A");
+    assert_eq!(ops::normalize_labels(&once), once, "normalizing twice changes nothing");
+}
