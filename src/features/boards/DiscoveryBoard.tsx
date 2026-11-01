@@ -5,9 +5,9 @@ import { usePeople } from "@/hooks/usePeople";
 import { useProject } from "@/hooks/useProjects";
 import { RefreshButton } from "@/components/RefreshButton";
 import { KanbanBoard } from "./shared/KanbanBoard";
-import { DiscoveryEpicBoard } from "./shared/DiscoveryEpicBoard";
+import { EpicSwimlaneBoard } from "./shared/EpicSwimlaneBoard";
 import { DISCOVERY_COLUMNS, FACTORY_DISCOVERY_COLUMNS } from "./shared/boardConstants";
-import { factoryDiscoveryStories } from "./shared/epicGrouping";
+import { buildEpicRows, factoryDiscoveryStories } from "./shared/epicGrouping";
 import { useStoryCardDecor } from "@/features/story/useStoryCardDecor";
 import { isStoryLevel } from "@/lib/storyLevel";
 
@@ -76,7 +76,15 @@ export function DiscoveryBoard() {
         )}
       </div>
       {grouped && project ? (
-        <DiscoveryEpicBoard tasks={allTasks ?? []} people={people} project={project} decorate={decorate} />
+        <EpicSwimlaneBoard
+          rows={buildEpicRows(tasks, allTasks ?? [], { keepEmptyOpenEpics: true })}
+          tasks={allTasks ?? []}
+          columns={FACTORY_DISCOVERY_COLUMNS}
+          emptyMessage="No epics or Stories in the backlog yet."
+          people={people}
+          project={project}
+          decorate={decorate}
+        />
       ) : (
         <KanbanBoard
           tasks={tasks}
