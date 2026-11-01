@@ -6,6 +6,9 @@ export type SprintFilter = "all" | "backlog" | number;
 /** How the Factory Discovery board groups its cards (FB-224). Session-only, never persisted. */
 export type DiscoveryGrouping = "none" | "epic";
 
+/** How the Factory User Story Board groups its cards (FB-291). Session-only, never persisted; independent of discoveryGrouping. */
+export type StoryBoardGrouping = "none" | "epic";
+
 export interface CreateTaskPrefill {
   parent_id?: number | null;
   sprint_id?: number | null;
@@ -46,6 +49,9 @@ interface UiState {
   discoveryGrouping: DiscoveryGrouping;
   setDiscoveryGrouping: (g: DiscoveryGrouping) => void;
   toggleDiscoveryGrouping: () => void;
+
+  storyBoardGrouping: StoryBoardGrouping;
+  setStoryBoardGrouping: (g: StoryBoardGrouping) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -97,4 +103,7 @@ export const useUiStore = create<UiState>((set) => ({
   setDiscoveryGrouping: (g) => set({ discoveryGrouping: g }),
   toggleDiscoveryGrouping: () =>
     set((state) => ({ discoveryGrouping: state.discoveryGrouping === "none" ? "epic" : "none" })),
+
+  storyBoardGrouping: "none",
+  setStoryBoardGrouping: (g) => set({ storyBoardGrouping: g }),
 }));

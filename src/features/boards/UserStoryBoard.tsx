@@ -7,6 +7,10 @@ import { RefreshButton } from "@/components/RefreshButton";
 import { KanbanBoard } from "./shared/KanbanBoard";
 import { invisibleStories, isStoryBoardRow, storyBoardColumns } from "./shared/invisibleStories";
 import { InvisibleStoriesStrip } from "./shared/InvisibleStoriesStrip";
+import { EpicSwimlaneBoard } from "./shared/EpicSwimlaneBoard";
+import { GroupingToggle } from "./shared/GroupingToggle";
+import { buildEpicRows } from "./shared/epicGrouping";
+import { FACTORY_STORY_COLUMNS } from "./shared/boardConstants";
 import { useStoryCardDecor } from "@/features/story/useStoryCardDecor";
 import { SprintFilterSelect } from "./shared/SprintFilterSelect";
 import { matchesSprintFilter, sprintFilterLabel } from "./shared/sprintFilter";
@@ -14,6 +18,8 @@ import { matchesSprintFilter, sprintFilterLabel } from "./shared/sprintFilter";
 export function UserStoryBoard() {
   const activeProjectId = useUiStore((s) => s.activeProjectId);
   const boardSprintFilter = useUiStore((s) => s.boardSprintFilter);
+  const grouping = useUiStore((s) => s.storyBoardGrouping);
+  const setGrouping = useUiStore((s) => s.setStoryBoardGrouping);
   const { data: allTasks } = useTasks(activeProjectId != null ? { project_id: activeProjectId } : undefined);
   const { data: people = [] } = usePeople();
   const { data: project } = useProject(activeProjectId);
@@ -35,6 +41,8 @@ export function UserStoryBoard() {
   const tasks = (allTasks ?? [])
     .filter((t) => isStoryBoardRow(t, project?.ladder))
     .filter((t) => matchesSprintFilter(t, boardSprintFilter));
+  const isFactory = project?.ladder === "factory";
+  const grouped = isFactory && grouping === "epic";
 
   return (
     <div className="flex flex-col h-full">
@@ -43,7 +51,8 @@ export function UserStoryBoard() {
           <h1 className="text-lg font-semibold text-white">User Story Board</h1>
           <RefreshButton />
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-3">
+          {isFactory && <GroupingToggle value={grouping} onChange={setGrouping} />}
           <SprintFilterSelect projectId={activeProjectId} includeBacklog={false} />
         </div>
       </div>
@@ -54,6 +63,16 @@ export function UserStoryBoard() {
         <div className="flex items-center justify-center h-64 text-gray-500 text-sm">
           No stories in {sprintFilterLabel(boardSprintFilter, sprints)}.
         </div>
+      ) : grouped && project ? (
+        <EpicSwimlaneBoard
+          rows={buildEpicRows(tasks, allTasks ?? [], { keepEmptyOpenEpics: false })}
+          tasks={allTasks ?? []}
+          columns={FACTORY_STORY_COLUMNS}
+          emptyMessage={`No stories in ${sprintFilterLabel(boardSprintFilter, sprints)}.`}
+          people={people}
+          project={project}
+          decorate={decorate}
+        />
       ) : (
         <KanbanBoard
           tasks={tasks}
