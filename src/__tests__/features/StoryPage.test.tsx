@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -165,6 +165,24 @@ describe("StoryPage", () => {
     await screen.findByDisplayValue("Export contract");
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
     expect(screen.getByText("Depends on").nextElementSibling).toHaveTextContent("—");
+  });
+
+  it("shows Blocked by in the Links card, each key linking to its Story page", async () => {
+    setupInvoke(factoryProject, storyView({ depends_on: ["FB-9", "FB-10"], blocked_by: ["FB-10"] }));
+    renderPage();
+    await screen.findByDisplayValue("Export contract");
+    const field = screen.getByText("Blocked by").nextElementSibling as HTMLElement;
+    expect(field).toHaveTextContent("FB-10");
+    expect(field).not.toHaveTextContent("FB-9");
+    expect(within(field).getByRole("link", { name: "FB-10" })).toHaveAttribute("href", "/story/FB-10");
+  });
+
+  it("has no Blocked by when nothing blocks the Story", async () => {
+    setupInvoke(factoryProject, storyView({ depends_on: ["FB-9"], blocked_by: [] }));
+    renderPage();
+    await screen.findByDisplayValue("Export contract");
+    expect(screen.getByText("Depends on")).toBeInTheDocument();
+    expect(screen.queryByText("Blocked by")).not.toBeInTheDocument();
   });
 
   it("renders the Run section above the description", async () => {
