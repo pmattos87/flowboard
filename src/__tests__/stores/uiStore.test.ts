@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useUiStore } from "@/stores/uiStore";
+import { useUiStore, selectLabelFilter } from "@/stores/uiStore";
 
 beforeEach(() => {
   useUiStore.setState({
@@ -12,6 +12,43 @@ beforeEach(() => {
     boardSprintFilter: "all",
     boardSprintFilterFor: null,
     discoveryGrouping: "none",
+    labelFilters: {},
+  });
+});
+
+describe("uiStore label filter (FB-99)", () => {
+  const filterOf = (id: number | null) => selectLabelFilter(id)(useUiStore.getState());
+
+  it("starts at null for every project", () => {
+    expect(filterOf(1)).toBeNull();
+    expect(filterOf(null)).toBeNull();
+  });
+
+  it("keeps project A's filter across a switch to B and back; B starts at null", () => {
+    const s = useUiStore.getState();
+    s.setActiveProjectId(1);
+    s.setLabelFilter(1, "qa");
+    s.setActiveProjectId(2);
+    expect(filterOf(2)).toBeNull();
+    useUiStore.getState().setActiveProjectId(1);
+    expect(filterOf(1)).toBe("qa");
+    expect(filterOf(2)).toBeNull();
+  });
+
+  it("setting B's filter leaves A's alone", () => {
+    useUiStore.getState().setLabelFilter(1, "qa");
+    useUiStore.getState().setLabelFilter(2, "ux");
+    expect(filterOf(1)).toBe("qa");
+    expect(filterOf(2)).toBe("ux");
+  });
+
+  it("null clears only that project's filter", () => {
+    useUiStore.getState().setLabelFilter(1, "qa");
+    useUiStore.getState().setLabelFilter(2, "ux");
+    useUiStore.getState().setLabelFilter(1, null);
+    expect(filterOf(1)).toBeNull();
+    expect(filterOf(2)).toBe("ux");
+    expect(useUiStore.getState().labelFilters).toEqual({ 2: "ux" });
   });
 });
 
