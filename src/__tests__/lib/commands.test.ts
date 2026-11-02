@@ -13,6 +13,10 @@ import {
   updateTask,
   createPerson,
   listPeople,
+  listClients,
+  createClient,
+  renameClient,
+  reorderClients,
 } from "@/lib/commands";
 
 const mockInvoke = vi.mocked(invoke);
@@ -151,5 +155,19 @@ describe("people commands", () => {
     mockInvoke.mockResolvedValueOnce([]);
     await listPeople();
     expect(mockInvoke).toHaveBeenCalledWith("list_people");
+  });
+});
+
+describe("client commands (FB-202)", () => {
+  it("each wrapper calls its command with the backend's argument names", async () => {
+    mockInvoke.mockResolvedValue(undefined);
+    await listClients();
+    expect(mockInvoke).toHaveBeenLastCalledWith("list_clients");
+    await createClient("Acme");
+    expect(mockInvoke).toHaveBeenLastCalledWith("create_client", { name: "Acme" });
+    await renameClient(2, "Beta");
+    expect(mockInvoke).toHaveBeenLastCalledWith("rename_client", { id: 2, name: "Beta" });
+    await reorderClients([3, 1]);
+    expect(mockInvoke).toHaveBeenLastCalledWith("reorder_clients", { orderedIds: [3, 1] });
   });
 });

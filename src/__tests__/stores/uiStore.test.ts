@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useUiStore, selectLabelFilter } from "@/stores/uiStore";
+import { isClientExpanded, useUiStore, selectLabelFilter } from "@/stores/uiStore";
 
 beforeEach(() => {
   useUiStore.setState({
@@ -14,6 +14,7 @@ beforeEach(() => {
     discoveryGrouping: "none",
     storyBoardGrouping: "none",
     labelFilters: {},
+    collapsedClientIds: {},
   });
 });
 
@@ -233,5 +234,24 @@ describe("uiStore storyBoardGrouping (FB-291)", () => {
 
   it("is session-only: the store has no persist middleware", () => {
     expect("persist" in useUiStore).toBe(false);
+  });
+});
+
+describe("uiStore client groups (FB-202)", () => {
+  it("an unknown client defaults to expanded", () => {
+    expect(isClientExpanded(useUiStore.getState(), 42)).toBe(true);
+  });
+
+  it("toggleClientExpanded flips one client without changing the others", () => {
+    const { toggleClientExpanded } = useUiStore.getState();
+    toggleClientExpanded(1);
+    toggleClientExpanded(2);
+    toggleClientExpanded(2);
+    const state = useUiStore.getState();
+    expect(isClientExpanded(state, 1)).toBe(false);
+    expect(isClientExpanded(state, 2)).toBe(true);
+    expect(isClientExpanded(state, 3)).toBe(true);
+    useUiStore.getState().toggleClientExpanded(1);
+    expect(isClientExpanded(useUiStore.getState(), 1)).toBe(true);
   });
 });

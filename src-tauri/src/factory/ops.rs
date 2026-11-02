@@ -89,7 +89,8 @@ const ROW_SQL: &str = r#"SELECT t.id, t.project_id, t.task_number, t.parent_id, 
        t.title, t.description, t.type, t.status, t.priority, t.assignee_id,
        t.story_points, t.labels, t.feature_branch, t.review_verdict,
        t.reviewed_commit, t.findings_url, t.run_stopped, t.risk, t.release_id,
-       t.epic_id, p.key AS project_key, p.ladder, p.kind AS project_kind
+       t.epic_id, p.key AS project_key, p.ladder,
+       CASE WHEN p.client_id IS NULL THEN 'internal' ELSE 'client' END AS project_kind
   FROM tasks t JOIN projects p ON p.id = t.project_id"#;
 
 fn parse_key(key: &str) -> Result<(String, i64), String> {
@@ -196,15 +197,18 @@ async fn role_person(tx: &mut Tx<'_>, role: &str) -> Result<i64, String> {
         })
 }
 
+/// The primary contact of the project's client (FB-202: contacts belong to the
+/// client, not the project).
 async fn primary_contact(tx: &mut Tx<'_>, project_id: i64) -> Result<i64, String> {
     sqlx::query_scalar::<_, i64>(
-        "SELECT person_id FROM project_contacts WHERE project_id = ? AND is_primary = 1",
+        r#"SELECT c.person_id FROM client_contacts c JOIN projects p ON p.client_id = c.client_id
+            WHERE p.id = ? AND c.is_primary = 1"#,
     )
     .bind(project_id)
     .fetch_optional(&mut **tx)
     .await
     .map_err(err)?
-    .ok_or_else(|| "the project has no primary client contact; run `flowboard-cli contact add <project> <person id> --primary`".into())
+    .ok_or_else(|| "the project's client has no primary contact; run `flowboard-cli contact add <client id> <person id> --primary`".into())
 }
 
 async fn log(
@@ -564,31 +568,58 @@ pub async fn people_list(pool: &SqlitePool) -> Result<Value, String> {
     ))
 }
 
+/// A project's id, ladder and kind. The kind is derived (FB-202): `client`
+/// iff the project has a client, else `internal`.
 async fn project_id(tx: &mut Tx<'_>, key: &str) -> Result<(i64, String, String), String> {
-    sqlx::query_as("SELECT id, ladder, kind FROM projects WHERE key = ?")
-        .bind(key.to_uppercase())
-        .fetch_optional(&mut **tx)
-        .await
-        .map_err(err)?
-        .ok_or_else(|| format!("project {key} not found"))
+    sqlx::query_as(
+        r#"SELECT id, ladder, CASE WHEN client_id IS NULL THEN 'internal' ELSE 'client' END
+             FROM projects WHERE key = ?"#,
+    )
+    .bind(key.to_uppercase())
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(err)?
+    .ok_or_else(|| format!("project {key} not found"))
 }
 
+/// A client's contacts by person id; `primary` marks the primary one.
+async fn client_contacts(tx: &mut Tx<'_>, client_id: i64) -> Result<Vec<Value>, String> {
+    let rows: Vec<(i64, String, i64)> = sqlx::query_as(
+        r#"SELECT p.id, p.name, c.is_primary FROM client_contacts c
+             JOIN people p ON p.id = c.person_id WHERE c.client_id = ? ORDER BY p.id"#,
+    )
+    .bind(client_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(err)?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, name, primary)| json!({ "person_id": id, "name": name, "primary": primary != 0 }))
+        .collect())
+}
+
+/// The project's ladder and kind, its client (or null when internal) and that
+/// client's contacts.
 pub async fn project_show(pool: &SqlitePool, key: &str) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let (id, ladder, kind) = project_id(&mut tx, key).await?;
-    let contacts: Vec<(i64, String, i64)> = sqlx::query_as(
-        r#"SELECT p.id, p.name, c.is_primary FROM project_contacts c
-             JOIN people p ON p.id = c.person_id WHERE c.project_id = ? ORDER BY p.id"#,
+    let client: Option<(i64, String)> = sqlx::query_as(
+        "SELECT c.id, c.name FROM projects p JOIN clients c ON c.id = p.client_id WHERE p.id = ?",
     )
     .bind(id)
-    .fetch_all(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await
     .map_err(err)?;
+    let contacts = match &client {
+        Some((client_id, _)) => client_contacts(&mut tx, *client_id).await?,
+        None => vec![],
+    };
     Ok(json!({
         "key": key.to_uppercase(),
         "ladder": ladder,
         "kind": kind,
-        "contacts": contacts.into_iter().map(|(id, name, primary)| json!({ "person_id": id, "name": name, "primary": primary != 0 })).collect::<Vec<_>>(),
+        "client": client.map(|(id, name)| json!({ "id": id, "name": name })),
+        "contacts": contacts,
     }))
 }
 
@@ -626,14 +657,15 @@ async fn unmapped_items(tx: &mut Tx<'_>, project_id: i64, key: &str) -> Result<V
     Ok(numbers.into_iter().map(|n| format!("{key}-{n}")).collect())
 }
 
-/// Set a project's ladder and/or kind. Switching to the Factory ladder is
-/// refused while an open item isn't mapped to it yet: mapping is a Rollout
-/// step, and an unmapped item would vanish from every board.
+/// Set a project's ladder and/or client (`Some(None)` makes it internal).
+/// Switching to the Factory ladder is refused while an open item isn't mapped
+/// to it yet: mapping is a Rollout step, and an unmapped item would vanish from
+/// every board.
 pub async fn project_set(
     pool: &SqlitePool,
     key: &str,
     ladder: Option<&str>,
-    kind: Option<&str>,
+    client: Option<Option<i64>>,
 ) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let (id, current_ladder, _) = project_id(&mut tx, key).await?;
@@ -658,12 +690,13 @@ pub async fn project_set(
             .await
             .map_err(err)?;
     }
-    if let Some(k) = kind {
-        if !matches!(k, "internal" | "client") {
-            return Err(format!("'{k}' is not a project kind (internal, client)"));
+    if let Some(client_id) = client {
+        if let Some(c) = client_id {
+            require_client(&mut tx, c).await?;
         }
-        sqlx::query("UPDATE projects SET kind = ? WHERE id = ?")
-            .bind(k)
+        // Same rule as the app's update_project: a new client means last in its group.
+        sqlx::query(crate::commands::projects::SET_CLIENT_SQL)
+            .bind(client_id)
             .bind(id)
             .execute(&mut *tx)
             .await
@@ -673,21 +706,63 @@ pub async fn project_set(
     project_show(pool, key).await
 }
 
-pub async fn contact_add(pool: &SqlitePool, key: &str, person_id: i64, primary: bool) -> Result<Value, String> {
+// ─── Clients ────────────────────────────────────────────────────────────────
+
+async fn require_client(tx: &mut Tx<'_>, client_id: i64) -> Result<(), String> {
+    let found: Option<i64> = sqlx::query_scalar("SELECT id FROM clients WHERE id = ?")
+        .bind(client_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(err)?;
+    found.map(|_| ()).ok_or_else(|| format!("client {client_id} not found"))
+}
+
+async fn client_json(tx: &mut Tx<'_>, client_id: i64) -> Result<Value, String> {
+    let (name, position): (String, i64) = sqlx::query_as("SELECT name, position FROM clients WHERE id = ?")
+        .bind(client_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(err)?
+        .ok_or_else(|| format!("client {client_id} not found"))?;
+    Ok(json!({
+        "id": client_id,
+        "name": name,
+        "position": position,
+        "contacts": client_contacts(tx, client_id).await?,
+    }))
+}
+
+/// Every client in sidebar order, with its contacts.
+pub async fn client_list(pool: &SqlitePool) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let (id, _, _) = project_id(&mut tx, key).await?;
+    let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM clients ORDER BY position, id")
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(err)?;
+    let mut out = Vec::with_capacity(ids.len());
+    for id in ids {
+        out.push(client_json(&mut tx, id).await?);
+    }
+    Ok(Value::Array(out))
+}
+
+/// Link a person to a client as a contact. `primary` makes them the client's
+/// one primary contact, replacing any other.
+pub async fn contact_add(pool: &SqlitePool, client_id: i64, person_id: i64, primary: bool) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    require_client(&mut tx, client_id).await?;
     if primary {
-        sqlx::query("UPDATE project_contacts SET is_primary = 0 WHERE project_id = ?")
-            .bind(id)
+        sqlx::query("UPDATE client_contacts SET is_primary = 0 WHERE client_id = ?")
+            .bind(client_id)
             .execute(&mut *tx)
             .await
             .map_err(err)?;
     }
     sqlx::query(
-        r#"INSERT INTO project_contacts (project_id, person_id, is_primary) VALUES (?, ?, ?)
-           ON CONFLICT (project_id, person_id) DO UPDATE SET is_primary = excluded.is_primary"#,
+        r#"INSERT INTO client_contacts (client_id, person_id, is_primary) VALUES (?, ?, ?)
+           ON CONFLICT (client_id, person_id) DO UPDATE SET is_primary = excluded.is_primary"#,
     )
-    .bind(id)
+    .bind(client_id)
     .bind(person_id)
     .bind(primary)
     .execute(&mut *tx)
@@ -696,21 +771,23 @@ pub async fn contact_add(pool: &SqlitePool, key: &str, person_id: i64, primary: 
         sqlx::Error::Database(d) if d.message().contains("FOREIGN KEY") => format!("person {person_id} not found"),
         e => e.to_string(),
     })?;
+    let out = client_json(&mut tx, client_id).await?;
     tx.commit().await.map_err(err)?;
-    project_show(pool, key).await
+    Ok(out)
 }
 
-pub async fn contact_remove(pool: &SqlitePool, key: &str, person_id: i64) -> Result<Value, String> {
+pub async fn contact_remove(pool: &SqlitePool, client_id: i64, person_id: i64) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let (id, _, _) = project_id(&mut tx, key).await?;
-    sqlx::query("DELETE FROM project_contacts WHERE project_id = ? AND person_id = ?")
-        .bind(id)
+    require_client(&mut tx, client_id).await?;
+    sqlx::query("DELETE FROM client_contacts WHERE client_id = ? AND person_id = ?")
+        .bind(client_id)
         .bind(person_id)
         .execute(&mut *tx)
         .await
         .map_err(err)?;
+    let out = client_json(&mut tx, client_id).await?;
     tx.commit().await.map_err(err)?;
-    project_show(pool, key).await
+    Ok(out)
 }
 
 // ─── Stories ────────────────────────────────────────────────────────────────
@@ -1564,7 +1641,7 @@ pub async fn app_move(
     let key = row.key();
     let is_story = is_story_level(&row.kind, row.parent_id);
     let is_subtask = matches!(row.kind.as_str(), "subtask" | "bug")
-        && parent.as_ref().is_some_and(|p| is_story_level(&p.kind, p.parent_id));
+        && parent.as_ref().is_some_and(|parent| is_story_level(&parent.kind, parent.parent_id));
     if is_story {
         if status.is_some() && sprint_id.is_some() {
             return Err("on a Factory project, change a Story's sprint and its status separately".into());

@@ -32,7 +32,7 @@ function row(
 function project(ladder: Project["ladder"]): Project {
   return {
     id: 1, name: "Homelab", key: "HL", description: "", color: "#6366f1", created_at: "",
-    logo_data: null, position: 0, ladder, kind: "internal",
+    logo_data: null, position: 0, ladder, client_id: null, kind: "internal",
   };
 }
 

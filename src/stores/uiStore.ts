@@ -56,7 +56,14 @@ interface UiState {
   labelFilters: Record<number, string>;
   /** Sets one project's label filter; null clears it. */
   setLabelFilter: (projectId: number, label: string | null) => void;
+  /** Sidebar client groups the user collapsed (FB-202). Absent = expanded. Session-only. */
+  collapsedClientIds: Record<number, true>;
+  toggleClientExpanded: (clientId: number) => void;
 }
+
+/** A client group is expanded unless the user collapsed it, so new clients start expanded. */
+export const isClientExpanded = (state: Pick<UiState, "collapsedClientIds">, clientId: number) =>
+  !state.collapsedClientIds[clientId];
 
 export const useUiStore = create<UiState>((set) => ({
   activeProjectId: null,
@@ -117,6 +124,14 @@ export const useUiStore = create<UiState>((set) => ({
       if (label === null) delete next[projectId];
       else next[projectId] = label;
       return { labelFilters: next };
+    }),
+  collapsedClientIds: {},
+  toggleClientExpanded: (clientId) =>
+    set((state) => {
+      const next = { ...state.collapsedClientIds };
+      if (next[clientId]) delete next[clientId];
+      else next[clientId] = true;
+      return { collapsedClientIds: next };
     }),
 }));
 
