@@ -163,7 +163,7 @@ pub async fn delete_project(pool: State<'_, SqlitePool>, id: i64) -> Result<(), 
 /// `active` sprint, or a Release that is `planned` or in `user_testing`. The
 /// refusal names the first blocking sprint or Release and changes nothing.
 /// Unarchiving is always allowed.
-async fn set_project_state_inner(pool: &SqlitePool, id: i64, state: &str) -> Result<Project, String> {
+pub(crate) async fn set_project_state_inner(pool: &SqlitePool, id: i64, state: &str) -> Result<Project, String> {
     if !matches!(state, "active" | "archived") {
         return Err(format!("'{state}' is not a project state (active, archived)"));
     }

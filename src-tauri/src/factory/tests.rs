@@ -1462,3 +1462,125 @@ async fn client_list_and_contact_commands_work_by_client_id() {
     let shown = ops::project_set(&pool, "LG", None, None).await.unwrap();
     assert_eq!(shown["kind"], "client", "no --client keeps the client");
 }
+
+// ─── Archived projects (FB-14) ──────────────────────────────────────────────
+
+use crate::commands::projects::set_project_state_inner;
+
+/// A Factory project AR with a planned (backlog) sprint, so it may be archived,
+/// and a Story building in that sprint with one todo Subtask. Returns the pool,
+/// the project id, the Story's id and key, and the Subtask's key.
+async fn archive_fixture() -> (SqlitePool, i64, i64, String, String) {
+    let pool = ts::pool().await;
+    let p = ts::factory_project(&pool, "AR").await;
+    let sprint = ts::sprint(&pool, p, "Next", "2026-11-01", SprintStatus::Backlog).await;
+    let s = ops::story_create(
+        &pool,
+        NewStory { project: "AR", title: "under way", description: "", priority: "medium", labels: "", bug: false },
+        Actor::Owner,
+    )
+    .await
+    .unwrap()["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let sub = new_subtask(&pool, &s, false, 2).await;
+    for to in ["refining", "ready"] {
+        ops::story_move(&pool, &s, to, Actor::Owner).await.unwrap();
+    }
+    ops::story_set_sprint(&pool, &s, Some(sprint)).await.unwrap();
+    ops::story_move(&pool, &s, "building", Actor::Owner).await.unwrap();
+    let id: i64 = sqlx::query_scalar("SELECT id FROM tasks WHERE parent_id IS NULL AND project_id = ?")
+        .bind(p)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    (pool, p, id, s, sub)
+}
+
+/// Row counts of the tables a write could touch, and every task's status.
+async fn write_snapshot(pool: &SqlitePool) -> (Vec<i64>, Vec<(i64, String)>) {
+    let mut counts = vec![];
+    for table in ["tasks", "releases", "activity_log", "comments", "task_prs", "task_links"] {
+        counts.push(sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table}")).fetch_one(pool).await.unwrap());
+    }
+    let statuses = sqlx::query_as("SELECT id, status FROM tasks ORDER BY id").fetch_all(pool).await.unwrap();
+    (counts, statuses)
+}
+
+fn assert_archived_refusal(what: &str, r: Result<impl std::fmt::Debug, String>) {
+    let err = r.expect_err(&format!("{what} must be refused on an archived project"));
+    assert_eq!(err, "AR is archived; unarchive it first", "{what}");
+}
+
+#[tokio::test]
+async fn an_archived_factory_project_refuses_writes_and_changes_nothing() {
+    let (pool, p, story_id, s, sub) = archive_fixture().await;
+    set_project_state_inner(&pool, p, "archived").await.unwrap();
+    let before = write_snapshot(&pool).await;
+
+    let new_story = NewStory { project: "AR", title: "new", description: "", priority: "medium", labels: "", bug: false };
+    assert_archived_refusal("story_create", ops::story_create(&pool, new_story, Actor::Agent).await);
+    assert_archived_refusal("story_move", ops::story_move(&pool, &s, "canceled", Actor::Owner).await);
+    let new_sub = NewSubtask { story: &s, title: "more", description: "", bug: true, story_points: 1, risk: false };
+    assert_archived_refusal("subtask_create", ops::subtask_create(&pool, new_sub, Actor::Agent).await);
+    assert_archived_refusal("subtask_move", ops::subtask_move(&pool, &sub, "in_progress", Actor::Agent).await);
+    assert_archived_refusal("release_create", ops::release_create(&pool, "AR", "1.0.0").await);
+    // The rest of the Factory writes go through the same guard.
+    let edit = ops::StoryEdit { title: Some("renamed"), description: None, priority: None, labels: None, epic: None };
+    assert_archived_refusal("story_edit", ops::story_edit(&pool, &s, edit).await);
+    assert_archived_refusal("story_set_sprint", ops::story_set_sprint(&pool, &s, None).await);
+    assert_archived_refusal("story_comment", ops::story_comment(&pool, &s, "hi", Actor::Owner).await);
+    assert_archived_refusal("run_stop", ops::run_stop(&pool, &s, "why", Actor::Agent).await);
+    assert_archived_refusal("review_start", ops::review_start(&pool, &s, Actor::Agent).await);
+    assert_archived_refusal("pr_open", ops::pr_open(&pool, &s, "https://pr/1", "develop", Actor::Agent).await);
+    assert_archived_refusal("subtask_handoff", ops::subtask_handoff(&pool, &sub, "a", "m", Actor::Agent).await);
+    // The app's Factory writes too.
+    assert_archived_refusal("app_move", ops::app_move(&pool, story_id, Some("canceled"), None).await);
+    assert_archived_refusal(
+        "app_create_status",
+        ops::app_create_status(&pool, p, None, "story", None, None, None).await,
+    );
+
+    assert_eq!(write_snapshot(&pool).await, before, "a refused write changes nothing");
+
+    // Reads stay allowed.
+    assert_eq!(ops::story_show(&pool, &s).await.unwrap()["status"], "building");
+    assert!(!ops::trail(&pool, &s).await.unwrap().as_array().unwrap().is_empty());
+    assert_eq!(ops::release_list(&pool, "AR").await.unwrap()["releases"], serde_json::json!([]));
+    assert_eq!(ops::project_show(&pool, "AR").await.unwrap()["state"], "archived");
+
+    // Unarchived, the same writes go through.
+    set_project_state_inner(&pool, p, "active").await.unwrap();
+    ops::subtask_move(&pool, &sub, "in_progress", Actor::Agent).await.unwrap();
+    ops::release_create(&pool, "AR", "1.0.0").await.unwrap();
+    ops::app_move(&pool, story_id, Some("canceled"), None).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_release_of_an_archived_project_cannot_be_picked_or_moved() {
+    let (pool, p, _, s, _) = archive_fixture().await;
+    ops::release_create(&pool, "AR", "1.0.0").await.unwrap();
+    // A canceled Release doesn't block archiving, but stays write-protected.
+    ops::release_move(&pool, "AR", "1.0.0", "canceled", Actor::Owner).await.unwrap();
+    ops::release_create(&pool, "AR", "1.0.1").await.unwrap();
+    ops::release_move(&pool, "AR", "1.0.1", "canceled", Actor::Owner).await.unwrap();
+    set_project_state_inner(&pool, p, "archived").await.unwrap();
+
+    assert_archived_refusal("release_pick", ops::release_pick(&pool, "1.0.0", &s, Actor::Owner).await);
+    assert_archived_refusal("release_move", ops::release_move(&pool, "AR", "1.0.0", "planned", Actor::Owner).await);
+    assert_archived_refusal("release_set_version", ops::release_set_version(&pool, "AR", "1.0.0", "2.0.0").await);
+    assert_eq!(ops::release_show(&pool, "AR", "1.0.0").await.unwrap()["state"], "canceled");
+}
+
+#[tokio::test]
+async fn an_archived_projects_runs_leave_active_runs_until_unarchived() {
+    let (pool, p, _, s, _) = archive_fixture().await;
+    assert!(active_run(&pool, &s).await.is_some(), "a building Story is an active Run");
+
+    set_project_state_inner(&pool, p, "archived").await.unwrap();
+    assert!(active_run(&pool, &s).await.is_none(), "an archived project's Runs are not listed");
+
+    set_project_state_inner(&pool, p, "active").await.unwrap();
+    assert!(active_run(&pool, &s).await.is_some(), "unarchived, the Run is listed again");
+}

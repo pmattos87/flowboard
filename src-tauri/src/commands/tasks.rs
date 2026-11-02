@@ -110,6 +110,7 @@ pub async fn create_task_inner(
     mut payload: TaskCreate,
 ) -> Result<Task, String> {
     // On a Factory project the ladder decides where a new task may start (SF-31).
+    // This also refuses any archived project, legacy or Factory (FB-14).
     let kind = payload.r#type.as_deref().unwrap_or("subtask");
     if let Some((status, sprint_id)) = factory::ops::app_create_status(
         pool,
@@ -262,6 +263,8 @@ pub async fn update_task_inner(
     // On a Factory project, status and sprint changes go through the ladder
     // operations (SF-31); the rest of the payload is applied below as usual.
     let before = get_task_inner(pool, id).await?;
+    // FB-14: an archived project is read-only.
+    factory::ops::require_writable(pool, before.project_id).await?;
     factory::ops::app_check_points(pool, id, payload.story_points).await?;
     factory::ops::app_check_level(pool, id, payload.parent_id, payload.r#type.as_deref()).await?;
     payload.epic_id =
@@ -1892,5 +1895,66 @@ mod tests {
         for id in [sub, bug_sub] {
             assert_eq!(reparent(&pool, id, Some(other_story)).await.unwrap().parent_id, Some(other_story));
         }
+    }
+
+    /// FB-14: an archived legacy project refuses the app's task and sprint
+    /// writes and changes no row.
+    #[tokio::test]
+    async fn an_archived_legacy_project_refuses_task_and_sprint_writes() {
+        use crate::commands::projects::set_project_state_inner;
+        use crate::commands::sprints::{create_sprint_inner, update_sprint_inner, SprintCreate, SprintUpdate};
+        use crate::test_support as ts;
+
+        let pool = ts::pool().await;
+        let p = ts::project(&pool, "LG").await;
+        let sprint = ts::sprint(&pool, p, "S1", "2026-11-01", ts::SprintStatus::Backlog).await;
+        let task = ts::task(&pool, p, None, None, ts::TaskType::Story, ts::TaskStatus::Todo).await;
+        set_project_state_inner(&pool, p, "archived").await.unwrap();
+        let snapshot = || async {
+            let tasks: Vec<(i64, String, String, Option<i64>, String)> =
+                sqlx::query_as("SELECT id, title, status, sprint_id, updated_at FROM tasks ORDER BY id")
+                    .fetch_all(&pool)
+                    .await
+                    .unwrap();
+            let sprints: Vec<(i64, String, String)> =
+                sqlx::query_as("SELECT id, name, status FROM sprints ORDER BY id").fetch_all(&pool).await.unwrap();
+            let log: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM activity_log").fetch_one(&pool).await.unwrap();
+            (tasks, sprints, log)
+        };
+        let before = snapshot().await;
+        let refused = |what: &str, err: String| assert_eq!(err, "LG is archived; unarchive it first", "{what}");
+
+        let create = TaskCreate {
+            project_id: p,
+            sprint_id: None,
+            parent_id: None,
+            title: "new".into(),
+            description: None,
+            r#type: Some("story".into()),
+            status: None,
+            priority: None,
+            assignee_id: Some(ts::OWNER),
+            story_points: None,
+            due_date: None,
+            labels: None,
+        };
+        refused("create_task", create_task_inner(&pool, create).await.unwrap_err());
+        let update = TaskUpdate { title: Some("renamed".into()), status: Some("in_progress".into()), ..empty_update() };
+        refused("update_task", update_task_inner(&pool, task, update).await.unwrap_err());
+        let new_sprint = SprintCreate {
+            project_id: p,
+            name: "S2".into(),
+            goal: None,
+            start_date: "2026-12-01".into(),
+            end_date: "2026-12-14".into(),
+            status: None,
+        };
+        refused("create_sprint", create_sprint_inner(&pool, new_sprint).await.unwrap_err());
+        let edit = SprintUpdate { name: Some("Renamed".into()), goal: None, start_date: None, end_date: None, status: None };
+        refused("update_sprint", update_sprint_inner(&pool, sprint, edit).await.unwrap_err());
+
+        assert_eq!(snapshot().await, before, "a refused write changes no row");
+        // Reads stay allowed.
+        assert_eq!(get_task_inner(&pool, task).await.unwrap().title, "t");
     }
 }
