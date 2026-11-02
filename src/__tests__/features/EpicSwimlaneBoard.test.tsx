@@ -22,7 +22,7 @@ function task(over: Partial<Task>): Task {
 
 const project: Project = {
   id: 1, name: "Flowboard", key: "FB", description: "", color: "#6366f1", created_at: "",
-  logo_data: null, position: 0, ladder: "factory", kind: "internal",
+  logo_data: null, position: 0, ladder: "factory", client_id: null, kind: "internal",
 };
 
 function renderBoard(rows: ReturnType<typeof buildEpicRows>, tasks: Task[]) {

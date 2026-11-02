@@ -29,7 +29,7 @@ function task(over: Partial<Task>): Task {
 function project(id: number, ladder: Project["ladder"]): Project {
   return {
     id, name: `Project ${id}`, key: "FB", description: "", color: "#6366f1", created_at: "",
-    logo_data: null, position: 0, ladder, kind: "internal",
+    logo_data: null, position: 0, ladder, client_id: null, kind: "internal",
   };
 }
 

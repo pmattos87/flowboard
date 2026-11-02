@@ -45,10 +45,13 @@ enum Cmd {
     /// People and their factory roles
     #[command(subcommand)]
     People(PeopleCmd),
-    /// Project ladder, kind and client contacts
+    /// Project ladder and client
     #[command(subcommand)]
     Project(ProjectCmd),
-    /// Client contacts of a project
+    /// Clients and their contacts
+    #[command(subcommand)]
+    Client(ClientCmd),
+    /// Contacts of a client
     #[command(subcommand)]
     Contact(ContactCmd),
     /// Factory Stories
@@ -101,20 +104,37 @@ enum ProjectCmd {
         project: String,
         #[arg(long, value_parser = ["legacy", "factory"])]
         ladder: Option<String>,
-        #[arg(long, value_parser = ["internal", "client"])]
-        kind: Option<String>,
+        /// The project's client id, or `none` to make it internal
+        #[arg(long, value_parser = parse_client)]
+        client: Option<ClientArg>,
     },
+}
+
+/// `project set --client`: a client id, or `none` (no client: internal).
+#[derive(Clone, Debug, PartialEq)]
+struct ClientArg(Option<i64>);
+
+fn parse_client(s: &str) -> Result<ClientArg, String> {
+    if s == "none" {
+        return Ok(ClientArg(None));
+    }
+    s.parse().map(|id| ClientArg(Some(id))).map_err(|_| format!("'{s}' is not a client id or `none`"))
+}
+
+#[derive(Subcommand)]
+enum ClientCmd {
+    List,
 }
 
 #[derive(Subcommand)]
 enum ContactCmd {
     Add {
-        project: String,
+        client_id: i64,
         person_id: i64,
         #[arg(long)]
         primary: bool,
     },
-    Remove { project: String, person_id: i64 },
+    Remove { client_id: i64, person_id: i64 },
 }
 
 #[derive(Subcommand)]
@@ -297,14 +317,15 @@ async fn run(cli: Cli, pool: SqlitePool) -> Result<Value, String> {
             ops::people_set_role(p, person_id, role).await
         }
         Cmd::Project(ProjectCmd::Show { project }) => ops::project_show(p, &project).await,
-        Cmd::Project(ProjectCmd::Set { project, ladder, kind }) => {
-            ops::project_set(p, &project, ladder.as_deref(), kind.as_deref()).await
+        Cmd::Project(ProjectCmd::Set { project, ladder, client }) => {
+            ops::project_set(p, &project, ladder.as_deref(), client.map(|c| c.0)).await
         }
-        Cmd::Contact(ContactCmd::Add { project, person_id, primary }) => {
-            ops::contact_add(p, &project, person_id, primary).await
+        Cmd::Client(ClientCmd::List) => ops::client_list(p).await,
+        Cmd::Contact(ContactCmd::Add { client_id, person_id, primary }) => {
+            ops::contact_add(p, client_id, person_id, primary).await
         }
-        Cmd::Contact(ContactCmd::Remove { project, person_id }) => {
-            ops::contact_remove(p, &project, person_id).await
+        Cmd::Contact(ContactCmd::Remove { client_id, person_id }) => {
+            ops::contact_remove(p, client_id, person_id).await
         }
         Cmd::Story(s) => match s {
             StoryCmd::Create { project, title, description, priority, labels, bug, epic } => {
@@ -444,7 +465,7 @@ async fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Cmd, EpicCmd, StoryCmd};
+    use super::{ClientArg, ClientCmd, Cli, Cmd, ContactCmd, EpicCmd, ProjectCmd, StoryCmd};
     use clap::{CommandFactory, Parser};
 
     #[test]
@@ -530,5 +551,41 @@ mod tests {
             .to_string();
         assert!(help.contains("--epic") && help.contains("open epic"), "`story create --help` lacks --epic:
 {help}");
+    }
+
+    fn project_set_client(args: &[&str]) -> Option<ClientArg> {
+        match Cli::try_parse_from(args).unwrap().cmd {
+            Cmd::Project(ProjectCmd::Set { client, .. }) => client,
+            _ => panic!("not project set"),
+        }
+    }
+
+    #[test]
+    fn project_set_takes_a_client_id_or_none() {
+        let set = |extra: &[&'static str]| [&["flowboard-cli", "project", "set", "VP"], extra].concat();
+        assert_eq!(project_set_client(&set(&[])), None);
+        assert_eq!(project_set_client(&set(&["--client", "3"])), Some(ClientArg(Some(3))));
+        assert_eq!(project_set_client(&set(&["--client", "none"])), Some(ClientArg(None)));
+        assert!(Cli::try_parse_from(set(&["--client", "acme"])).is_err());
+        assert!(Cli::try_parse_from(set(&["--kind", "client"])).is_err(), "--kind is gone");
+    }
+
+    #[test]
+    fn contact_commands_take_a_client_id_and_client_list_parses() {
+        match Cli::try_parse_from(["flowboard-cli", "contact", "add", "4", "7", "--primary"]).unwrap().cmd {
+            Cmd::Contact(ContactCmd::Add { client_id, person_id, primary }) => {
+                assert_eq!((client_id, person_id, primary), (4, 7, true))
+            }
+            _ => panic!("not contact add"),
+        }
+        match Cli::try_parse_from(["flowboard-cli", "contact", "remove", "4", "7"]).unwrap().cmd {
+            Cmd::Contact(ContactCmd::Remove { client_id, person_id }) => assert_eq!((client_id, person_id), (4, 7)),
+            _ => panic!("not contact remove"),
+        }
+        assert!(Cli::try_parse_from(["flowboard-cli", "contact", "add", "VP", "7"]).is_err(), "a project key is not a client id");
+        assert!(matches!(
+            Cli::try_parse_from(["flowboard-cli", "client", "list"]).unwrap().cmd,
+            Cmd::Client(ClientCmd::List)
+        ));
     }
 }
