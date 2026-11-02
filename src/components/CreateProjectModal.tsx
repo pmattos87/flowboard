@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useCreateProject } from "@/hooks/useProjects";
 import { useUiStore } from "@/stores/uiStore";
 import { ProjectBadge } from "@/components/ProjectBadge";
+import { ClientSelect } from "@/components/ClientSelect";
 import { fileToLogoDataUrl } from "@/lib/image";
 import { randomIdentityColor } from "@/lib/colors";
 
@@ -28,6 +29,7 @@ export function CreateProjectModal() {
   const [key, setKey] = useState("");
   const [description, setDescription] = useState("");
   const [logoData, setLogoData] = useState<string | null>(null);
+  const [clientId, setClientId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -37,6 +39,7 @@ export function CreateProjectModal() {
       setKey("");
       setDescription("");
       setLogoData(null);
+      setClientId(null);
       setError(null);
     }
   }, [open]);
@@ -71,6 +74,7 @@ export function CreateProjectModal() {
         description: description.trim() || undefined,
         color: randomIdentityColor(),
         logo_data: logoData,
+        client_id: clientId,
       });
       setActiveProjectId(project.id);
       setOpen(false);
@@ -121,6 +125,8 @@ export function CreateProjectModal() {
               (e.g. <code className="text-gray-400">FB-42</code>).
             </p>
           </div>
+
+          <ClientSelect id="project-client" value={clientId} onChange={setClientId} />
 
           <div className="space-y-1.5">
             <Label htmlFor="project-description" className="text-gray-300">
