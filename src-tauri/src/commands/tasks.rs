@@ -132,7 +132,11 @@ pub async fn create_task_inner(
         .unwrap_or_else(|| "todo".into());
     let actor_id = resolve_actor_id(pool, payload.assignee_id).await?;
 
-    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    // IMMEDIATE takes the write lock before the archive check, so an archive
+    // can't commit between the check and the INSERT (FB-14); the check in
+    // `app_create_status` above ran in its own, earlier transaction.
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.map_err(|e| e.to_string())?;
+    factory::ops::require_writable(&mut *tx, payload.project_id).await?;
 
     // Per-project task number: MAX+1 inside the same transaction. The
     // UNIQUE(project_id, task_number) index guarantees no duplicate slips
@@ -316,10 +320,11 @@ pub async fn update_task_inner(
     };
 
     // IMMEDIATE takes the write lock up front, so no other writer can commit
-    // between the check below and the UPDATE. The earlier check read outside
-    // this transaction; judge the membership rule again on the rows as they are
-    // when `epic_id` is written (FB-224).
+    // between the checks below and the UPDATE. The earlier checks read outside
+    // this transaction; judge the archive state (FB-14) and the membership rule
+    // again on the rows as they are when the task is written (FB-224).
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.map_err(|e| e.to_string())?;
+    factory::ops::require_writable(&mut *tx, current.project_id).await?;
     factory::ops::app_check_epic_in(&mut tx, id, payload.epic_id).await?;
 
     sqlx::query(
@@ -1956,5 +1961,146 @@ mod tests {
         assert_eq!(snapshot().await, before, "a refused write changes no row");
         // Reads stay allowed.
         assert_eq!(get_task_inner(&pool, task).await.unwrap().title, "t");
+    }
+
+    /// Run `write` while another connection holds the write lock, and have
+    /// that connection run `sql` and commit once `write` is waiting: an archive
+    /// (or a sprint activation) landing between a write's check and its write.
+    async fn under_concurrent_write<T: Send + 'static>(
+        pool: &SqlitePool,
+        sql: &str,
+        write: impl std::future::Future<Output = Result<T, String>> + Send + 'static,
+    ) -> Result<T, String> {
+        let mut other = pool.acquire().await.unwrap();
+        sqlx::query("BEGIN IMMEDIATE").execute(&mut *other).await.unwrap();
+        let write = tokio::spawn(write);
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert!(!write.is_finished(), "the write waits for the other writer");
+        sqlx::query(sql).execute(&mut *other).await.unwrap();
+        sqlx::query("COMMIT").execute(&mut *other).await.unwrap();
+        write.await.unwrap()
+    }
+
+    /// FB-14 (FB-309): the archive check runs inside the write's own
+    /// transaction, so an archive that commits while a task or sprint write is
+    /// in flight refuses that write: the two can't both succeed.
+    #[tokio::test]
+    async fn an_archive_committed_while_a_write_is_in_flight_refuses_the_write() {
+        use crate::commands::sprints::{create_sprint_inner, update_sprint_inner, SprintCreate, SprintUpdate};
+        use crate::test_support::{self as ts, SprintStatus, TaskStatus, TaskType};
+
+        let pool = ts::file_pool("archive-during-write").await;
+        let p = ts::factory_project(&pool, "SF").await;
+        let sprint = ts::sprint(&pool, p, "S1", "2026-11-01", SprintStatus::Backlog).await;
+        let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+        let archive = format!("UPDATE projects SET state = 'archived' WHERE id = {p}");
+        let unarchive = format!("UPDATE projects SET state = 'active' WHERE id = {p}");
+        let refused = |what: &str, r: Result<(), String>| {
+            assert_eq!(r.unwrap_err(), "SF is archived; unarchive it first", "{what}")
+        };
+
+        let activate = SprintUpdate { name: None, goal: None, start_date: None, end_date: None, status: Some("active".into()) };
+        let write = { let pool = pool.clone(); async move { update_sprint_inner(&pool, sprint, activate).await.map(|_| ()) } };
+        refused("update_sprint", under_concurrent_write(&pool, &archive, write).await);
+        let status: String = sqlx::query_scalar("SELECT status FROM sprints WHERE id = ?").bind(sprint).fetch_one(&pool).await.unwrap();
+        assert_eq!(status, "backlog", "the archived project has no active sprint");
+        sqlx::query(&unarchive).execute(&pool).await.unwrap();
+
+        let new_sprint = SprintCreate {
+            project_id: p,
+            name: "S2".into(),
+            goal: None,
+            start_date: "2026-12-01".into(),
+            end_date: "2026-12-14".into(),
+            status: None,
+        };
+        let write = { let pool = pool.clone(); async move { create_sprint_inner(&pool, new_sprint).await.map(|_| ()) } };
+        refused("create_sprint", under_concurrent_write(&pool, &archive, write).await);
+        sqlx::query(&unarchive).execute(&pool).await.unwrap();
+
+        let create = TaskCreate {
+            project_id: p,
+            sprint_id: None,
+            parent_id: None,
+            title: "new".into(),
+            description: None,
+            r#type: Some("story".into()),
+            status: None,
+            priority: None,
+            assignee_id: Some(ts::OWNER),
+            story_points: None,
+            due_date: None,
+            labels: None,
+        };
+        let write = { let pool = pool.clone(); async move { create_task_inner(&pool, create).await.map(|_| ()) } };
+        refused("create_task", under_concurrent_write(&pool, &archive, write).await);
+        sqlx::query(&unarchive).execute(&pool).await.unwrap();
+
+        let rename = TaskUpdate { title: Some("renamed".into()), ..empty_update() };
+        let write = { let pool = pool.clone(); async move { update_task_inner(&pool, story, rename).await.map(|_| ()) } };
+        refused("update_task", under_concurrent_write(&pool, &archive, write).await);
+
+        let sprints: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sprints").fetch_one(&pool).await.unwrap();
+        let tasks: Vec<(i64, String)> = sqlx::query_as("SELECT id, title FROM tasks").fetch_all(&pool).await.unwrap();
+        assert_eq!((sprints, tasks), (1, vec![(story, "t".to_string())]), "no refused write landed");
+    }
+
+    /// FB-14 (FB-309): the other order. A sprint activated while an archive is
+    /// in flight refuses the archive, naming the sprint.
+    #[tokio::test]
+    async fn a_sprint_activated_while_an_archive_is_in_flight_refuses_the_archive() {
+        use crate::commands::projects::set_project_state_inner;
+        use crate::test_support::{self as ts, SprintStatus};
+
+        let pool = ts::file_pool("activate-during-archive").await;
+        let p = ts::factory_project(&pool, "SF").await;
+        let sprint = ts::sprint(&pool, p, "S1", "2026-11-01", SprintStatus::Backlog).await;
+        let activate = format!("UPDATE sprints SET status = 'active' WHERE id = {sprint}");
+        let write = { let pool = pool.clone(); async move { set_project_state_inner(&pool, p, "archived").await.map(|_| ()) } };
+        let err = under_concurrent_write(&pool, &activate, write).await.unwrap_err();
+        assert_eq!(err, "SF has an active sprint \"S1\"; complete it before archiving");
+        let state: String = sqlx::query_scalar("SELECT state FROM projects WHERE id = ?").bind(p).fetch_one(&pool).await.unwrap();
+        assert_eq!(state, "active");
+    }
+
+    /// FB-14 (FB-309, QA): a Factory op checks the archive state in a deferred
+    /// transaction. On the app's WAL database, an archive that commits while
+    /// the op is in flight still makes the op fail (the stale read can't be
+    /// upgraded to a write), so the op and the archive can't both succeed.
+    #[tokio::test]
+    async fn a_factory_op_racing_an_archive_cannot_also_succeed() {
+        use crate::factory::ops::{story_create, Actor, NewStory};
+        use crate::test_support as ts;
+
+        let pool = ts::file_pool("archive-during-factory-op").await;
+        let mode: String = sqlx::query_scalar("PRAGMA journal_mode").fetch_one(&pool).await.unwrap();
+        assert_eq!(mode, "wal", "the file pool opens the database as the app does");
+        let p = ts::factory_project(&pool, "SF").await;
+        let new_story = || NewStory { project: "SF", title: "new", description: "", priority: "medium", labels: "", bug: false };
+        story_create(&pool, new_story(), Actor::Agent).await.expect("story_create works with no race");
+        let mut other = pool.acquire().await.unwrap();
+        sqlx::query("BEGIN IMMEDIATE").execute(&mut *other).await.unwrap();
+        let write = {
+            let pool = pool.clone();
+            tokio::spawn(async move {
+                let s = NewStory { project: "SF", title: "raced", description: "", priority: "medium", labels: "", bug: false };
+                story_create(&pool, s, Actor::Agent).await.map(|_| ())
+            })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        sqlx::query(&format!("UPDATE projects SET state = 'archived' WHERE id = {p}"))
+            .execute(&mut *other)
+            .await
+            .unwrap();
+        sqlx::query("COMMIT").execute(&mut *other).await.unwrap();
+        drop(other);
+        assert!(write.await.unwrap().is_err(), "story_create can't succeed alongside the archive");
+        let stories: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE project_id = ?")
+            .bind(p)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let state: String = sqlx::query_scalar("SELECT state FROM projects WHERE id = ?").bind(p).fetch_one(&pool).await.unwrap();
+        assert_eq!((stories, state.as_str()), (1, "archived"), "only the unraced Story landed");
     }
 }

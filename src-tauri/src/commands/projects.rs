@@ -167,7 +167,9 @@ pub(crate) async fn set_project_state_inner(pool: &SqlitePool, id: i64, state: &
     if !matches!(state, "active" | "archived") {
         return Err(format!("'{state}' is not a project state (active, archived)"));
     }
-    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    // IMMEDIATE: the guard and the state change hold the write lock together,
+    // as every guarded write does (FB-14), so a sprint can't go active between them.
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.map_err(|e| e.to_string())?;
     let key: String = sqlx::query_scalar("SELECT key FROM projects WHERE id = ?")
         .bind(id)
         .fetch_optional(&mut *tx)

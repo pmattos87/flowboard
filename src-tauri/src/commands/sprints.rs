@@ -34,8 +34,10 @@ pub struct SprintUpdate {
 }
 
 pub async fn create_sprint_inner(pool: &SqlitePool, payload: SprintCreate) -> Result<Sprint, String> {
-    // FB-14: an archived project is read-only.
-    factory::ops::require_writable(pool, payload.project_id).await?;
+    // FB-14: an archived project is read-only. IMMEDIATE takes the write lock
+    // before the check, so an archive can't commit between it and the INSERT.
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.map_err(|e| e.to_string())?;
+    factory::ops::require_writable(&mut *tx, payload.project_id).await?;
     let id: i64 = sqlx::query_scalar(
         r#"INSERT INTO sprints (project_id, name, goal, start_date, end_date, status)
            VALUES (?, ?, ?, ?, ?, ?) RETURNING id"#,
@@ -46,9 +48,10 @@ pub async fn create_sprint_inner(pool: &SqlitePool, payload: SprintCreate) -> Re
     .bind(&payload.start_date)
     .bind(&payload.end_date)
     .bind(payload.status.unwrap_or_else(|| "backlog".into()))
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
 
     get_sprint_inner(pool, id).await
 }
@@ -99,9 +102,16 @@ pub async fn update_sprint_inner(
     id: i64,
     payload: SprintUpdate,
 ) -> Result<Sprint, String> {
-    let current = get_sprint_inner(pool, id).await?;
-    // FB-14: an archived project is read-only.
-    factory::ops::require_writable(pool, current.project_id).await?;
+    // FB-14: an archived project is read-only. IMMEDIATE takes the write lock
+    // before the row is read and checked, so an archive can't commit between
+    // the check and the UPDATE (and see a sprint that is about to go active).
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.map_err(|e| e.to_string())?;
+    let current = sqlx::query_as::<_, Sprint>("SELECT * FROM sprints WHERE id = ?")
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    factory::ops::require_writable(&mut *tx, current.project_id).await?;
     // Only `complete_sprint` completes a sprint, so its unfinished issues
     // always carry over (FB-97). A completed sprint stays editable.
     if payload.status.as_deref() == Some("completed") && current.status != "completed" {
@@ -116,9 +126,10 @@ pub async fn update_sprint_inner(
     .bind(payload.end_date.unwrap_or(current.end_date))
     .bind(payload.status.unwrap_or(current.status))
     .bind(id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await
     .map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
 
     get_sprint_inner(pool, id).await
 }
