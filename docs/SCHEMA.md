@@ -156,3 +156,17 @@ client_contacts  (client_id, person_id, is_primary)    -- PK (client_id, person_
   end of its new group (`MAX(position) + 1` among that group's projects); setting the same
   client again, or any other update, keeps its position.
 - Deleting a client leaves its projects in place, internal again, and drops its contacts.
+
+-------------------------
+Project state (migration `016_project_state.sql`, FB-14)
+
+```sql
+projects         + state TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active','archived'))
+```
+
+- Added with `ALTER TABLE ADD COLUMN` only (no rebuild); every existing project reads `active`.
+- Set only by the app's `set_project_state(id, state)` command (no CLI/MCP command); either
+  direction is allowed at any time, except that archiving is refused while the project has an
+  `active` sprint or a Release in `planned`/`user_testing`. The refusal names that sprint or
+  Release version and changes nothing.
+- `state` is returned in the `Project` JSON (`list_projects`, `get_project`) and by `project_show`.

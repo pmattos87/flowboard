@@ -22,6 +22,8 @@ pub struct Project {
     /// Software Factory: 'internal' | 'client'. Not stored: derived from
     /// `client_id` by [`PROJECT_SQL`].
     pub kind: String,
+    /// 'active' | 'archived' (FB-14). Set only by [`set_project_state`].
+    pub state: String,
 }
 
 /// Every project column plus the derived `kind` (client iff `client_id` is set).
@@ -155,6 +157,67 @@ pub async fn delete_project(pool: State<'_, SqlitePool>, id: i64) -> Result<(), 
     Ok(())
 }
 
+/// Archive (`state = "archived"`) or unarchive (`"active"`) a project.
+///
+/// Archiving is refused while the project still has work under way: an
+/// `active` sprint, or a Release that is `planned` or in `user_testing`. The
+/// refusal names the first blocking sprint or Release and changes nothing.
+/// Unarchiving is always allowed.
+async fn set_project_state_inner(pool: &SqlitePool, id: i64, state: &str) -> Result<Project, String> {
+    if !matches!(state, "active" | "archived") {
+        return Err(format!("'{state}' is not a project state (active, archived)"));
+    }
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    let key: String = sqlx::query_scalar("SELECT key FROM projects WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("project {id} not found"))?;
+    if state == "archived" {
+        let sprint: Option<String> = sqlx::query_scalar(
+            "SELECT name FROM sprints WHERE project_id = ? AND status = 'active' ORDER BY id LIMIT 1",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+        if let Some(name) = sprint {
+            return Err(format!("{key} has an active sprint \"{name}\"; complete it before archiving"));
+        }
+        let release: Option<(String, String)> = sqlx::query_as(
+            "SELECT version, state FROM releases WHERE project_id = ? AND state IN ('planned', 'user_testing') ORDER BY id LIMIT 1",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+        if let Some((version, release_state)) = release {
+            return Err(format!(
+                "{key} has Release {version} in {release_state}; release or cancel it before archiving"
+            ));
+        }
+    }
+    sqlx::query("UPDATE projects SET state = ? WHERE id = ?")
+        .bind(state)
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
+
+    get_project_inner(pool, id).await
+}
+
+#[tauri::command]
+pub async fn set_project_state(
+    pool: State<'_, SqlitePool>,
+    id: i64,
+    state: String,
+) -> Result<Project, String> {
+    set_project_state_inner(pool.inner(), id, &state).await
+}
+
 /// Persist a new sidebar ordering: each project's `position` is set to its
 /// index in `ordered_ids`. Applied in a single transaction.
 #[tauri::command]
@@ -177,7 +240,7 @@ pub async fn reorder_projects(
 
 #[cfg(test)]
 mod tests {
-    use super::{update_project_inner, Project, ProjectUpdate, PROJECT_SQL};
+    use super::{get_project_inner, set_project_state_inner, update_project_inner, Project, ProjectUpdate, PROJECT_SQL};
     use crate::test_support as ts;
 
     /// FB-202: `kind` is not stored; the Project JSON derives it from `client_id`.
@@ -271,6 +334,89 @@ mod tests {
         let beta = ts::client(&pool, "Beta").await;
         crate::factory::ops::project_set(&pool, "I2", None, Some(Some(beta))).await.unwrap();
         assert_eq!(position(&pool, i2).await, 0, "first in Beta's empty group");
+    }
+
+    /// FB-208: archive then unarchive; the Project JSON and `project_show`
+    /// both report the state.
+    #[tokio::test]
+    async fn a_project_archives_and_unarchives() {
+        let pool = ts::pool().await;
+        let id = ts::project(&pool, "AR").await;
+        assert_eq!(get_project_inner(&pool, id).await.unwrap().state, "active");
+
+        let archived = set_project_state_inner(&pool, id, "archived").await.unwrap();
+        assert_eq!(serde_json::to_value(&archived).unwrap()["state"], "archived");
+        assert_eq!(crate::factory::ops::project_show(&pool, "AR").await.unwrap()["state"], "archived");
+
+        let active = set_project_state_inner(&pool, id, "active").await.unwrap();
+        assert_eq!(active.state, "active");
+        assert_eq!(crate::factory::ops::project_show(&pool, "AR").await.unwrap()["state"], "active");
+
+        assert!(set_project_state_inner(&pool, id, "deleted").await.is_err());
+        assert!(set_project_state_inner(&pool, 999, "archived").await.is_err());
+    }
+
+    async fn state(pool: &sqlx::SqlitePool, id: i64) -> String {
+        sqlx::query_scalar("SELECT state FROM projects WHERE id = ?").bind(id).fetch_one(pool).await.unwrap()
+    }
+
+    /// FB-208: an active sprint blocks archiving, and the refusal names it;
+    /// once that sprint is completed the project archives.
+    #[tokio::test]
+    async fn archiving_is_refused_while_a_sprint_is_active() {
+        let pool = ts::pool().await;
+        let id = ts::project(&pool, "SP").await;
+        ts::sprint(&pool, id, "Old", "2026-09-01", ts::SprintStatus::Completed).await;
+        ts::sprint(&pool, id, "Next", "2026-11-01", ts::SprintStatus::Backlog).await;
+        let open = ts::sprint(&pool, id, "Sprint 7", "2026-10-01", ts::SprintStatus::Active).await;
+
+        let err = set_project_state_inner(&pool, id, "archived").await.unwrap_err();
+        assert!(err.contains("Sprint 7"), "{err}");
+        assert_eq!(state(&pool, id).await, "active");
+
+        sqlx::query("UPDATE sprints SET status = 'completed' WHERE id = ?").bind(open).execute(&pool).await.unwrap();
+        assert_eq!(set_project_state_inner(&pool, id, "archived").await.unwrap().state, "archived");
+    }
+
+    /// FB-208: a `planned` or `user_testing` Release blocks archiving, and the
+    /// refusal names its version; `released` and `canceled` ones don't.
+    #[tokio::test]
+    async fn archiving_is_refused_while_a_release_is_open() {
+        let pool = ts::pool().await;
+        let id = ts::factory_project(&pool, "RL").await;
+        let other = ts::factory_project(&pool, "OT").await;
+        let release = |project: i64, version: &'static str, state: &'static str| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query_scalar::<_, i64>(
+                    "INSERT INTO releases (project_id, version, state, created_at) VALUES (?, ?, ?, '2026-01-01') RETURNING id",
+                )
+                .bind(project)
+                .bind(version)
+                .bind(state)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+            }
+        };
+        release(id, "1.0.0", "released").await;
+        release(id, "1.0.1", "canceled").await;
+        // Another project's open Release doesn't block this one.
+        release(other, "9.0.0", "planned").await;
+        let open = release(id, "1.1.0", "planned").await;
+
+        for open_state in ["planned", "user_testing"] {
+            sqlx::query("UPDATE releases SET state = ? WHERE id = ?").bind(open_state).bind(open).execute(&pool).await.unwrap();
+            let err = set_project_state_inner(&pool, id, "archived").await.unwrap_err();
+            assert!(err.contains("1.1.0") && err.contains(open_state), "{err}");
+            assert_eq!(state(&pool, id).await, "active");
+        }
+
+        for closed in ["released", "canceled"] {
+            sqlx::query("UPDATE releases SET state = ? WHERE id = ?").bind(closed).bind(open).execute(&pool).await.unwrap();
+            assert_eq!(set_project_state_inner(&pool, id, "archived").await.unwrap().state, "archived");
+            set_project_state_inner(&pool, id, "active").await.unwrap();
+        }
     }
 
     #[test]

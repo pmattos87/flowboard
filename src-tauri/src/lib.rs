@@ -63,6 +63,7 @@ pub fn run() {
             commands::projects::update_project,
             commands::projects::delete_project,
             commands::projects::reorder_projects,
+            commands::projects::set_project_state,
             commands::clients::list_clients,
             commands::clients::create_client,
             commands::clients::rename_client,

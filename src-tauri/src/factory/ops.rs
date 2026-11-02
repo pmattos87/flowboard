@@ -525,8 +525,8 @@ async fn client_contacts(tx: &mut Tx<'_>, client_id: i64) -> Result<Vec<Value>, 
         .collect())
 }
 
-/// The project's ladder and kind, its client (or null when internal) and that
-/// client's contacts.
+/// The project's ladder, kind and state ('active' | 'archived'), its client
+/// (or null when internal) and that client's contacts.
 pub async fn project_show(pool: &SqlitePool, key: &str) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let (id, ladder, kind) = project_id(&mut tx, key).await?;
@@ -541,10 +541,16 @@ pub async fn project_show(pool: &SqlitePool, key: &str) -> Result<Value, String>
         Some((client_id, _)) => client_contacts(&mut tx, *client_id).await?,
         None => vec![],
     };
+    let state: String = sqlx::query_scalar("SELECT state FROM projects WHERE id = ?")
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(err)?;
     Ok(json!({
         "key": key.to_uppercase(),
         "ladder": ladder,
         "kind": kind,
+        "state": state,
         "client": client.map(|(id, name)| json!({ "id": id, "name": name })),
         "contacts": contacts,
     }))
