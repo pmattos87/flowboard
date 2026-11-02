@@ -27,6 +27,7 @@ function project(id: number, name: string, client_id: number | null, position: n
     id, name, key: `P${id}`, description: "", color: "#6366f1", created_at: "",
     logo_data: null, position, ladder: "legacy", client_id,
     kind: client_id == null ? "internal" : "client",
+    state: "active",
   };
 }
 

@@ -9,6 +9,7 @@ import type {
   Comment,
   Person,
   Project,
+  ProjectState,
   ReleaseDetail,
   ReleasePickResult,
   ActiveRun,
@@ -54,6 +55,10 @@ export const updateProject = (id: number, payload: ProjectUpdatePayload) =>
 export const deleteProject = (id: number) => invoke<void>("delete_project", { id });
 export const reorderProjects = (orderedIds: number[]) =>
   invoke<void>("reorder_projects", { orderedIds });
+/** Archive or unarchive (FB-14). Archiving is refused while the project has an active
+ *  sprint or a planned/user_testing Release; the rejection carries the backend message. */
+export const setProjectState = (id: number, state: ProjectState) =>
+  invoke<Project>("set_project_state", { id, state });
 
 // ─── Clients (FB-202) ──────────────────────────────────────
 

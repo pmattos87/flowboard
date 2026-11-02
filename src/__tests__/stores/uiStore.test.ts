@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { isClientExpanded, useUiStore, selectLabelFilter } from "@/stores/uiStore";
+import { isArchivedOpen, isClientExpanded, useUiStore, selectLabelFilter } from "@/stores/uiStore";
 
 beforeEach(() => {
   useUiStore.setState({
@@ -15,6 +15,7 @@ beforeEach(() => {
     storyBoardGrouping: "none",
     labelFilters: {},
     collapsedClientIds: {},
+    openArchivedGroups: {},
   });
 });
 
@@ -253,5 +254,29 @@ describe("uiStore client groups (FB-202)", () => {
     expect(isClientExpanded(state, 3)).toBe(true);
     useUiStore.getState().toggleClientExpanded(1);
     expect(isClientExpanded(useUiStore.getState(), 1)).toBe(true);
+  });
+});
+
+describe("uiStore Archived rows (FB-14)", () => {
+  it("is collapsed by default for any group key", () => {
+    const state = useUiStore.getState();
+    expect(isArchivedOpen(state, "internal")).toBe(false);
+    expect(isArchivedOpen(state, 1)).toBe(false);
+    expect(isArchivedOpen(state, 999)).toBe(false);
+  });
+
+  it("toggling one group doesn't change another", () => {
+    const { toggleArchivedOpen } = useUiStore.getState();
+    toggleArchivedOpen(1);
+    let state = useUiStore.getState();
+    expect(isArchivedOpen(state, 1)).toBe(true);
+    expect(isArchivedOpen(state, 2)).toBe(false);
+    expect(isArchivedOpen(state, "internal")).toBe(false);
+
+    toggleArchivedOpen("internal");
+    toggleArchivedOpen(1);
+    state = useUiStore.getState();
+    expect(isArchivedOpen(state, "internal")).toBe(true);
+    expect(isArchivedOpen(state, 1)).toBe(false);
   });
 });

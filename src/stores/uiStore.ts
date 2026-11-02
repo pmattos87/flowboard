@@ -59,7 +59,18 @@ interface UiState {
   /** Sidebar client groups the user collapsed (FB-202). Absent = expanded. Session-only. */
   collapsedClientIds: Record<number, true>;
   toggleClientExpanded: (clientId: number) => void;
+
+  /** Sidebar groups whose "Archived (n)" row is open (FB-14). Absent = collapsed. Session-only. */
+  openArchivedGroups: Partial<Record<ArchivedGroupKey, true>>;
+  toggleArchivedOpen: (group: ArchivedGroupKey) => void;
 }
+
+/** A sidebar group: the Internal section, or a client group by client id. */
+export type ArchivedGroupKey = "internal" | number;
+
+/** A group's Archived row is collapsed unless the user opened it. */
+export const isArchivedOpen = (state: Pick<UiState, "openArchivedGroups">, group: ArchivedGroupKey) =>
+  state.openArchivedGroups[group] === true;
 
 /** A client group is expanded unless the user collapsed it, so new clients start expanded. */
 export const isClientExpanded = (state: Pick<UiState, "collapsedClientIds">, clientId: number) =>
@@ -132,6 +143,15 @@ export const useUiStore = create<UiState>((set) => ({
       if (next[clientId]) delete next[clientId];
       else next[clientId] = true;
       return { collapsedClientIds: next };
+    }),
+
+  openArchivedGroups: {},
+  toggleArchivedOpen: (group) =>
+    set((state) => {
+      const next = { ...state.openArchivedGroups };
+      if (next[group]) delete next[group];
+      else next[group] = true;
+      return { openArchivedGroups: next };
     }),
 }));
 

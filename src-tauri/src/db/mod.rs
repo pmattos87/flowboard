@@ -869,6 +869,37 @@ mod tests {
         pool.close().await;
     }
 
+    /// FB-208: migration 016 adds `projects.state`; a project that existed
+    /// before it reads `active`, and the CHECK refuses any other value.
+    #[tokio::test]
+    async fn migration_016_starts_existing_projects_active() {
+        let mut conn = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .foreign_keys(false)
+            .connect()
+            .await
+            .unwrap();
+        let older = Migrator {
+            migrations: MIGRATOR.iter().filter(|m| m.version < 16).cloned().collect::<Vec<_>>().into(),
+            ..Migrator::DEFAULT
+        };
+        older.run(&mut conn).await.unwrap();
+        sqlx::query("INSERT INTO projects (id, name, key, created_at) VALUES (1, 'P', 'P', '2026-01-01')")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+
+        MIGRATOR.run(&mut conn).await.unwrap();
+        let state: String = sqlx::query_scalar("SELECT state FROM projects WHERE id = 1")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(state, "active");
+        let refused = sqlx::query("UPDATE projects SET state = 'deleted' WHERE id = 1").execute(&mut conn).await;
+        assert!(refused.is_err(), "state CHECK must refuse values other than active/archived");
+        conn.close().await.unwrap();
+    }
+
     #[tokio::test]
     async fn open_existing_accepts_a_current_database() {
         let path = temp_db("current");

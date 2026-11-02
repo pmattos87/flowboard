@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { NavLink } from "react-router-dom";
 import {
+  Archive,
+  ArchiveRestore,
   BarChart3,
   BookOpen,
   ChevronDown,
@@ -33,7 +35,7 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { useProjects, useReorderProjects } from "@/hooks/useProjects";
+import { useProjects, useReorderProjects, useSetProjectState } from "@/hooks/useProjects";
 import {
   useClients,
   useCreateClient,
@@ -43,7 +45,12 @@ import {
 import { ProjectBadge } from "@/components/ProjectBadge";
 import { BackupWarning } from "@/components/BackupWarning";
 import { ClientNameDialog } from "@/components/ClientNameDialog";
-import { isClientExpanded, useUiStore } from "@/stores/uiStore";
+import {
+  isArchivedOpen,
+  isClientExpanded,
+  useUiStore,
+  type ArchivedGroupKey,
+} from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
 import type { Client, Project } from "@/types";
 
@@ -108,6 +115,41 @@ function sortableStyle(
   };
 }
 
+const isArchived = (p: Project) => p.state === "archived";
+
+/** Archive (active project) or Unarchive (archived one). The selection is left as it is (FB-14). */
+function ProjectStateButton({ project }: { project: Project }) {
+  const setProjectState = useSetProjectState();
+  const archived = isArchived(project);
+  const Icon = archived ? ArchiveRestore : Archive;
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        setProjectState.mutate({ id: project.id, state: archived ? "active" : "archived" })
+      }
+      disabled={setProjectState.isPending}
+      aria-label={`${archived ? "Unarchive" : "Archive"} ${project.name}`}
+      title={archived ? "Unarchive" : "Archive"}
+      className="mr-1 p-1 rounded text-gray-500 hover:text-gray-200 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 transition-opacity"
+    >
+      <Icon className="h-3 w-3" aria-hidden="true" />
+    </button>
+  );
+}
+
+function projectEntryClasses(isActive: boolean, dimmed: boolean) {
+  return cn(
+    "flex-1 min-w-0 flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors text-left",
+    isActive
+      ? "bg-gray-800 text-white"
+      : dimmed
+        ? "text-gray-500 hover:text-gray-300"
+        : "text-gray-400 hover:text-gray-200",
+    dimmed && "opacity-60",
+  );
+}
+
 function SortableProjectItem({
   project,
   isActive,
@@ -123,26 +165,78 @@ function SortableProjectItem({
 
   return (
     <li ref={setNodeRef} style={sortableStyle(transform, transition, isDragging)}>
-      <button
-        type="button"
-        onClick={onSelect}
-        {...attributes}
-        {...listeners}
-        className={cn(
-          "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors text-left touch-none",
-          isActive
-            ? "bg-gray-800 text-white"
-            : "text-gray-400 hover:bg-gray-900 hover:text-gray-200",
-        )}
-      >
-        <ProjectBadge project={project} />
-        <span className="truncate">{project.name}</span>
-      </button>
+      <div className="group flex items-center rounded-md hover:bg-gray-900">
+        {/* Only this button carries the drag listeners, so the Archive button never starts a drag. */}
+        <button
+          type="button"
+          onClick={onSelect}
+          {...attributes}
+          {...listeners}
+          className={cn(projectEntryClasses(isActive, false), "touch-none")}
+        >
+          <ProjectBadge project={project} />
+          <span className="truncate">{project.name}</span>
+        </button>
+        <ProjectStateButton project={project} />
+      </div>
     </li>
   );
 }
 
-/** One group's projects, sortable among themselves only. */
+/** A group's "Archived (n)" row: collapsed by default; lists its archived projects dimmed, not sortable. */
+function ArchivedRow({
+  group,
+  projects,
+  className,
+}: {
+  group: ArchivedGroupKey;
+  projects: Project[];
+  className?: string;
+}) {
+  const open = useUiStore((s) => isArchivedOpen(s, group));
+  const toggleOpen = useUiStore((s) => s.toggleArchivedOpen);
+  const activeProjectId = useUiStore((s) => s.activeProjectId);
+  const setActiveProjectId = useUiStore((s) => s.setActiveProjectId);
+  if (projects.length === 0) return null;
+  const Chevron = open ? ChevronDown : ChevronRight;
+  const listId = `archived-${group}-projects`;
+
+  return (
+    <div className={className}>
+      <button
+        type="button"
+        onClick={() => toggleOpen(group)}
+        aria-expanded={open}
+        aria-controls={listId}
+        className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-xs text-gray-500 hover:bg-gray-900 hover:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors text-left"
+      >
+        <Chevron className="h-3 w-3 shrink-0" aria-hidden="true" />
+        <span>Archived ({projects.length})</span>
+      </button>
+      {open && (
+        <ul id={listId} aria-label="Archived projects" className="space-y-0.5">
+          {projects.map((p) => (
+            <li key={p.id}>
+              <div className="group flex items-center rounded-md hover:bg-gray-900">
+                <button
+                  type="button"
+                  onClick={() => setActiveProjectId(p.id)}
+                  className={projectEntryClasses(activeProjectId === p.id, true)}
+                >
+                  <ProjectBadge project={p} />
+                  <span className="truncate">{p.name}</span>
+                </button>
+                <ProjectStateButton project={p} />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** One group's active projects, sortable among themselves only. */
 function ProjectList({ projects, className }: { projects: Project[]; className?: string }) {
   const activeProjectId = useUiStore((s) => s.activeProjectId);
   const setActiveProjectId = useUiStore((s) => s.setActiveProjectId);
@@ -175,6 +269,10 @@ function SortableClientGroup({ client, projects }: { client: Client; projects: P
   const [renaming, setRenaming] = useState(false);
   const Chevron = expanded ? ChevronDown : ChevronRight;
   const listId = `client-${client.id}-projects`;
+  const activeProjects = projects.filter((p) => !isArchived(p));
+  const archivedProjects = projects.filter(isArchived);
+  // A client whose projects are all archived stays, dimmed, with only its Archived row.
+  const allArchived = projects.length > 0 && activeProjects.length === 0;
 
   return (
     <li ref={setNodeRef} style={sortableStyle(transform, transition, isDragging)}>
@@ -187,7 +285,10 @@ function SortableClientGroup({ client, projects }: { client: Client; projects: P
           {...listeners}
           aria-expanded={expanded}
           aria-controls={listId}
-          className="flex-1 min-w-0 flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm text-gray-300 hover:text-gray-100 transition-colors text-left touch-none"
+          className={cn(
+            "flex-1 min-w-0 flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm transition-colors text-left touch-none",
+            allArchived ? "text-gray-500 hover:text-gray-300" : "text-gray-300 hover:text-gray-100",
+          )}
         >
           <Chevron className="h-3.5 w-3.5 shrink-0 text-gray-500" aria-hidden="true" />
           <span className="truncate">{client.name}</span>
@@ -212,11 +313,11 @@ function SortableClientGroup({ client, projects }: { client: Client; projects: P
       />
       {expanded && (
         <div id={listId}>
-          {projects.length > 0 ? (
-            <ProjectList projects={projects} className="pl-4" />
-          ) : (
+          {activeProjects.length > 0 && <ProjectList projects={activeProjects} className="pl-4" />}
+          {projects.length === 0 && (
             <p className="pl-8 py-1 text-xs text-gray-600 italic">No projects</p>
           )}
+          <ArchivedRow group={client.id} projects={archivedProjects} className="pl-4" />
         </div>
       )}
     </li>
@@ -248,6 +349,8 @@ export function Sidebar() {
 
   const projectList = projects ?? [];
   const clientList = clients ?? [];
+  // Archived projects stay out of the sortable lists and of reorder (FB-14).
+  const activeProjects = projectList.filter((p) => !isArchived(p));
   const internalProjects = projectList.filter((p) => p.client_id == null);
   // On a Factory project the Task board lives on each Story page (SF-61).
   const isFactory = projectList.find((p) => p.id === activeProjectId)?.ladder === "factory";
@@ -262,7 +365,7 @@ export function Sidebar() {
     const items: { id: number }[] =
       from.kind === "client"
         ? clientList
-        : projectList.filter((p) => projectGroup(p.client_id) === from.group);
+        : activeProjects.filter((p) => projectGroup(p.client_id) === from.group);
     const oldIndex = items.findIndex((i) => i.id === from.id);
     const newIndex = items.findIndex((i) => i.id === to.id);
     if (oldIndex === -1 || newIndex === -1) return;
@@ -301,7 +404,8 @@ export function Sidebar() {
       >
         <section aria-label="Internal" className="px-2">
           <SectionLabel>Internal</SectionLabel>
-          <ProjectList projects={internalProjects} className="mt-1" />
+          <ProjectList projects={internalProjects.filter((p) => !isArchived(p))} className="mt-1" />
+          <ArchivedRow group="internal" projects={internalProjects.filter(isArchived)} />
           {projects && projects.length === 0 && (
             <p className="px-2 py-1.5 text-xs text-gray-600 italic">No projects yet</p>
           )}
