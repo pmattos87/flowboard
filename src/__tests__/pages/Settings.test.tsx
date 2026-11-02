@@ -6,6 +6,9 @@ import { Link, MemoryRouter } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import Settings from "@/pages/Settings";
 import { useUiStore } from "@/stores/uiStore";
+import { toast } from "sonner";
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const mockInvoke = vi.mocked(invoke);
 
@@ -329,5 +332,57 @@ describe("Settings — delete", () => {
       expect(screen.getByRole("alert")).toHaveTextContent("FK violation");
     });
     expect(useUiStore.getState().activeProjectId).toBe(1);
+  });
+});
+
+describe("Settings — archive / unarchive (FB-14)", () => {
+  function mockProject(state: "active" | "archived", setState: () => Promise<unknown>) {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "list_clients") return CLIENTS;
+      if (cmd === "get_project") return { ...fakeProject, state };
+      if (cmd === "set_project_state") return setState();
+      return [];
+    });
+  }
+
+  it("offers Archive for an active project and archives it", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ activeProjectId: 1 });
+    mockProject("active", async () => ({ ...fakeProject, state: "archived" }));
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: /^archive project$/i }));
+    expect(screen.queryByRole("button", { name: /unarchive project/i })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("set_project_state", { id: 1, state: "archived" }),
+    );
+  });
+
+  it("offers Unarchive for an archived project and unarchives it", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ activeProjectId: 1 });
+    mockProject("archived", async () => ({ ...fakeProject, state: "active" }));
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: /unarchive project/i }));
+    expect(screen.queryByRole("button", { name: /^archive project$/i })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("set_project_state", { id: 1, state: "active" }),
+    );
+  });
+
+  it("shows the backend refusal when archiving is refused", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ activeProjectId: 1 });
+    const refusal = "AL has an active sprint (Sprint 3); complete it first";
+    mockProject("active", async () => {
+      throw refusal;
+    });
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: /^archive project$/i }));
+    await waitFor(() =>
+      expect(vi.mocked(toast.error)).toHaveBeenCalledWith(expect.stringContaining(refusal)),
+    );
   });
 });

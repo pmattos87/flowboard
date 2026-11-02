@@ -168,6 +168,24 @@ describe("TopBar", () => {
     await waitFor(() => expect(screen.getByText("Booking flow story")).toBeInTheDocument());
   });
 
+  it("leaves archived projects out of the search's project results (FB-14)", async () => {
+    const user = userEvent.setup();
+    const projects = [
+      { id: 1, name: "Atlas Web", key: "AW", description: "", color: "#6366f1", created_at: "", state: "active" },
+      { id: 2, name: "Atlas Legacy", key: "AL", description: "", color: "#6366f1", created_at: "", state: "archived" },
+    ];
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "list_projects") return Promise.resolve(projects);
+      return Promise.resolve([]);
+    });
+    renderTopBar();
+    const input = await screen.findByPlaceholderText(/search/i);
+
+    await user.type(input, "atlas");
+    await waitFor(() => expect(screen.getByText("Atlas Web")).toBeInTheDocument());
+    expect(screen.queryByText("Atlas Legacy")).not.toBeInTheDocument();
+  });
+
   it("shows badge count when there are unread activity entries", async () => {
     localStorage.removeItem("lastInboxVisit");
     const fakeLog = [
