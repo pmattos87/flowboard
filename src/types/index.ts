@@ -34,7 +34,12 @@ export interface Project {
   client_id: number | null;
   /** Software Factory project kind. Not stored: "client" iff `client_id` is set. */
   kind: "internal" | "client";
+  /** FB-14: archived projects are read-only and leave the sidebar's main lists. */
+  state: ProjectState;
 }
+
+/** A project's lifecycle state (FB-14). Changed only by `set_project_state`. */
+export type ProjectState = "active" | "archived";
 
 /** An organization that groups its projects in the sidebar (FB-202). */
 export interface Client {

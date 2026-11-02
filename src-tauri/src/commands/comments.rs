@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool};
+use crate::factory;
+use sqlx::{FromRow, Sqlite, SqlitePool, Transaction};
 use tauri::State;
 
 #[derive(Debug, FromRow, Serialize)]
@@ -20,11 +21,36 @@ pub struct CommentCreate {
     pub body: String,
 }
 
-#[tauri::command]
-pub async fn create_comment(
-    pool: State<'_, SqlitePool>,
-    payload: CommentCreate,
-) -> Result<Comment, String> {
+const TASK_PROJECT: &str = "SELECT project_id FROM tasks WHERE id = ?";
+const COMMENT_PROJECT: &str =
+    "SELECT t.project_id FROM comments c JOIN tasks t ON t.id = c.task_id WHERE c.id = ?";
+
+/// FB-14: refuse a comment write on an archived project. `project_sql` finds
+/// the project from `id` ([`TASK_PROJECT`] or [`COMMENT_PROJECT`]); `false`
+/// when there is no such row. Called inside the write's own `BEGIN IMMEDIATE`
+/// transaction, so the write lock is held from the check to the commit and an
+/// archive can't commit in between.
+async fn require_writable_in(
+    tx: &mut Transaction<'_, Sqlite>,
+    project_sql: &str,
+    id: i64,
+) -> Result<bool, String> {
+    let project_id: Option<i64> = sqlx::query_scalar(project_sql)
+        .bind(id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    match project_id {
+        Some(pid) => factory::ops::require_writable(&mut **tx, pid).await.map(|()| true),
+        None => Ok(false),
+    }
+}
+
+pub async fn create_comment_inner(pool: &SqlitePool, payload: CommentCreate) -> Result<Comment, String> {
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.map_err(|e| e.to_string())?;
+    if !require_writable_in(&mut tx, TASK_PROJECT, payload.task_id).await? {
+        return Err(format!("task {} not found", payload.task_id));
+    }
     let id: i64 = sqlx::query_scalar(
         r#"INSERT INTO comments (task_id, author_id, body, created_at)
            VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
@@ -33,15 +59,24 @@ pub async fn create_comment(
     .bind(payload.task_id)
     .bind(payload.author_id)
     .bind(&payload.body)
-    .fetch_one(pool.inner())
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
 
     sqlx::query_as::<_, Comment>("SELECT * FROM comments WHERE id = ?")
         .bind(id)
-        .fetch_one(pool.inner())
+        .fetch_one(pool)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn create_comment(
+    pool: State<'_, SqlitePool>,
+    payload: CommentCreate,
+) -> Result<Comment, String> {
+    create_comment_inner(pool.inner(), payload).await
 }
 
 #[tauri::command]
@@ -59,38 +94,56 @@ pub async fn list_comments(
 }
 
 /// FB-46: edits the body only. The author is fixed at creation time.
+pub async fn update_comment_inner(pool: &SqlitePool, id: i64, body: &str) -> Result<Comment, String> {
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.map_err(|e| e.to_string())?;
+    if !require_writable_in(&mut tx, COMMENT_PROJECT, id).await? {
+        return Err(format!("comment {id} not found"));
+    }
+    sqlx::query(
+        r#"UPDATE comments
+           SET body = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+           WHERE id = ?"#,
+    )
+    .bind(body)
+    .bind(id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
+
+    sqlx::query_as::<_, Comment>("SELECT * FROM comments WHERE id = ?")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn update_comment(
     pool: State<'_, SqlitePool>,
     id: i64,
     body: String,
 ) -> Result<Comment, String> {
-    sqlx::query(
-        r#"UPDATE comments
-           SET body = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-           WHERE id = ?"#,
-    )
-    .bind(&body)
-    .bind(id)
-    .execute(pool.inner())
-    .await
-    .map_err(|e| e.to_string())?;
+    update_comment_inner(pool.inner(), id, &body).await
+}
 
-    sqlx::query_as::<_, Comment>("SELECT * FROM comments WHERE id = ?")
+/// Deleting a comment that does not exist is a no-op, as before FB-14.
+pub async fn delete_comment_inner(pool: &SqlitePool, id: i64) -> Result<(), String> {
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.map_err(|e| e.to_string())?;
+    if !require_writable_in(&mut tx, COMMENT_PROJECT, id).await? {
+        return Ok(());
+    }
+    sqlx::query("DELETE FROM comments WHERE id = ?")
         .bind(id)
-        .fetch_one(pool.inner())
+        .execute(&mut *tx)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn delete_comment(pool: State<'_, SqlitePool>, id: i64) -> Result<(), String> {
-    sqlx::query("DELETE FROM comments WHERE id = ?")
-        .bind(id)
-        .execute(pool.inner())
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    delete_comment_inner(pool.inner(), id).await
 }
 
 #[cfg(test)]
@@ -187,5 +240,43 @@ mod tests {
         assert!(after.updated_at.is_some());
         assert_eq!(after.created_at, before.created_at);
         assert_eq!(after.author_id, before.author_id);
+    }
+
+    /// FB-14: on an archived project the app's create, edit and delete of a
+    /// comment are refused and change no row; after unarchive all three work.
+    #[tokio::test]
+    async fn comment_writes_are_refused_on_an_archived_project_and_work_after_unarchive() {
+        use crate::commands::projects::set_project_state_inner;
+        use crate::test_support::{self as ts, TaskStatus, TaskType};
+        let pool = ts::pool().await;
+        let p = ts::factory_project(&pool, "SF").await;
+        let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Backlog).await;
+        let new = |body: &str| CommentCreate { task_id: story, author_id: ts::OWNER, body: body.into() };
+        let existing = create_comment_inner(&pool, new("original")).await.unwrap();
+
+        set_project_state_inner(&pool, p, "archived").await.unwrap();
+        let refused = "SF is archived; unarchive it first";
+        assert_eq!(create_comment_inner(&pool, new("added")).await.unwrap_err(), refused);
+        assert_eq!(update_comment_inner(&pool, existing.id, "edited").await.unwrap_err(), refused);
+        assert_eq!(delete_comment_inner(&pool, existing.id).await.unwrap_err(), refused);
+        let rows: Vec<(i64, String, Option<String>)> =
+            sqlx::query_as("SELECT id, body, updated_at FROM comments WHERE task_id = ?")
+                .bind(story)
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(rows, vec![(existing.id, "original".to_string(), None)], "no row changed");
+
+        set_project_state_inner(&pool, p, "active").await.unwrap();
+        let added = create_comment_inner(&pool, new("added")).await.unwrap();
+        assert_eq!(added.body, "added");
+        assert_eq!(update_comment_inner(&pool, existing.id, "edited").await.unwrap().body, "edited");
+        delete_comment_inner(&pool, existing.id).await.unwrap();
+        let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM comments WHERE task_id = ?")
+            .bind(story)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(ids, vec![added.id]);
     }
 }

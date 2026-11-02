@@ -10,8 +10,15 @@ import {
   useUpdateProject,
   useDeleteProject,
   useReorderProjects,
+  useSetProjectState,
   projectKeys,
 } from "@/hooks/useProjects";
+import { storyKeys } from "@/hooks/useStory";
+import { toast } from "sonner";
+
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
 
 const mockInvoke = vi.mocked(invoke);
 
@@ -25,7 +32,10 @@ function makeWrapper() {
   };
 }
 
-beforeEach(() => mockInvoke.mockReset());
+beforeEach(() => {
+  mockInvoke.mockReset();
+  vi.mocked(toast.error).mockReset();
+});
 
 const fakeProject = {
   id: 1,
@@ -177,5 +187,37 @@ describe("project client field (FB-202)", () => {
       payload: { client_id: null },
     });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: projectKeys.all });
+  });
+});
+
+describe("useSetProjectState (FB-14)", () => {
+  it.each(["archived", "active"] as const)(
+    "a %s mutation invalidates the projects list and the active runs",
+    async (state) => {
+      mockInvoke.mockResolvedValueOnce({ ...fakeProject, state });
+      const { wrapper, qc } = makeWrapper();
+      qc.setQueryData(projectKeys.list(), [fakeProject]);
+      qc.setQueryData(storyKeys.active(), []);
+      const { result } = renderHook(() => useSetProjectState(), { wrapper });
+      await result.current.mutateAsync({ id: 1, state });
+      expect(mockInvoke).toHaveBeenCalledWith("set_project_state", { id: 1, state });
+      expect(qc.getQueryState(projectKeys.list())?.isInvalidated).toBe(true);
+      expect(qc.getQueryState(storyKeys.active())?.isInvalidated).toBe(true);
+    },
+  );
+
+  it("a refused archive leaves the cache untouched and toasts the backend message", async () => {
+    const refusal = 'AL has an active sprint "Sprint 3"; complete it before archiving';
+    mockInvoke.mockRejectedValueOnce(refusal);
+    const { wrapper, qc } = makeWrapper();
+    const cached = [{ ...fakeProject, state: "active" }];
+    qc.setQueryData(projectKeys.list(), cached);
+    qc.setQueryData(storyKeys.active(), []);
+    const { result } = renderHook(() => useSetProjectState(), { wrapper });
+    await expect(result.current.mutateAsync({ id: 1, state: "archived" })).rejects.toBe(refusal);
+    expect(qc.getQueryData(projectKeys.list())).toBe(cached);
+    expect(qc.getQueryState(projectKeys.list())?.isInvalidated).toBe(false);
+    expect(qc.getQueryState(storyKeys.active())?.isInvalidated).toBe(false);
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining(refusal));
   });
 });
