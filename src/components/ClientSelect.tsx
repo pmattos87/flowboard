@@ -1,7 +1,10 @@
 import { Label } from "@/components/ui/label";
 import { useClients } from "@/hooks/useClients";
 
-/** The project's client: "None (internal)" (null) or one of the clients. */
+/**
+ * The project's client: "None (internal)" (null) or one of the clients, with a
+ * hint saying what the choice does to the project's Workflow.
+ */
 export function ClientSelect({
   id,
   value,
@@ -19,6 +22,7 @@ export function ClientSelect({
       </Label>
       <select
         id={id}
+        aria-describedby={`${id}-hint`}
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
         className="w-full rounded-md bg-gray-800 border border-gray-700 text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -30,6 +34,11 @@ export function ClientSelect({
           </option>
         ))}
       </select>
+      <p id={`${id}-hint`} className="text-xs text-gray-500">
+        {value === null
+          ? "Releases go from tested straight to production."
+          : "Adds User testing between tested and production, with betas and client documents."}
+      </p>
     </div>
   );
 }
