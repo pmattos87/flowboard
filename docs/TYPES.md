@@ -15,7 +15,10 @@ export type TaskStatus   = 'todo' | 'in_progress' | 'in_review' | 'canceled' | '
 export type TaskPriority = 'low' | 'medium' | 'high' | 'critical';
 export type SprintStatus = 'backlog' | 'active' | 'completed';
 
-export interface Project  { id: number; name: string; key: string; description: string; color: string; created_at: string; client_id: number | null; kind: 'internal' | 'client'; }
+export interface Project  { id: number; name: string; key: string; description: string; color: string; created_at: string; client_id: number | null; kind: 'internal' | 'client'; state: ProjectState; }
+export type ProjectState = 'active' | 'archived';
+// Project.state (FB-14): set_project_state({ id, state }) -> Project. Archiving is refused while the project has an
+//   'active' sprint or a Release in planned/user_testing; the error names it. Archived projects refuse writes.
 // Project.client_id (FB-202): null = internal. Project.kind is not stored: the backend derives it, 'client' iff client_id is set.
 // create_project payload: client_id?: number | null (absent or null = internal).
 // update_project payload: client_id?: number | null — absent keeps, null makes the project internal, a number sets it.
