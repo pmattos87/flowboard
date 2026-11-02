@@ -252,6 +252,36 @@ describe("Settings — client (FB-207)", () => {
     });
   });
 
+  const INTERNAL_HINT = "Releases go from tested straight to production.";
+  const CLIENT_HINT =
+    "Adds User testing between tested and production, with betas and client documents.";
+
+  it("starts the Workflow hint from a stored client and follows unsaved changes (FB-304)", async () => {
+    const user = userEvent.setup();
+    await loadProject(10);
+    const select = screen.getByLabelText("Client");
+    expect(select).toHaveAccessibleDescription(CLIENT_HINT);
+
+    await user.selectOptions(select, "None (internal)");
+    expect(select).toHaveAccessibleDescription(INTERNAL_HINT);
+    expect(screen.queryByText(CLIENT_HINT)).not.toBeInTheDocument();
+
+    await user.selectOptions(select, "Beta");
+    expect(select).toHaveAccessibleDescription(CLIENT_HINT);
+    expect(mockInvoke).not.toHaveBeenCalledWith("update_project", expect.anything());
+  });
+
+  it("starts the Workflow hint from no stored client (FB-304)", async () => {
+    const user = userEvent.setup();
+    await loadProject(null);
+    const select = screen.getByLabelText("Client");
+    expect(select).toHaveAccessibleDescription(INTERNAL_HINT);
+    expect(screen.queryByText(CLIENT_HINT)).not.toBeInTheDocument();
+
+    await user.selectOptions(select, "Acme");
+    expect(select).toHaveAccessibleDescription(CLIENT_HINT);
+  });
+
   it("choosing None (internal) saves client_id: null", async () => {
     const user = userEvent.setup();
     await loadProject(10);

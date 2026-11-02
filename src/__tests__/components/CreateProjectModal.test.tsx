@@ -183,6 +183,49 @@ describe("CreateProjectModal", () => {
     });
   });
 
+  it("shows the Workflow hint under the Client select and follows the choice (FB-304)", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ createProjectModalOpen: true });
+    renderModal();
+    const internalHint = "Releases go from tested straight to production.";
+    const clientHint =
+      "Adds User testing between tested and production, with betas and client documents.";
+
+    const select = screen.getByLabelText("Client");
+    expect(select).toHaveAccessibleDescription(internalHint);
+    expect(screen.queryByText(clientHint)).not.toBeInTheDocument();
+
+    await screen.findByRole("option", { name: "Acme" });
+    await user.selectOptions(select, "Acme");
+    expect(select).toHaveAccessibleDescription(clientHint);
+    expect(screen.queryByText(internalHint)).not.toBeInTheDocument();
+
+    await user.selectOptions(select, "None (internal)");
+    expect(select).toHaveAccessibleDescription(internalHint);
+  });
+
+  it("creates a client project with no confirmation step (FB-304)", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ createProjectModalOpen: true });
+    mockCommands(async () => ({ id: 42 }));
+    renderModal();
+
+    await user.type(screen.getByLabelText(/^name/i), "Alpha");
+    await user.type(screen.getByLabelText(/^key/i), "AL");
+    await screen.findByRole("option", { name: "Acme" });
+    await user.selectOptions(screen.getByLabelText("Client"), "Acme");
+    await user.click(screen.getByRole("button", { name: /create project/i }));
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith(
+        "create_project",
+        expect.objectContaining({ payload: expect.objectContaining({ client_id: 10 }) }),
+      );
+      expect(useUiStore.getState().createProjectModalOpen).toBe(false);
+    });
+    expect(mockInvoke.mock.calls.filter(([cmd]) => cmd === "create_project")).toHaveLength(1);
+  });
+
   it("resets form fields when modal is reopened", async () => {
     const user = userEvent.setup();
     useUiStore.setState({ createProjectModalOpen: true });
