@@ -17,7 +17,7 @@ const mockInvoke = vi.mocked(invoke);
 
 const factoryProject: Project = {
   id: 1, name: "Flowboard", key: "FB", description: "", color: "#6366f1",
-  created_at: "", logo_data: null, position: 0, ladder: "factory", kind: "internal",
+  created_at: "", logo_data: null, position: 0, ladder: "factory", client_id: null, kind: "internal",
 };
 
 function task(over: Partial<Task>): Task {

@@ -17,8 +17,21 @@ function renderModal() {
   );
 }
 
+/** list_clients answers CLIENTS; every other command gets `rest` (FB-207: the modal loads clients). */
+function mockCommands(rest: (cmd: string) => Promise<unknown>) {
+  mockInvoke.mockImplementation(async (cmd: string) =>
+    cmd === "list_clients" ? CLIENTS : rest(cmd),
+  );
+}
+
+const CLIENTS = [
+  { id: 10, name: "Acme", position: 0 },
+  { id: 20, name: "Beta", position: 1 },
+];
+
 beforeEach(() => {
   mockInvoke.mockReset();
+  mockCommands(async () => undefined);
   useUiStore.setState({ activeProjectId: null, createProjectModalOpen: false });
 });
 
@@ -89,7 +102,7 @@ describe("CreateProjectModal", () => {
     const user = userEvent.setup();
     useUiStore.setState({ createProjectModalOpen: true });
     const fakeProject = { id: 42, name: "Alpha", key: "AL", description: "", color: "#6366f1", created_at: "" };
-    mockInvoke.mockResolvedValueOnce(fakeProject);
+    mockCommands(async () => fakeProject);
     renderModal();
 
     await user.type(screen.getByLabelText(/^name/i), "Alpha");
@@ -116,7 +129,7 @@ describe("CreateProjectModal", () => {
   it("shows error message and keeps modal open on failure", async () => {
     const user = userEvent.setup();
     useUiStore.setState({ createProjectModalOpen: true });
-    mockInvoke.mockRejectedValueOnce(new Error("DB error"));
+    mockCommands(async () => { throw new Error("DB error"); });
     renderModal();
 
     await user.type(screen.getByLabelText(/^name/i), "Alpha");
@@ -127,6 +140,47 @@ describe("CreateProjectModal", () => {
       expect(screen.getByRole("alert")).toHaveTextContent("DB error");
     });
     expect(useUiStore.getState().createProjectModalOpen).toBe(true);
+  });
+
+  it("sends the selected client's id as client_id (FB-207)", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ createProjectModalOpen: true });
+    mockCommands(async () => ({ id: 42 }));
+    renderModal();
+
+    await user.type(screen.getByLabelText(/^name/i), "Alpha");
+    await user.type(screen.getByLabelText(/^key/i), "AL");
+    await screen.findByRole("option", { name: "Beta" });
+    await user.selectOptions(screen.getByLabelText("Client"), "Beta");
+    await user.click(screen.getByRole("button", { name: /create project/i }));
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith(
+        "create_project",
+        expect.objectContaining({ payload: expect.objectContaining({ client_id: 20 }) }),
+      );
+    });
+  });
+
+  it("sends client_id: null for None (internal) (FB-207)", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ createProjectModalOpen: true });
+    mockCommands(async () => ({ id: 42 }));
+    renderModal();
+
+    await user.type(screen.getByLabelText(/^name/i), "Alpha");
+    await user.type(screen.getByLabelText(/^key/i), "AL");
+    await screen.findByRole("option", { name: "Acme" });
+    await user.selectOptions(screen.getByLabelText("Client"), "Acme");
+    await user.selectOptions(screen.getByLabelText("Client"), "None (internal)");
+    await user.click(screen.getByRole("button", { name: /create project/i }));
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith(
+        "create_project",
+        expect.objectContaining({ payload: expect.objectContaining({ client_id: null }) }),
+      );
+    });
   });
 
   it("resets form fields when modal is reopened", async () => {

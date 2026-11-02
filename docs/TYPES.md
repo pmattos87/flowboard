@@ -15,7 +15,15 @@ export type TaskStatus   = 'todo' | 'in_progress' | 'in_review' | 'canceled' | '
 export type TaskPriority = 'low' | 'medium' | 'high' | 'critical';
 export type SprintStatus = 'backlog' | 'active' | 'completed';
 
-export interface Project  { id: number; name: string; key: string; description: string; color: string; created_at: string; }
+export interface Project  { id: number; name: string; key: string; description: string; color: string; created_at: string; client_id: number | null; kind: 'internal' | 'client'; }
+// Project.client_id (FB-202): null = internal. Project.kind is not stored: the backend derives it, 'client' iff client_id is set.
+// create_project payload: client_id?: number | null (absent or null = internal).
+// update_project payload: client_id?: number | null — absent keeps, null makes the project internal, a number sets it.
+//   A project whose client changes lands at the end of its new sidebar group.
+/** A client (FB-202): an organization that groups its projects in the sidebar. */
+export interface Client   { id: number; name: string; position: number; }
+// Commands: list_clients() -> Client[] (by position); create_client({ name }) -> Client (goes last);
+//   rename_client({ id, name }) -> Client; reorder_clients({ orderedIds }) -> void. A blank name is an error.
 export interface Person   { id: number; name: string; email: string; avatar_color: string; role: string; }
 export interface Sprint   { id: number; project_id: number; name: string; goal: string; start_date: string; end_date: string; status: SprintStatus; }
 // complete_sprint target (FB-97); exactly one of:

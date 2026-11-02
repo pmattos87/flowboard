@@ -140,4 +140,42 @@ describe("useReorderProjects", () => {
     const cached = qc.getQueryData<{ id: number }[]>(projectKeys.list());
     expect(cached?.map((p) => p.id)).toEqual([3, 1, 2]);
   });
+
+  it("a partial reorder keeps the other projects in their own slots (FB-206)", async () => {
+    mockInvoke.mockResolvedValueOnce(undefined);
+    const { wrapper, qc } = makeWrapper();
+    qc.setQueryData(projectKeys.list(), [1, 2, 3, 4, 5].map((id) => ({ ...fakeProject, id })));
+    const { result } = renderHook(() => useReorderProjects(), { wrapper });
+    // One group (ids 2 and 4) swaps; 1, 3 and 5 belong to other groups.
+    await result.current.mutateAsync([4, 2]);
+    const cached = qc.getQueryData<{ id: number }[]>(projectKeys.list());
+    expect(cached?.map((p) => p.id)).toEqual([1, 4, 3, 2, 5]);
+  });
+});
+
+describe("project client field (FB-202)", () => {
+  it("useCreateProject sends client_id and invalidates projectKeys.all", async () => {
+    mockInvoke.mockResolvedValueOnce(fakeProject);
+    const { wrapper, qc } = makeWrapper();
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    const { result } = renderHook(() => useCreateProject(), { wrapper });
+    await result.current.mutateAsync({ name: "Alpha", key: "AL", client_id: 4 });
+    expect(mockInvoke).toHaveBeenCalledWith("create_project", {
+      payload: { name: "Alpha", key: "AL", client_id: 4 },
+    });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: projectKeys.all });
+  });
+
+  it("useUpdateProject sends an explicit client_id null to make a project internal", async () => {
+    mockInvoke.mockResolvedValueOnce(fakeProject);
+    const { wrapper, qc } = makeWrapper();
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    const { result } = renderHook(() => useUpdateProject(), { wrapper });
+    await result.current.mutateAsync({ id: 1, payload: { client_id: null } });
+    expect(mockInvoke).toHaveBeenCalledWith("update_project", {
+      id: 1,
+      payload: { client_id: null },
+    });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: projectKeys.all });
+  });
 });
