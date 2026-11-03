@@ -4,9 +4,11 @@ import type {
   ActivityLog,
   Attachment,
   BackupStatus,
+  Client,
   Comment,
   Person,
   Project,
+  ProjectState,
   ReleaseDetail,
   ReleasePickResult,
   ActiveRun,
@@ -30,6 +32,8 @@ export interface ProjectCreatePayload {
   description?: string;
   color?: string;
   logo_data?: string | null;
+  /** Absent or null creates an internal project. */
+  client_id?: number | null;
 }
 export interface ProjectUpdatePayload {
   name?: string;
@@ -37,6 +41,8 @@ export interface ProjectUpdatePayload {
   description?: string;
   color?: string;
   logo_data?: string | null;
+  /** Absent keeps the client, null makes the project internal, a number sets it. */
+  client_id?: number | null;
 }
 
 export const createProject = (payload: ProjectCreatePayload) =>
@@ -48,6 +54,19 @@ export const updateProject = (id: number, payload: ProjectUpdatePayload) =>
 export const deleteProject = (id: number) => invoke<void>("delete_project", { id });
 export const reorderProjects = (orderedIds: number[]) =>
   invoke<void>("reorder_projects", { orderedIds });
+/** Archive or unarchive (FB-14). Archiving is refused while the project has an active
+ *  sprint or a planned/user_testing Release; the rejection carries the backend message. */
+export const setProjectState = (id: number, state: ProjectState) =>
+  invoke<Project>("set_project_state", { id, state });
+
+// ─── Clients (FB-202) ──────────────────────────────────────
+
+export const listClients = () => invoke<Client[]>("list_clients");
+export const createClient = (name: string) => invoke<Client>("create_client", { name });
+export const renameClient = (id: number, name: string) =>
+  invoke<Client>("rename_client", { id, name });
+export const reorderClients = (orderedIds: number[]) =>
+  invoke<void>("reorder_clients", { orderedIds });
 
 // ─── People ────────────────────────────────────────────────
 

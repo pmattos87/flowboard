@@ -6,6 +6,9 @@ import { Link, MemoryRouter } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import Settings from "@/pages/Settings";
 import { useUiStore } from "@/stores/uiStore";
+import { toast } from "sonner";
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const mockInvoke = vi.mocked(invoke);
 
@@ -16,7 +19,25 @@ const fakeProject = {
   description: "Desc",
   color: "#6366f1",
   created_at: "2024-01-01T00:00:00.000Z",
+  logo_data: null,
+  client_id: null,
 };
+
+const CLIENTS = [
+  { id: 10, name: "Acme", position: 0 },
+  { id: 20, name: "Beta", position: 1 },
+];
+
+/**
+ * FB-207: the Project tab also loads clients. list_clients answers CLIENTS;
+ * every other command takes the next queued answer, then falls back to `fallback`.
+ */
+function mockCommands(fallback: () => Promise<unknown>, ...queue: (() => Promise<unknown>)[]) {
+  mockInvoke.mockImplementation(async (cmd: string) => {
+    if (cmd === "list_clients") return CLIENTS;
+    return (queue.shift() ?? fallback)();
+  });
+}
 
 function renderSettings(path = "/settings") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -120,7 +141,7 @@ describe("Settings — loading state", () => {
 describe("Settings — form", () => {
   async function loadProject() {
     useUiStore.setState({ activeProjectId: 1 });
-    mockInvoke.mockResolvedValue(fakeProject);
+    mockCommands(async () => fakeProject);
     renderSettings();
     await waitFor(() => expect(screen.getByDisplayValue("Alpha")).toBeInTheDocument());
   }
@@ -183,9 +204,11 @@ describe("Settings — form", () => {
     const user = userEvent.setup();
     useUiStore.setState({ activeProjectId: 1 });
     // First call is get_project (load), second is update_project (save)
-    mockInvoke
-      .mockResolvedValueOnce(fakeProject)
-      .mockRejectedValueOnce(new Error("Save failed"));
+    mockCommands(
+      async () => fakeProject,                               // fallback
+      async () => fakeProject,                               // get_project (load)
+      async () => { throw new Error("Save failed"); },  // the mutation
+    );
     renderSettings();
     await waitFor(() => expect(screen.getByDisplayValue("Alpha")).toBeInTheDocument());
 
@@ -200,10 +223,57 @@ describe("Settings — form", () => {
   });
 });
 
+describe("Settings — client (FB-207)", () => {
+  async function loadProject(clientId: number | null) {
+    useUiStore.setState({ activeProjectId: 1 });
+    mockCommands(async () => ({ ...fakeProject, client_id: clientId }));
+    renderSettings();
+    await waitFor(() => expect(screen.getByDisplayValue("Alpha")).toBeInTheDocument());
+    await screen.findByRole("option", { name: "Beta" });
+  }
+
+  it("shows the project's current client", async () => {
+    await loadProject(10);
+    expect(screen.getByLabelText("Client")).toHaveValue("10");
+  });
+
+  it("changing only the client counts as an unsaved change and saves client_id", async () => {
+    const user = userEvent.setup();
+    await loadProject(null);
+    const save = screen.getByRole("button", { name: /save changes/i });
+    expect(save).toBeDisabled();
+
+    await user.selectOptions(screen.getByLabelText("Client"), "Beta");
+    expect(save).toBeEnabled();
+    await user.click(save);
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("update_project", {
+        id: 1,
+        payload: { name: "Alpha", key: "AL", description: "Desc", logo_data: null, client_id: 20 },
+      });
+    });
+  });
+
+  it("choosing None (internal) saves client_id: null", async () => {
+    const user = userEvent.setup();
+    await loadProject(10);
+    await user.selectOptions(screen.getByLabelText("Client"), "None (internal)");
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith(
+        "update_project",
+        expect.objectContaining({ id: 1, payload: expect.objectContaining({ client_id: null }) }),
+      );
+    });
+  });
+});
+
 describe("Settings — delete", () => {
   async function loadProject() {
     useUiStore.setState({ activeProjectId: 1 });
-    mockInvoke.mockResolvedValue(fakeProject);
+    mockCommands(async () => fakeProject);
     renderSettings();
     await waitFor(() => expect(screen.getByDisplayValue("Alpha")).toBeInTheDocument());
   }
@@ -227,10 +297,11 @@ describe("Settings — delete", () => {
   it("calls delete_project and resets activeProjectId on confirm", async () => {
     const user = userEvent.setup();
     useUiStore.setState({ activeProjectId: 1 });
-    mockInvoke
-      .mockResolvedValueOnce(fakeProject) // get_project (load)
-      .mockResolvedValueOnce(undefined)   // delete_project
-      .mockResolvedValueOnce([]);          // list_projects (cache invalidation refetch)
+    mockCommands(
+      async () => [],                // list_projects (cache invalidation refetch)
+      async () => fakeProject,       // get_project (load)
+      async () => undefined,         // delete_project
+    );
     renderSettings();
     await waitFor(() => expect(screen.getByDisplayValue("Alpha")).toBeInTheDocument());
 
@@ -246,9 +317,11 @@ describe("Settings — delete", () => {
   it("shows error and keeps modal open if delete fails", async () => {
     const user = userEvent.setup();
     useUiStore.setState({ activeProjectId: 1 });
-    mockInvoke
-      .mockResolvedValueOnce(fakeProject)
-      .mockRejectedValueOnce(new Error("FK violation"));
+    mockCommands(
+      async () => fakeProject,                               // fallback
+      async () => fakeProject,                               // get_project (load)
+      async () => { throw new Error("FK violation"); },  // the mutation
+    );
     renderSettings();
     await waitFor(() => expect(screen.getByDisplayValue("Alpha")).toBeInTheDocument());
 
@@ -259,5 +332,57 @@ describe("Settings — delete", () => {
       expect(screen.getByRole("alert")).toHaveTextContent("FK violation");
     });
     expect(useUiStore.getState().activeProjectId).toBe(1);
+  });
+});
+
+describe("Settings — archive / unarchive (FB-14)", () => {
+  function mockProject(state: "active" | "archived", setState: () => Promise<unknown>) {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "list_clients") return CLIENTS;
+      if (cmd === "get_project") return { ...fakeProject, state };
+      if (cmd === "set_project_state") return setState();
+      return [];
+    });
+  }
+
+  it("offers Archive for an active project and archives it", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ activeProjectId: 1 });
+    mockProject("active", async () => ({ ...fakeProject, state: "archived" }));
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: /^archive project$/i }));
+    expect(screen.queryByRole("button", { name: /unarchive project/i })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("set_project_state", { id: 1, state: "archived" }),
+    );
+  });
+
+  it("offers Unarchive for an archived project and unarchives it", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ activeProjectId: 1 });
+    mockProject("archived", async () => ({ ...fakeProject, state: "active" }));
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: /unarchive project/i }));
+    expect(screen.queryByRole("button", { name: /^archive project$/i })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("set_project_state", { id: 1, state: "active" }),
+    );
+  });
+
+  it("shows the backend refusal when archiving is refused", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ activeProjectId: 1 });
+    const refusal = "AL has an active sprint (Sprint 3); complete it first";
+    mockProject("active", async () => {
+      throw refusal;
+    });
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: /^archive project$/i }));
+    await waitFor(() =>
+      expect(vi.mocked(toast.error)).toHaveBeenCalledWith(expect.stringContaining(refusal)),
+    );
   });
 });

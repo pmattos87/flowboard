@@ -147,7 +147,8 @@ export function TopBar() {
               sub: s.status,
             })),
           ...allProjects
-            .filter((p) => p.name.toLowerCase().includes(q))
+            // Archived projects are left out of the search (FB-14).
+            .filter((p) => p.state !== "archived" && p.name.toLowerCase().includes(q))
             .slice(0, 2)
             .map((p) => ({
               kind: "project" as const,

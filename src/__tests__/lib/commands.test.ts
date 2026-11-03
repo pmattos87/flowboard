@@ -6,6 +6,7 @@ import {
   getProject,
   updateProject,
   deleteProject,
+  setProjectState,
   listSprints,
   completeSprint,
   listTasks,
@@ -13,6 +14,10 @@ import {
   updateTask,
   createPerson,
   listPeople,
+  listClients,
+  createClient,
+  renameClient,
+  reorderClients,
 } from "@/lib/commands";
 
 const mockInvoke = vi.mocked(invoke);
@@ -22,6 +27,14 @@ beforeEach(() => {
 });
 
 describe("project commands", () => {
+  it("setProjectState invokes set_project_state with the project id and the target state", async () => {
+    mockInvoke.mockResolvedValueOnce({});
+    await setProjectState(4, "archived");
+    expect(mockInvoke).toHaveBeenCalledWith("set_project_state", { id: 4, state: "archived" });
+    await setProjectState(4, "active");
+    expect(mockInvoke).toHaveBeenLastCalledWith("set_project_state", { id: 4, state: "active" });
+  });
+
   it("createProject calls invoke with correct command and payload", async () => {
     const payload = { name: "Alpha", key: "AL", description: "desc", color: "#fff" };
     mockInvoke.mockResolvedValueOnce({ id: 1, ...payload, created_at: "" });
@@ -151,5 +164,19 @@ describe("people commands", () => {
     mockInvoke.mockResolvedValueOnce([]);
     await listPeople();
     expect(mockInvoke).toHaveBeenCalledWith("list_people");
+  });
+});
+
+describe("client commands (FB-202)", () => {
+  it("each wrapper calls its command with the backend's argument names", async () => {
+    mockInvoke.mockResolvedValue(undefined);
+    await listClients();
+    expect(mockInvoke).toHaveBeenLastCalledWith("list_clients");
+    await createClient("Acme");
+    expect(mockInvoke).toHaveBeenLastCalledWith("create_client", { name: "Acme" });
+    await renameClient(2, "Beta");
+    expect(mockInvoke).toHaveBeenLastCalledWith("rename_client", { id: 2, name: "Beta" });
+    await reorderClients([3, 1]);
+    expect(mockInvoke).toHaveBeenLastCalledWith("reorder_clients", { orderedIds: [3, 1] });
   });
 });

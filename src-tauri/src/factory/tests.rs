@@ -45,8 +45,14 @@ async fn setup(kind: &str) -> Fx {
     .unwrap();
     ops::people_set_role(&pool, pedro, Some("owner")).await.unwrap();
     ops::people_set_role(&pool, agent, Some("agent")).await.unwrap();
-    ops::project_set(&pool, "SF", Some("factory"), Some(kind)).await.unwrap();
-    ops::contact_add(&pool, "SF", client, true).await.unwrap();
+    ops::project_set(&pool, "SF", Some("factory"), None).await.unwrap();
+    // FB-202: a project is a client project iff it has a client; the contact
+    // belongs to the client.
+    if kind == "client" {
+        let c = ts::client(&pool, "Acme").await;
+        ops::project_set(&pool, "SF", None, Some(Some(c))).await.unwrap();
+        ops::contact_add(&pool, c, client, true).await.unwrap();
+    }
     Fx { pool, pedro, agent, client, sprint }
 }
 
@@ -894,12 +900,13 @@ async fn points_of(pool: &SqlitePool, id: i64) -> i64 {
 async fn bug_story_fixture() -> (SqlitePool, i64, i64, String) {
     let pool = ts::pool().await;
     let p = ts::factory_project(&pool, "SF").await;
-    ops::project_set(&pool, "SF", None, Some("client")).await.unwrap();
+    let acme = ts::client(&pool, "Acme").await;
+    ops::project_set(&pool, "SF", None, Some(Some(acme))).await.unwrap();
     let client: i64 = sqlx::query_scalar("INSERT INTO people (name, email) VALUES ('Client', 'client@test') RETURNING id")
         .fetch_one(&pool)
         .await
         .unwrap();
-    ops::contact_add(&pool, "SF", client, true).await.unwrap();
+    ops::contact_add(&pool, acme, client, true).await.unwrap();
     let sprint = ts::sprint(&pool, p, "S1", "2026-10-01", SprintStatus::Active).await;
     let bug = ts::task(&pool, p, None, None, TaskType::Bug, TaskStatus::Backlog).await;
     let key = key_of(&pool, bug).await;
@@ -1353,4 +1360,227 @@ async fn story_edit_refuses_an_epic_change_that_breaks_membership_and_changes_no
     }
     // Keeping a done Story's epic is not a change.
     ops::story_edit(&pool, &k(done_story).await, set_epic(Some(&k(open).await))).await.unwrap();
+}
+
+// ─── Clients (FB-202) ───────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn a_project_with_no_client_is_internal_and_refuses_user_testing() {
+    let fx = setup("internal").await;
+    let shown = ops::project_show(&fx.pool, "SF").await.unwrap();
+    assert_eq!(shown["kind"], "internal");
+    assert_eq!(shown["client"], Value::Null);
+    assert_eq!(shown["contacts"], serde_json::json!([]));
+
+    let s = tested(&fx, "internal").await;
+    let err = mv(&fx, &s, "user_testing").await.unwrap_err();
+    assert!(err.contains("user_testing"), "{err}");
+    assert_eq!(status(&fx, &s).await, "tested");
+}
+
+#[tokio::test]
+async fn a_project_with_a_client_is_a_client_project_listing_the_clients_contacts() {
+    let fx = setup("client").await;
+    let shown = ops::project_show(&fx.pool, "SF").await.unwrap();
+    assert_eq!(shown["kind"], "client");
+    assert_eq!(shown["client"]["name"], "Acme");
+    assert_eq!(
+        shown["contacts"],
+        serde_json::json!([{ "person_id": fx.client, "name": "Client", "primary": true }])
+    );
+    // Clearing the client makes it internal again; the contacts stay on the client.
+    let shown = ops::project_set(&fx.pool, "SF", None, Some(None)).await.unwrap();
+    assert_eq!(shown["kind"], "internal");
+    assert_eq!(shown["contacts"], serde_json::json!([]));
+    let clients = ops::client_list(&fx.pool).await.unwrap();
+    assert_eq!(clients[0]["contacts"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn user_testing_goes_to_the_current_primary_contact_of_the_projects_client() {
+    let fx = setup("client").await;
+    let acme: i64 = ops::project_show(&fx.pool, "SF").await.unwrap()["client"]["id"].as_i64().unwrap();
+    // A second primary on the same client replaces the first.
+    let shown = ops::contact_add(&fx.pool, acme, fx.pedro, true).await.unwrap();
+    let primaries: Vec<i64> = shown["contacts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["primary"] == true)
+        .map(|c| c["person_id"].as_i64().unwrap())
+        .collect();
+    assert_eq!(primaries, vec![fx.pedro]);
+    assert_eq!(shown["contacts"].as_array().unwrap().len(), 2, "the old primary stays a contact");
+
+    let s = tested(&fx, "client").await;
+    mv(&fx, &s, "user_testing").await.unwrap();
+    assert_eq!(assignee(&fx, &s).await, Some(fx.pedro));
+
+    // Another client's primary never applies to SF.
+    let other = crate::test_support::client(&fx.pool, "Other").await;
+    ops::contact_add(&fx.pool, other, fx.agent, true).await.unwrap();
+    let s2 = tested(&fx, "client 2").await;
+    mv(&fx, &s2, "user_testing").await.unwrap();
+    assert_eq!(assignee(&fx, &s2).await, Some(fx.pedro));
+
+    // With no primary left, user_testing is refused and names the client command.
+    ops::contact_remove(&fx.pool, acme, fx.pedro).await.unwrap();
+    let s3 = tested(&fx, "client 3").await;
+    let err = mv(&fx, &s3, "user_testing").await.unwrap_err();
+    assert!(err.contains("contact add <client id>"), "{err}");
+    assert_eq!(status(&fx, &s3).await, "tested");
+}
+
+#[tokio::test]
+async fn client_list_and_contact_commands_work_by_client_id() {
+    let pool = ts::pool().await;
+    ts::project(&pool, "LG").await;
+    let b = ts::client(&pool, "Beta").await;
+    let a = ts::client(&pool, "Alpha").await;
+    sqlx::query("UPDATE clients SET position = ? WHERE id = ?").bind(1).bind(b).execute(&pool).await.unwrap();
+
+    let shown = ops::contact_add(&pool, a, ts::AGENT, false).await.unwrap();
+    assert_eq!(shown["id"], a);
+    assert_eq!(shown["contacts"], serde_json::json!([{ "person_id": ts::AGENT, "name": "Claude", "primary": false }]));
+    let list = ops::client_list(&pool).await.unwrap();
+    let names: Vec<&str> = list.as_array().unwrap().iter().map(|c| c["name"].as_str().unwrap()).collect();
+    assert_eq!(names, vec!["Alpha", "Beta"], "sidebar order");
+
+    let shown = ops::contact_remove(&pool, a, ts::AGENT).await.unwrap();
+    assert_eq!(shown["contacts"], serde_json::json!([]));
+
+    assert!(ops::contact_add(&pool, 999, ts::AGENT, true).await.unwrap_err().contains("client 999 not found"));
+    assert!(ops::contact_add(&pool, a, 999, true).await.unwrap_err().contains("person 999 not found"));
+    assert!(ops::contact_remove(&pool, 999, ts::AGENT).await.unwrap_err().contains("client 999 not found"));
+
+    // project set --client: an unknown client is refused and changes nothing.
+    let err = ops::project_set(&pool, "LG", None, Some(Some(999))).await.unwrap_err();
+    assert!(err.contains("client 999 not found"), "{err}");
+    assert_eq!(ops::project_show(&pool, "LG").await.unwrap()["kind"], "internal");
+    let shown = ops::project_set(&pool, "LG", None, Some(Some(b))).await.unwrap();
+    assert_eq!((shown["kind"].as_str(), shown["client"]["id"].as_i64()), (Some("client"), Some(b)));
+    let shown = ops::project_set(&pool, "LG", None, None).await.unwrap();
+    assert_eq!(shown["kind"], "client", "no --client keeps the client");
+}
+
+// ─── Archived projects (FB-14) ──────────────────────────────────────────────
+
+use crate::commands::projects::set_project_state_inner;
+
+/// A Factory project AR with a planned (backlog) sprint, so it may be archived,
+/// and a Story building in that sprint with one todo Subtask. Returns the pool,
+/// the project id, the Story's id and key, and the Subtask's key.
+async fn archive_fixture() -> (SqlitePool, i64, i64, String, String) {
+    let pool = ts::pool().await;
+    let p = ts::factory_project(&pool, "AR").await;
+    let sprint = ts::sprint(&pool, p, "Next", "2026-11-01", SprintStatus::Backlog).await;
+    let s = ops::story_create(
+        &pool,
+        NewStory { project: "AR", title: "under way", description: "", priority: "medium", labels: "", bug: false },
+        Actor::Owner,
+    )
+    .await
+    .unwrap()["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let sub = new_subtask(&pool, &s, false, 2).await;
+    for to in ["refining", "ready"] {
+        ops::story_move(&pool, &s, to, Actor::Owner).await.unwrap();
+    }
+    ops::story_set_sprint(&pool, &s, Some(sprint)).await.unwrap();
+    ops::story_move(&pool, &s, "building", Actor::Owner).await.unwrap();
+    let id: i64 = sqlx::query_scalar("SELECT id FROM tasks WHERE parent_id IS NULL AND project_id = ?")
+        .bind(p)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    (pool, p, id, s, sub)
+}
+
+/// Row counts of the tables a write could touch, and every task's status.
+async fn write_snapshot(pool: &SqlitePool) -> (Vec<i64>, Vec<(i64, String)>) {
+    let mut counts = vec![];
+    for table in ["tasks", "releases", "activity_log", "comments", "task_prs", "task_links"] {
+        counts.push(sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table}")).fetch_one(pool).await.unwrap());
+    }
+    let statuses = sqlx::query_as("SELECT id, status FROM tasks ORDER BY id").fetch_all(pool).await.unwrap();
+    (counts, statuses)
+}
+
+fn assert_archived_refusal(what: &str, r: Result<impl std::fmt::Debug, String>) {
+    let err = r.expect_err(&format!("{what} must be refused on an archived project"));
+    assert_eq!(err, "AR is archived; unarchive it first", "{what}");
+}
+
+#[tokio::test]
+async fn an_archived_factory_project_refuses_writes_and_changes_nothing() {
+    let (pool, p, story_id, s, sub) = archive_fixture().await;
+    set_project_state_inner(&pool, p, "archived").await.unwrap();
+    let before = write_snapshot(&pool).await;
+
+    let new_story = NewStory { project: "AR", title: "new", description: "", priority: "medium", labels: "", bug: false };
+    assert_archived_refusal("story_create", ops::story_create(&pool, new_story, Actor::Agent).await);
+    assert_archived_refusal("story_move", ops::story_move(&pool, &s, "canceled", Actor::Owner).await);
+    let new_sub = NewSubtask { story: &s, title: "more", description: "", bug: true, story_points: 1, risk: false };
+    assert_archived_refusal("subtask_create", ops::subtask_create(&pool, new_sub, Actor::Agent).await);
+    assert_archived_refusal("subtask_move", ops::subtask_move(&pool, &sub, "in_progress", Actor::Agent).await);
+    assert_archived_refusal("release_create", ops::release_create(&pool, "AR", "1.0.0").await);
+    // The rest of the Factory writes go through the same guard.
+    let edit = ops::StoryEdit { title: Some("renamed"), description: None, priority: None, labels: None, epic: None };
+    assert_archived_refusal("story_edit", ops::story_edit(&pool, &s, edit).await);
+    assert_archived_refusal("story_set_sprint", ops::story_set_sprint(&pool, &s, None).await);
+    assert_archived_refusal("story_comment", ops::story_comment(&pool, &s, "hi", Actor::Owner).await);
+    assert_archived_refusal("run_stop", ops::run_stop(&pool, &s, "why", Actor::Agent).await);
+    assert_archived_refusal("review_start", ops::review_start(&pool, &s, Actor::Agent).await);
+    assert_archived_refusal("pr_open", ops::pr_open(&pool, &s, "https://pr/1", "develop", Actor::Agent).await);
+    assert_archived_refusal("subtask_handoff", ops::subtask_handoff(&pool, &sub, "a", "m", Actor::Agent).await);
+    // The app's Factory writes too.
+    assert_archived_refusal("app_move", ops::app_move(&pool, story_id, Some("canceled"), None).await);
+    assert_archived_refusal(
+        "app_create_status",
+        ops::app_create_status(&pool, p, None, "story", None, None, None).await,
+    );
+
+    assert_eq!(write_snapshot(&pool).await, before, "a refused write changes nothing");
+
+    // Reads stay allowed.
+    assert_eq!(ops::story_show(&pool, &s).await.unwrap()["status"], "building");
+    assert!(!ops::trail(&pool, &s).await.unwrap().as_array().unwrap().is_empty());
+    assert_eq!(ops::release_list(&pool, "AR").await.unwrap()["releases"], serde_json::json!([]));
+    assert_eq!(ops::project_show(&pool, "AR").await.unwrap()["state"], "archived");
+
+    // Unarchived, the same writes go through.
+    set_project_state_inner(&pool, p, "active").await.unwrap();
+    ops::subtask_move(&pool, &sub, "in_progress", Actor::Agent).await.unwrap();
+    ops::release_create(&pool, "AR", "1.0.0").await.unwrap();
+    ops::app_move(&pool, story_id, Some("canceled"), None).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_release_of_an_archived_project_cannot_be_picked_or_moved() {
+    let (pool, p, _, s, _) = archive_fixture().await;
+    ops::release_create(&pool, "AR", "1.0.0").await.unwrap();
+    // A canceled Release doesn't block archiving, but stays write-protected.
+    ops::release_move(&pool, "AR", "1.0.0", "canceled", Actor::Owner).await.unwrap();
+    ops::release_create(&pool, "AR", "1.0.1").await.unwrap();
+    ops::release_move(&pool, "AR", "1.0.1", "canceled", Actor::Owner).await.unwrap();
+    set_project_state_inner(&pool, p, "archived").await.unwrap();
+
+    assert_archived_refusal("release_pick", ops::release_pick(&pool, "1.0.0", &s, Actor::Owner).await);
+    assert_archived_refusal("release_move", ops::release_move(&pool, "AR", "1.0.0", "planned", Actor::Owner).await);
+    assert_archived_refusal("release_set_version", ops::release_set_version(&pool, "AR", "1.0.0", "2.0.0").await);
+    assert_eq!(ops::release_show(&pool, "AR", "1.0.0").await.unwrap()["state"], "canceled");
+}
+
+#[tokio::test]
+async fn an_archived_projects_runs_leave_active_runs_until_unarchived() {
+    let (pool, p, _, s, _) = archive_fixture().await;
+    assert!(active_run(&pool, &s).await.is_some(), "a building Story is an active Run");
+
+    set_project_state_inner(&pool, p, "archived").await.unwrap();
+    assert!(active_run(&pool, &s).await.is_none(), "an archived project's Runs are not listed");
+
+    set_project_state_inner(&pool, p, "active").await.unwrap();
+    assert!(active_run(&pool, &s).await.is_some(), "unarchived, the Run is listed again");
 }

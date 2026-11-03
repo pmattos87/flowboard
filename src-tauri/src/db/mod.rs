@@ -215,6 +215,12 @@ mod tests {
         conn.close().await.unwrap();
     }
 
+    /// A runtime-like pool (FKs on) on a database file, without migrating it.
+    async fn open_pool(path: &Path) -> SqlitePool {
+        let options = SqliteConnectOptions::from_str(&sqlite_url(path, "rw")).unwrap().foreign_keys(true);
+        SqlitePoolOptions::new().max_connections(1).connect_with(options).await.unwrap()
+    }
+
     fn backups_in(path: &Path) -> usize {
         std::fs::read_dir(path.parent().unwrap())
             .unwrap()
@@ -290,6 +296,42 @@ mod tests {
         out
     }
 
+    /// Every user table's columns, in schema order.
+    async fn table_columns(conn: &mut SqliteConnection) -> Vec<(String, Vec<String>)> {
+        let tables: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> '_sqlx_migrations' ORDER BY name",
+        )
+        .fetch_all(&mut *conn)
+        .await
+        .unwrap();
+        let mut columns = vec![];
+        for t in tables {
+            let cols: Vec<String> = sqlx::query_scalar(&format!("SELECT name FROM pragma_table_info('{t}')"))
+                .fetch_all(&mut *conn)
+                .await
+                .unwrap();
+            columns.push((t, cols));
+        }
+        columns
+    }
+
+    /// `columns` narrowed to the tables and columns a fully migrated database
+    /// still has (migration 015 drops `projects.kind` and `project_contacts`),
+    /// learned by migrating a scratch in-memory database.
+    async fn surviving(columns: &[(String, Vec<String>)]) -> Vec<(String, Vec<String>)> {
+        let mut scratch = SqliteConnectOptions::from_str("sqlite::memory:").unwrap().connect().await.unwrap();
+        MIGRATOR.run(&mut scratch).await.unwrap();
+        let current = table_columns(&mut scratch).await;
+        scratch.close().await.unwrap();
+        columns
+            .iter()
+            .filter_map(|(table, cols)| {
+                let (_, now) = current.iter().find(|(t, _)| t == table)?;
+                Some((table.clone(), cols.iter().filter(|c| now.contains(c)).cloned().collect()))
+            })
+            .collect()
+    }
+
     /// Run with `FLOWBOARD_MIGRATION_SOURCE=<path to a real flowboard.db>
     /// cargo test --lib real_database_survives_migration -- --ignored`.
     /// The source is only read (copied with VACUUM INTO); the copy is migrated.
@@ -317,21 +359,9 @@ mod tests {
             .connect()
             .await
             .unwrap();
-        let tables: Vec<String> = sqlx::query_scalar(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> '_sqlx_migrations' ORDER BY name",
-        )
-        .fetch_all(&mut conn)
-        .await
-        .unwrap();
-        let mut columns = vec![];
-        for t in tables {
-            let cols: Vec<String> =
-                sqlx::query_scalar(&format!("SELECT name FROM pragma_table_info('{t}')"))
-                    .fetch_all(&mut conn)
-                    .await
-                    .unwrap();
-            columns.push((t, cols));
-        }
+        // Only what survives every migration is compared (015 drops projects.kind
+        // and project_contacts).
+        let columns = surviving(&table_columns(&mut conn).await).await;
         let before = snapshot(&mut conn, &columns).await;
         conn.close().await.unwrap();
 
@@ -624,7 +654,9 @@ mod tests {
         let before = snapshot(&mut conn, &columns).await;
         conn.close().await.unwrap();
 
-        let pool = open_and_migrate(&path).await.unwrap();
+        // Through 013 only: 015 drops project_contacts and projects.kind.
+        migrate_up_to(&path, 14).await;
+        let pool = open_pool(&path).await;
         let mut conn = pool.acquire().await.unwrap();
         let after = snapshot(&mut conn, &columns).await;
         for ((table, rows_before), (_, rows_after)) in before.iter().zip(after.iter()) {
@@ -663,6 +695,147 @@ mod tests {
         assert_eq!(epic, None);
         drop(conn);
         pool.close().await;
+    }
+
+    /// FB-203: migration 015 adds clients and `projects.client_id`, drops
+    /// `projects.kind` in place and replaces `project_contacts` with
+    /// `client_contacts`. Every row of every table that survives is unchanged
+    /// (no FK action fired), and every project starts internal.
+    #[tokio::test]
+    async fn migration_015_adds_clients_and_keeps_every_row() {
+        let path = temp_db("clients");
+        migrate_up_to(&path, 15).await;
+        let mut conn = SqliteConnectOptions::from_str(&sqlite_url(&path, "rw"))
+            .unwrap()
+            .foreign_keys(false)
+            .connect()
+            .await
+            .unwrap();
+        for sql in [
+            "INSERT INTO projects (id, name, key, description, color, created_at, logo_data, position, ladder, kind) \
+             VALUES (1, 'F', 'F', 'factory', '#111111', '2026-01-01', 'data:x', 2, 'factory', 'client')",
+            "INSERT INTO projects (id, name, key, created_at, position) VALUES (2, 'L', 'L', '2026-01-02', 1)",
+            "INSERT INTO people (id, name, email, factory_role) VALUES (1, 'A', 'a@x', 'owner')",
+            "INSERT INTO people (id, name, email) VALUES (2, 'C', 'c@x')",
+            "INSERT INTO sprints (id, project_id, name, status, start_date, end_date) VALUES (1, 1, 'S1', 'active', '2026-01-01', '2026-01-14')",
+            "INSERT INTO releases (id, project_id, version, state, created_at) VALUES (1, 1, '1.0.0', 'user_testing', '2026-01-01')",
+            "INSERT INTO tasks (id, project_id, sprint_id, title, description, type, status, priority, assignee_id, story_points, due_date, created_at, updated_at, labels, task_number, feature_branch, review_verdict, reviewed_commit, findings_url, run_stopped, risk, release_id) \
+             VALUES (1, 1, 1, 'Story', 'd', 'story', 'user_testing', 'high', 2, 5, '2026-02-01', '2026-01-01', '2026-01-02', 'a,b', 1, 'feat/F-1-x', 'passed', 'abc', 'http://f', 0, 0, 1)",
+            "INSERT INTO tasks (id, project_id, sprint_id, parent_id, title, type, status, story_points, created_at, updated_at, task_number, risk) VALUES (2, 1, 1, 1, 'Slice', 'subtask', 'done', 5, '2026-01-01', '2026-01-01', 2, 1)",
+            "INSERT INTO tasks (id, project_id, title, type, status, created_at, updated_at, task_number) VALUES (3, 1, 'Epic', 'epic', 'todo', '2026-01-01', '2026-01-01', 3)",
+            "UPDATE tasks SET epic_id = 3 WHERE id = 1",
+            "INSERT INTO tasks (id, project_id, title, type, status, created_at, updated_at, task_number) VALUES (4, 2, 'Legacy', 'story', 'todo', '2026-01-01', '2026-01-01', 1)",
+            "INSERT INTO comments (task_id, author_id, body, created_at) VALUES (2, 1, 'hi', '2026-01-01')",
+            "INSERT INTO time_logs (task_id, person_id, minutes, logged_at) VALUES (2, 1, 30, '2026-01-01')",
+            "INSERT INTO attachments (task_id, filename, filepath, size, uploaded_at) VALUES (4, 'f', '/f', 1, '2026-01-01')",
+            "INSERT INTO activity_log (task_id, person_id, action, old_value, new_value, created_at) VALUES (1, 1, 'stage_entered', 'tested', 'user_testing', '2026-01-01')",
+            "INSERT INTO task_links (task_id, depends_on_id, created_at) VALUES (1, 4, '2026-01-01')",
+            "INSERT INTO task_prs (task_id, url, created_at, updated_at) VALUES (1, 'http://pr', '2026-01-01', '2026-01-01')",
+        ] {
+            sqlx::query(sql).execute(&mut conn).await.unwrap();
+        }
+        let all = table_columns(&mut conn).await;
+        let columns = surviving(&all).await;
+        // 015 removes these, and nothing else.
+        let dropped: Vec<String> = all
+            .iter()
+            .flat_map(|(t, cols)| match columns.iter().find(|(s, _)| s == t) {
+                None => vec![t.clone()],
+                Some((_, kept)) => cols.iter().filter(|c| !kept.contains(c)).map(|c| format!("{t}.{c}")).collect(),
+            })
+            .collect();
+        assert_eq!(dropped, vec!["project_contacts".to_string(), "projects.kind".to_string()]);
+        let before = snapshot(&mut conn, &columns).await;
+        conn.close().await.unwrap();
+
+        let pool = open_and_migrate(&path).await.unwrap();
+        let mut conn = pool.acquire().await.unwrap();
+        let after = snapshot(&mut conn, &columns).await;
+        for ((table, rows_before), (_, rows_after)) in before.iter().zip(after.iter()) {
+            assert!(!rows_before.is_empty(), "{table} was seeded");
+            assert_eq!(rows_before, rows_after, "table {table} changed during migration 015");
+        }
+        let with_client: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM projects WHERE client_id IS NOT NULL")
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap();
+        assert_eq!(with_client, 0, "every existing project starts internal");
+        let violations: Vec<(String,)> = sqlx::query_as("SELECT \"table\" FROM pragma_foreign_key_check")
+            .fetch_all(&mut *conn)
+            .await
+            .unwrap();
+        assert!(violations.is_empty(), "FK violations after 015: {violations:?}");
+        let kind: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pragma_table_info('projects') WHERE name = 'kind'")
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap();
+        assert_eq!(kind, 0, "projects.kind is dropped");
+        let old: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE name = 'project_contacts'")
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap();
+        assert_eq!(old, 0, "project_contacts no longer exists");
+        let fk: (String, String) = sqlx::query_as(
+            "SELECT \"table\", on_delete FROM pragma_foreign_key_list('projects') WHERE \"from\" = 'client_id'",
+        )
+        .fetch_one(&mut *conn)
+        .await
+        .unwrap();
+        assert_eq!(fk, ("clients".to_string(), "SET NULL".to_string()));
+
+        // The links are live: one primary per client, and deleting a client
+        // keeps its project (internal again) and drops its contacts.
+        sqlx::query("INSERT INTO clients (id, name) VALUES (1, 'Acme')").execute(&mut *conn).await.unwrap();
+        sqlx::query("UPDATE projects SET client_id = 1 WHERE id = 1").execute(&mut *conn).await.unwrap();
+        sqlx::query("INSERT INTO client_contacts (client_id, person_id, is_primary) VALUES (1, 2, 1)")
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+        let second_primary = sqlx::query("INSERT INTO client_contacts (client_id, person_id, is_primary) VALUES (1, 1, 1)")
+            .execute(&mut *conn)
+            .await;
+        assert!(second_primary.is_err(), "at most one primary contact per client");
+        sqlx::query("DELETE FROM clients WHERE id = 1").execute(&mut *conn).await.unwrap();
+        let left: (i64, Option<i64>, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM projects), (SELECT client_id FROM projects WHERE id = 1), (SELECT COUNT(*) FROM client_contacts)",
+        )
+        .fetch_one(&mut *conn)
+        .await
+        .unwrap();
+        assert_eq!(left, (2, None, 0));
+        drop(conn);
+        pool.close().await;
+    }
+
+    /// FB-208: migration 016 adds `projects.state`; a project that existed
+    /// before it reads `active`, and the CHECK refuses any other value.
+    #[tokio::test]
+    async fn migration_016_starts_existing_projects_active() {
+        let mut conn = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .foreign_keys(false)
+            .connect()
+            .await
+            .unwrap();
+        let older = Migrator {
+            migrations: MIGRATOR.iter().filter(|m| m.version < 16).cloned().collect::<Vec<_>>().into(),
+            ..Migrator::DEFAULT
+        };
+        older.run(&mut conn).await.unwrap();
+        sqlx::query("INSERT INTO projects (id, name, key, created_at) VALUES (1, 'P', 'P', '2026-01-01')")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+
+        MIGRATOR.run(&mut conn).await.unwrap();
+        let state: String = sqlx::query_scalar("SELECT state FROM projects WHERE id = 1")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(state, "active");
+        let refused = sqlx::query("UPDATE projects SET state = 'deleted' WHERE id = 1").execute(&mut conn).await;
+        assert!(refused.is_err(), "state CHECK must refuse values other than active/archived");
+        conn.close().await.unwrap();
     }
 
     #[tokio::test]

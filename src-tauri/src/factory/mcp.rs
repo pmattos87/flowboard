@@ -1,6 +1,6 @@
 //! `flowboard-cli mcp`: a stdio MCP server over the same domain operations as
 //! the CLI. Every call acts as the Agent. Setup operations (factory roles,
-//! project ladder/kind, contacts) stay CLI-only, so an agent cannot switch a
+//! project ladder/client, clients and contacts) stay CLI-only, so an agent cannot switch a
 //! project's ladder.
 
 use super::ops::{self, Actor, NewEpic, NewStory, NewSubtask, StoryEdit};
@@ -463,5 +463,24 @@ mod tests {
         assert_eq!(p.epic, Some(None), "null takes the Story out");
         let p: StoryEditArgs = serde_json::from_str(r#"{"key":"SF-2","epic":"SF-1"}"#).unwrap();
         assert_eq!(p.epic, Some(Some("SF-1".into())));
+    }
+
+    /// FB-14: the MCP `story_create` handler on an archived project returns the
+    /// refusal text and creates nothing.
+    #[tokio::test]
+    async fn story_create_on_an_archived_project_returns_the_refusal() {
+        use crate::test_support as ts;
+        use rmcp::handler::server::wrapper::Parameters;
+
+        let pool = ts::pool().await;
+        let p = ts::factory_project(&pool, "AR").await;
+        crate::commands::projects::set_project_state_inner(&pool, p, "archived").await.unwrap();
+        let mcp = FlowboardMcp::new(pool.clone());
+        let args: StoryCreate = serde_json::from_str(r#"{"project":"AR","title":"t"}"#).unwrap();
+
+        let err = mcp.story_create(Parameters(args)).await.unwrap_err();
+        assert_eq!(err, "AR is archived; unarchive it first");
+        let tasks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks").fetch_one(&pool).await.unwrap();
+        assert_eq!(tasks, 0);
     }
 }

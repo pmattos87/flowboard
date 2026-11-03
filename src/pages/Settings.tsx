@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Trash2, Upload } from "lucide-react";
+import { Archive, ArchiveRestore, Trash2, Upload } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,11 +8,13 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   useDeleteProject,
   useProject,
+  useSetProjectState,
   useUpdateProject,
 } from "@/hooks/useProjects";
 import { useUiStore } from "@/stores/uiStore";
 import { seedDemoData } from "@/lib/commands";
 import { ProjectBadge } from "@/components/ProjectBadge";
+import { ClientSelect } from "@/components/ClientSelect";
 import { fileToLogoDataUrl } from "@/lib/image";
 import { cn } from "@/lib/utils";
 import { BackupSettings } from "@/features/backup/BackupSettings";
@@ -42,6 +44,8 @@ export default function Settings() {
   const { data: project, isLoading } = useProject(activeProjectId);
   const updateProject = useUpdateProject();
   const deleteProject = useDeleteProject();
+  const setProjectState = useSetProjectState();
+  const archived = project?.state === "archived";
 
   // The URL is the source of truth for the tab, so a tab click and a link to
   // `?tab=backup` (the sidebar's backup warning) always agree.
@@ -51,6 +55,7 @@ export default function Settings() {
   const [key, setKey] = useState("");
   const [description, setDescription] = useState("");
   const [logoData, setLogoData] = useState<string | null>(null);
+  const [clientId, setClientId] = useState<number | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -67,6 +72,7 @@ export default function Settings() {
       setKey(project.key);
       setDescription(project.description);
       setLogoData(project.logo_data);
+      setClientId(project.client_id);
       setConfirmingDelete(false);
       setError(null);
     }
@@ -79,7 +85,8 @@ export default function Settings() {
     (trimmedName !== project.name ||
       trimmedKey !== project.key ||
       description !== project.description ||
-      logoData !== project.logo_data);
+      logoData !== project.logo_data ||
+      clientId !== project.client_id);
   const valid =
     trimmedName.length > 0 && /^[A-Z0-9]{2,5}$/.test(trimmedKey);
   const canSave = dirty && valid && !updateProject.isPending;
@@ -108,6 +115,7 @@ export default function Settings() {
           key: trimmedKey,
           description,
           logo_data: logoData,
+          client_id: clientId,
         },
       });
       setSavedAt(Date.now());
@@ -209,6 +217,8 @@ export default function Settings() {
                   />
                 </div>
 
+                <ClientSelect id="settings-client" value={clientId} onChange={setClientId} />
+
                 <div className="space-y-1.5">
                   <Label htmlFor="settings-description" className="text-gray-300">
                     Description
@@ -282,6 +292,36 @@ export default function Settings() {
                   )}
                 </div>
               </form>
+
+              <div className="mt-12 pt-6 border-t border-gray-800">
+                <h2 className="text-sm font-semibold text-gray-300">
+                  {archived ? "Archived project" : "Archive"}
+                </h2>
+                <p className="mt-1 text-xs text-gray-500">
+                  {archived
+                    ? "This project is read-only. Unarchive it to plan new work in it."
+                    : "Archiving puts the project away and makes it read-only. You can unarchive it at any time."}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    setProjectState.mutate({
+                      id: project.id,
+                      state: archived ? "active" : "archived",
+                    })
+                  }
+                  disabled={setProjectState.isPending}
+                  className="mt-3 bg-transparent border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white"
+                >
+                  {archived ? (
+                    <ArchiveRestore className="h-4 w-4" />
+                  ) : (
+                    <Archive className="h-4 w-4" />
+                  )}
+                  {archived ? "Unarchive project" : "Archive project"}
+                </Button>
+              </div>
 
               <div className="mt-12 pt-6 border-t border-gray-800">
                 <h2 className="text-sm font-semibold text-gray-300">Danger zone</h2>
