@@ -76,7 +76,7 @@ Both are the same defect: `sprint_id` decides which *board* a story appears on, 
 
 **Rule:** any code path that changes a story's `sprint_id` must go through `computeSprintDropPayload` rather than patching `sprint_id` directly. It owns both transitions (backlog → sprint sets `todo`; sprint → backlog restores `ready_for_development`) and is gated on `type === "story"` so non-story rows keep their status.
 
-**Still open:** deleting a sprint clears `sprint_id` via `ON DELETE SET NULL` in SQL, which cannot run this transition. Those stories keep their dev status and land in the Discovery `BACKLOG` column rather than the planning row. Currently intended (FB-91 notes it), but it is the same asymmetry and worth revisiting if it confuses users.
+**Closed (FB-93):** deleting a sprint clears `sprint_id` via `ON DELETE SET NULL` in SQL, which cannot run this transition, so stories kept their dev status and landed on no board. `delete_sprint` now refuses while the sprint holds Story-level rows whose status would be invisible once `sprint_id` is cleared, naming them and changing nothing. Both boards also warn (amber strip, `invisibleStories`) about any issue that appears on no board.
 
 **Diagnostic note:** `KanbanBoard` filters each column by exact status and silently drops anything that matches none. A story "disappearing" from a board is almost always a status/column mismatch, not a filter or query bug.
 

@@ -5,9 +5,9 @@ import { useProject } from "@/hooks/useProjects";
 import { useSprints } from "@/hooks/useSprints";
 import { RefreshButton } from "@/components/RefreshButton";
 import { KanbanBoard } from "./shared/KanbanBoard";
-import { COLUMNS, FACTORY_STORY_COLUMNS } from "./shared/boardConstants";
+import { invisibleStories, isStoryBoardRow, storyBoardColumns } from "./shared/invisibleStories";
+import { InvisibleStoriesStrip } from "./shared/InvisibleStoriesStrip";
 import { useStoryCardDecor } from "@/features/story/useStoryCardDecor";
-import { isStoryLevel } from "@/lib/storyLevel";
 import { SprintFilterSelect } from "./shared/SprintFilterSelect";
 import { matchesSprintFilter, sprintFilterLabel } from "./shared/sprintFilter";
 
@@ -33,8 +33,7 @@ export function UserStoryBoard() {
   // here too listed the same story twice under two different column names
   // (Discovery BACKLOG vs. this board's TO DO).
   const tasks = (allTasks ?? [])
-    .filter((t) => isStoryLevel(t, project?.ladder))
-    .filter((t) => t.sprint_id !== null)
+    .filter((t) => isStoryBoardRow(t, project?.ladder))
     .filter((t) => matchesSprintFilter(t, boardSprintFilter));
 
   return (
@@ -48,6 +47,9 @@ export function UserStoryBoard() {
           <SprintFilterSelect projectId={activeProjectId} includeBacklog={false} />
         </div>
       </div>
+      {project && (
+        <InvisibleStoriesStrip stories={invisibleStories(allTasks ?? [], project.ladder)} projectKey={project.key} />
+      )}
       {tasks.length === 0 ? (
         <div className="flex items-center justify-center h-64 text-gray-500 text-sm">
           No stories in {sprintFilterLabel(boardSprintFilter, sprints)}.
@@ -57,7 +59,7 @@ export function UserStoryBoard() {
           tasks={tasks}
           people={people}
           projectKey={project?.key ?? "FB"}
-          columns={project?.ladder === "factory" ? FACTORY_STORY_COLUMNS : COLUMNS}
+          columns={storyBoardColumns(project?.ladder)}
           decorate={decorate}
         />
       )}

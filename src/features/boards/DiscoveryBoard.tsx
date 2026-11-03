@@ -6,10 +6,10 @@ import { useProject } from "@/hooks/useProjects";
 import { RefreshButton } from "@/components/RefreshButton";
 import { KanbanBoard } from "./shared/KanbanBoard";
 import { DiscoveryEpicBoard } from "./shared/DiscoveryEpicBoard";
-import { DISCOVERY_COLUMNS, FACTORY_DISCOVERY_COLUMNS } from "./shared/boardConstants";
+import { discoveryColumns, invisibleStories, isDiscoveryRow } from "./shared/invisibleStories";
+import { InvisibleStoriesStrip } from "./shared/InvisibleStoriesStrip";
 import { factoryDiscoveryStories } from "./shared/epicGrouping";
 import { useStoryCardDecor } from "@/features/story/useStoryCardDecor";
-import { isStoryLevel } from "@/lib/storyLevel";
 
 const GROUPING_OPTIONS: { value: DiscoveryGrouping; label: string; Icon: typeof Layers }[] = [
   { value: "none", label: "No grouping", Icon: Columns3 },
@@ -37,9 +37,7 @@ export function DiscoveryBoard() {
   // On a Factory project epics are never cards (FB-224); legacy keeps them.
   const tasks = isFactory
     ? factoryDiscoveryStories(allTasks ?? [])
-    : (allTasks ?? []).filter(
-        (t) => (t.type === "epic" || isStoryLevel(t, project?.ladder)) && t.sprint_id === null
-      );
+    : (allTasks ?? []).filter((t) => isDiscoveryRow(t, project?.ladder));
   const grouped = isFactory && grouping === "epic";
 
   return (
@@ -75,6 +73,9 @@ export function DiscoveryBoard() {
           </div>
         )}
       </div>
+      {project && (
+        <InvisibleStoriesStrip stories={invisibleStories(allTasks ?? [], project.ladder)} projectKey={project.key} />
+      )}
       {grouped && project ? (
         <DiscoveryEpicBoard tasks={allTasks ?? []} people={people} project={project} decorate={decorate} />
       ) : (
@@ -82,7 +83,7 @@ export function DiscoveryBoard() {
           tasks={tasks}
           people={people}
           projectKey={project?.key ?? "FB"}
-          columns={isFactory ? FACTORY_DISCOVERY_COLUMNS : DISCOVERY_COLUMNS}
+          columns={discoveryColumns(project?.ladder)}
           decorate={decorate}
         />
       )}

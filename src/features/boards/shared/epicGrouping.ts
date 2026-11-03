@@ -1,6 +1,5 @@
 import type { Task } from "@/types";
-import { isStoryLevel } from "@/lib/storyLevel";
-import { FACTORY_DISCOVERY_COLUMNS } from "./boardConstants";
+import { discoveryColumns, isDiscoveryRow } from "./invisibleStories";
 
 export type EpicGroupKey = number | "none";
 
@@ -20,9 +19,7 @@ export interface EpicRow {
 export function factoryDiscoveryStories(tasks: Task[]): Task[] {
   return tasks.filter(
     (t) =>
-      isStoryLevel(t, "factory") &&
-      t.sprint_id === null &&
-      FACTORY_DISCOVERY_COLUMNS.some((c) => c.status === t.status)
+      isDiscoveryRow(t, "factory") && discoveryColumns("factory").some((c) => c.status === t.status)
   );
 }
 
