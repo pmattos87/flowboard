@@ -12,9 +12,10 @@ beforeEach(() => {
     boardSprintFilter: "all",
     boardSprintFilterFor: null,
     discoveryGrouping: "none",
+    storyBoardGrouping: "none",
+    labelFilters: {},
     collapsedClientIds: {},
     openArchivedGroups: {},
-    labelFilters: {},
   });
 });
 
@@ -203,6 +204,36 @@ describe("uiStore discoveryGrouping (FB-224)", () => {
 
   it("is session-only: the store has no persist middleware", () => {
     // zustand's persist middleware adds a `persist` API to the store hook.
+    expect("persist" in useUiStore).toBe(false);
+  });
+});
+
+describe("uiStore storyBoardGrouping (FB-291)", () => {
+  it("defaults to no grouping", () => {
+    expect(useUiStore.getInitialState().storyBoardGrouping).toBe("none");
+  });
+
+  it("setStoryBoardGrouping sets the mode", () => {
+    useUiStore.getState().setStoryBoardGrouping("epic");
+    expect(useUiStore.getState().storyBoardGrouping).toBe("epic");
+    useUiStore.getState().setStoryBoardGrouping("none");
+    expect(useUiStore.getState().storyBoardGrouping).toBe("none");
+  });
+
+  it("setting storyBoardGrouping leaves discoveryGrouping unchanged", () => {
+    useUiStore.getState().setStoryBoardGrouping("epic");
+    expect(useUiStore.getState().discoveryGrouping).toBe("none");
+  });
+
+  it("setting discoveryGrouping leaves storyBoardGrouping unchanged", () => {
+    useUiStore.getState().setDiscoveryGrouping("epic");
+    expect(useUiStore.getState().storyBoardGrouping).toBe("none");
+    useUiStore.getState().toggleDiscoveryGrouping();
+    useUiStore.getState().toggleDiscoveryGrouping();
+    expect(useUiStore.getState().storyBoardGrouping).toBe("none");
+  });
+
+  it("is session-only: the store has no persist middleware", () => {
     expect("persist" in useUiStore).toBe(false);
   });
 });
