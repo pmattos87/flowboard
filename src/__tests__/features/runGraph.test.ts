@@ -674,20 +674,46 @@ describe("runGraph one in-flight rule (FB-245, QA)", () => {
     expect(g.fix.state).toBe("current");
   });
 
-  it("no review_started after a failed round: Code review and Fix findings are current, as before", () => {
+  it("FB-276: the findings bug Subtask handed out after a failed round turns Code review todo, with or without a review_started", () => {
     const subs = [sub(2, "done"), sub(3, "in_progress", "bug")];
-    const legacy = graph({ status: "building" }, subs, [
-      ...built, ev("review_round", { round: 1, verdict: "failed" }), ev("bug_subtask_filed", { subtask: "FB-3" }),
-      ev("subtask_handoff", { subtask: "FB-3", agent: "frontend-design", model: "opus" }),
-    ]);
-    expect(review(legacy)?.state).toBe("current");
-    expect(legacy.fix.state).toBe("current");
-    const startedBefore = graph({ status: "building" }, subs, [
-      ...built, started(1), ev("review_round", { round: 1, verdict: "failed" }), ev("bug_subtask_filed", { subtask: "FB-3" }),
-      ev("subtask_handoff", { subtask: "FB-3", agent: "frontend-design", model: "opus" }),
-    ]);
-    expect(review(startedBefore)?.state).toBe("current");
-    expect(startedBefore.fix.state).toBe("current");
+    const failed = [ev("review_round", { round: 1, verdict: "failed" }), ev("bug_subtask_filed", { subtask: "FB-3" })];
+    const handoff = ev("subtask_handoff", { subtask: "FB-3", agent: "frontend-design", model: "opus" });
+    for (const trail of [[...built, ...failed, handoff], [...built, started(1), ...failed, handoff]]) {
+      const g = graph({ status: "building" }, subs, trail);
+      expect(review(g)?.state).toBe("todo");
+      expect(g.fix.state).toBe("current");
+      expect(g.subtasks.find((n) => n.key === "FB-3")?.state).toBe("current");
+    }
+  });
+
+  it("FB-276: a verify_round of the bug Subtask after a failed round turns Code review todo", () => {
+    const subs = [sub(2, "done"), sub(3, "in_progress", "bug")];
+    const failed = [ev("review_round", { round: 1, verdict: "failed" }), ev("bug_subtask_filed", { subtask: "FB-3" })];
+    const verify = ev("verify_round", { subtask: "FB-3", round: 1, result: "pass" });
+    for (const trail of [[...built, ...failed, verify], [...built, started(1), ...failed, verify]]) {
+      const g = graph({ status: "building" }, subs, trail);
+      expect(review(g)?.state).toBe("todo");
+      expect(g.fix.state).toBe("current");
+    }
+  });
+
+  it("FB-276: a failed round with no Build work after it keeps Code review current", () => {
+    const subs = [sub(2, "done"), sub(3, "todo", "bug")];
+    const failed = ev("review_round", { round: 1, verdict: "failed" });
+    const filed = ev("bug_subtask_filed", { subtask: "FB-3" });
+    const tails: [string, TrailEvent[]][] = [
+      ["nothing", []],
+      ["bug_subtask_filed alone", [filed]],
+      ["run_stopped", [ev("run_stopped", { reason: "Pedro paused the Run" })]],
+      ["run_restarted", [ev("run_restarted")]],
+    ];
+    for (const [name, tail] of tails) {
+      for (const before of [[], [started(1)]]) {
+        const g = graph({ status: "building" }, subs, [...built, ...before, failed, ...tail]);
+        expect(review(g)?.state, `${name}, review_started before: ${before.length > 0}`).toBe("current");
+        expect(g.fix.state, name).toBe("current");
+      }
+    }
   });
 
   it("a review_started overtaken by a failed Verify, then a stop: the Subtask and Build gate stop", () => {

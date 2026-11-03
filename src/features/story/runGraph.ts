@@ -239,9 +239,13 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
             ? "current"
             : lastVerdict === "passed"
               ? "done"
-              : // After a failed round, until the next round starts; once started
-                // and then overtaken by Build work, it waits like a first round.
-                pick(false, lastVerdict === "failed" && reviewStarted < lastIndex("review_round")),
+              : // After a failed round, only until Build work (a handoff or a Verify
+                // round) follows it; the fix Subtask then holds the Run's place.
+                pick(
+                  false,
+                  lastVerdict === "failed" &&
+                    lastIndex("review_round") > Math.max(lastIndex("subtask_handoff"), lastIndex("verify_round")),
+                ),
   };
   const fix: RunNode = {
     id: "fix",
