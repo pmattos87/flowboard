@@ -54,6 +54,11 @@ interface UiState {
   /** Sidebar groups whose "Archived (n)" row is open (FB-14). Absent = collapsed. Session-only. */
   openArchivedGroups: Partial<Record<ArchivedGroupKey, true>>;
   toggleArchivedOpen: (group: ArchivedGroupKey) => void;
+
+  /** Board label filter per project id (FB-99). Session-only, never persisted; a missing entry means no filter. */
+  labelFilters: Record<number, string>;
+  /** Sets one project's label filter; null clears it. */
+  setLabelFilter: (projectId: number, label: string | null) => void;
 }
 
 /** A sidebar group: the Internal section, or a client group by client id. */
@@ -134,4 +139,19 @@ export const useUiStore = create<UiState>((set) => ({
       else next[group] = true;
       return { openArchivedGroups: next };
     }),
+
+  labelFilters: {},
+  setLabelFilter: (projectId, label) =>
+    set((state) => {
+      const next = { ...state.labelFilters };
+      if (label === null) delete next[projectId];
+      else next[projectId] = label;
+      return { labelFilters: next };
+    }),
 }));
+
+/** Selector for one project's label filter: `useUiStore(selectLabelFilter(id))`. Null when none is set. */
+export const selectLabelFilter =
+  (projectId: number | null) =>
+  (state: UiState): string | null =>
+    projectId == null ? null : state.labelFilters[projectId] ?? null;

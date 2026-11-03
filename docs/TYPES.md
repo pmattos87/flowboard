@@ -11,6 +11,7 @@ export type TaskType     = 'story' | 'bug' | 'subtask' | 'epic';
 // a bare type === 'story' check (FB-52).
 // Factory command types (ReleaseDetail.stories[], StoryView) carry `type: TaskType` so a
 // Story reads as feature or fix.
+// StoryView.blocked_by: string[] — its depends_on keys still blocking it, [] when not blocked (FB-99).
 export type TaskStatus   = 'todo' | 'in_progress' | 'in_review' | 'canceled' | 'done';
 export type TaskPriority = 'low' | 'medium' | 'high' | 'critical';
 export type SprintStatus = 'backlog' | 'active' | 'completed';
@@ -39,4 +40,6 @@ export interface ActivityLog { id: number; task_id: number; person_id: number; a
 
 /** `get_backup_status` (FB-95). */
 export interface BackupStatus { backup_dir: string | null; last_backup_at: string | null; last_error: string | null; enabled: boolean; }
+/** `get_blocked_by(projectKey)` (FB-99): blocked Story key → blocking dependency keys in task_number order; unblocked Stories absent; `{}` on a legacy project. */
+export type BlockedByMap = Record<string, string[]>;
 ```

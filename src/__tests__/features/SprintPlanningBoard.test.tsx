@@ -208,7 +208,7 @@ describe("SprintPlanningBoard — default filter", () => {
     });
     renderBoard();
     await waitFor(() => {
-      const select = screen.getByRole("combobox") as HTMLSelectElement;
+      const select = screen.getByRole("combobox", { name: "Sprint filter" }) as HTMLSelectElement;
       expect(select.value).toBe("11");
     });
   });

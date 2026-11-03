@@ -37,11 +37,11 @@ function LinkField({ label, value, mono = false }: { label: string; value: strin
   );
 }
 
-/** The Stories this one depends on, each an in-app link to its page. */
-function DependsOnField({ keys }: { keys: string[] }) {
+/** Related Stories (depends on, blocked by), each an in-app link to its page. */
+function StoryKeysField({ label, keys }: { label: string; keys: string[] }) {
   return (
     <div className="space-y-1">
-      <div className="text-gray-500 text-[11px]">Depends on</div>
+      <div className="text-gray-500 text-[11px]">{label}</div>
       <div className={cn(FIELD_CLS, "text-gray-200 select-text flex-wrap")}>
         {keys.length === 0
           ? "—"
@@ -111,7 +111,8 @@ function LinksCard({ story }: { story: StoryView }) {
           label="Release"
           value={story.release ? `${story.release.version} · ${story.release.state.replace("_", " ")}` : "— not picked"}
         />
-        <DependsOnField keys={story.depends_on} />
+        <StoryKeysField label="Depends on" keys={story.depends_on} />
+        {story.blocked_by.length > 0 && <StoryKeysField label="Blocked by" keys={story.blocked_by} />}
       </div>
     </section>
   );

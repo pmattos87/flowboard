@@ -86,6 +86,7 @@ pub fn run() {
             commands::releases::remove_release_story,
             commands::stories::get_story,
             commands::stories::get_story_trail,
+            commands::stories::get_blocked_by,
             commands::stories::restart_run,
             commands::stories::list_active_runs,
             commands::tasks::create_task,

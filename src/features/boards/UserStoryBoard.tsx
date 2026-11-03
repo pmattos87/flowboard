@@ -1,4 +1,4 @@
-import { useUiStore } from "@/stores/uiStore";
+import { selectLabelFilter, useUiStore } from "@/stores/uiStore";
 import { useTasks } from "@/hooks/useTasks";
 import { usePeople } from "@/hooks/usePeople";
 import { useProject } from "@/hooks/useProjects";
@@ -9,11 +9,14 @@ import { invisibleStories, isStoryBoardRow, storyBoardColumns } from "./shared/i
 import { InvisibleStoriesStrip } from "./shared/InvisibleStoriesStrip";
 import { useStoryCardDecor } from "@/features/story/useStoryCardDecor";
 import { SprintFilterSelect } from "./shared/SprintFilterSelect";
+import { LabelFilterSelect } from "./shared/LabelFilterSelect";
+import { matchesLabelFilter } from "@/lib/labels";
 import { matchesSprintFilter, sprintFilterLabel } from "./shared/sprintFilter";
 
 export function UserStoryBoard() {
   const activeProjectId = useUiStore((s) => s.activeProjectId);
   const boardSprintFilter = useUiStore((s) => s.boardSprintFilter);
+  const labelFilter = useUiStore(selectLabelFilter(activeProjectId));
   const { data: allTasks } = useTasks(activeProjectId != null ? { project_id: activeProjectId } : undefined);
   const { data: people = [] } = usePeople();
   const { data: project } = useProject(activeProjectId);
@@ -34,7 +37,8 @@ export function UserStoryBoard() {
   // (Discovery BACKLOG vs. this board's TO DO).
   const tasks = (allTasks ?? [])
     .filter((t) => isStoryBoardRow(t, project?.ladder))
-    .filter((t) => matchesSprintFilter(t, boardSprintFilter));
+    .filter((t) => matchesSprintFilter(t, boardSprintFilter))
+    .filter((t) => matchesLabelFilter(t, labelFilter));
 
   return (
     <div className="flex flex-col h-full">
@@ -43,8 +47,9 @@ export function UserStoryBoard() {
           <h1 className="text-lg font-semibold text-white">User Story Board</h1>
           <RefreshButton />
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-3">
           <SprintFilterSelect projectId={activeProjectId} includeBacklog={false} />
+          <LabelFilterSelect projectId={activeProjectId} />
         </div>
       </div>
       {project && (
@@ -52,7 +57,8 @@ export function UserStoryBoard() {
       )}
       {tasks.length === 0 ? (
         <div className="flex items-center justify-center h-64 text-gray-500 text-sm">
-          No stories in {sprintFilterLabel(boardSprintFilter, sprints)}.
+          No stories in {sprintFilterLabel(boardSprintFilter, sprints)}
+          {labelFilter !== null && ` with the label "${labelFilter}"`}.
         </div>
       ) : (
         <KanbanBoard
