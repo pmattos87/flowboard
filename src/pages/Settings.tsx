@@ -6,6 +6,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   useDeleteProject,
   useProject,
   useSetProjectState,
@@ -57,6 +65,8 @@ export default function Settings() {
   const [logoData, setLogoData] = useState<string | null>(null);
   const [clientId, setClientId] = useState<number | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // FB-305: a Save that flips the kind (no client <-> a client) waits here for confirmation.
+  const [kindChange, setKindChange] = useState<"toClient" | "toInternal" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -103,9 +113,29 @@ export default function Settings() {
     }
   };
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSave || !project) return;
+    if ((project.client_id === null) !== (clientId === null)) {
+      setKindChange(clientId === null ? "toInternal" : "toClient");
+      return;
+    }
+    void save();
+  };
+
+  const confirmKindChange = () => {
+    setKindChange(null);
+    void save();
+  };
+
+  /** Cancelling restores only the Client select; other unsaved edits stay. */
+  const cancelKindChange = () => {
+    setKindChange(null);
+    if (project) setClientId(project.client_id);
+  };
+
+  const save = async () => {
+    if (!project) return;
     setError(null);
     try {
       await updateProject.mutateAsync({
@@ -189,7 +219,56 @@ export default function Settings() {
             <>
               <p className="text-sm text-gray-500">
                 Editing <span className="text-gray-300">{project.name}</span>
+                {project.kind === "client" && (
+                  <span className="ml-2 rounded bg-blue-500/15 px-1.5 py-0.5 text-xs font-medium text-blue-300">
+                    Client
+                  </span>
+                )}
               </p>
+
+              <Dialog
+                open={kindChange !== null}
+                onOpenChange={(open) => {
+                  if (!open) cancelKindChange();
+                }}
+              >
+                <DialogContent className="bg-gray-900 border-gray-800 text-gray-100 sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>
+                      {kindChange === "toClient"
+                        ? "Make this a Client project?"
+                        : "Make this an Internal project?"}
+                    </DialogTitle>
+                    <DialogDescription className="text-gray-400">
+                      {kindChange === "toClient"
+                        ? "User testing is added between tested and production, with betas and client documents."
+                        : "User testing, betas and client documents are removed. Releases go from tested straight to production."}
+                    </DialogDescription>
+                  </DialogHeader>
+                  {kindChange === "toInternal" && (
+                    <p className="text-sm text-amber-400">
+                      Stories in User testing or open betas are affected.
+                    </p>
+                  )}
+                  <DialogFooter>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={cancelKindChange}
+                      className="bg-transparent border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={confirmKindChange}
+                      className="bg-blue-600 hover:bg-blue-500 text-white"
+                    >
+                      Confirm and save
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
 
               <form onSubmit={handleSave} className="mt-6 space-y-4">
                 <div className="space-y-1.5">
