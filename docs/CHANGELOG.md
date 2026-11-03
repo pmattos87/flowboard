@@ -4,6 +4,52 @@
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-11-03
+
+### Added
+- Archive a project (FB-14). New migration `016_project_state.sql` adds `projects.state` (`'active'` or `'archived'`, default `'active'`) with `ALTER TABLE ADD COLUMN` only, so every existing project stays active. The new `set_project_state` Tauri command switches it either way; there is no CLI or MCP archive command. Archiving is refused while the project has an `active` sprint or a Release in `planned` or `user_testing`, and the refusal names the sprint or the Release version.
+- The sidebar groups (Internal and each client) show a collapsed "Archived (n)" row at the bottom when the group has archived projects; expanding it lists them dimmed, and archived projects are left out of the group's sortable list. A client whose projects are all archived keeps its (dimmed) header with only the Archived row. The open state is per group, collapsed by default and not persisted. Each project entry and Settings' Project tab have an Archive/Unarchive action, and archiving the open project keeps it selected.
+- `state` in the `Project` JSON (`list_projects`, `get_project`, `project_show`) and the matching type, wrapper and React Query mutation (it invalidates the projects and Active Runs queries).
+- The Discovery and User Story boards show an amber "N issues appear on no board:" strip when the project has Stories that match no column on either board. Each key is a chip that opens the detail panel. The check is the pure `invisibleStories(tasks, ladder)` in `src/features/boards/shared/invisibleStories.ts`, built from the same column and row exports the boards use (FB-93).
+- Label management: labels are normalized on every write (trimmed, empties and exact duplicates dropped, sorted A-Z ignoring ASCII case, joined with `,`). The labels field in the task panel and the Create dialog is now a chip input that suggests the project's existing labels, on its own full-width row (FB-99).
+- A "Label filter" select on every board (Task, User Story, Sprint Planning, Discovery), per project and session-only (FB-99).
+- Blocked-by link: on a Factory project, a Story whose depends-on dependency has not reached `integrated_tests` (and is not canceled) shows "Blocked by <KEY>" on its card and in the Story page's Links card. New Tauri command `get_blocked_by(project_key)`; `story_show` JSON gains `blocked_by` (FB-99).
+- A Workflow hint under the Client select (create project modal and Settings' Project tab): "Releases go from tested straight to production." for "None (internal)", and "Adds User testing between tested and production, with betas and client documents." once a client is picked (FB-197).
+- Settings asks for confirmation when a Save would flip the project between Internal and Client. Making it a Client project explains that User testing, betas and client documents are added; making it Internal says they are removed and warns that Stories in User testing or open betas are affected. Cancel restores only the Client select and keeps the other unsaved edits. Changing from one client to another still saves without a confirmation (FB-197).
+- A "Client" badge next to the project name on Settings' "Editing" line when the project has a client (FB-197).
+- Clients and a grouped sidebar (FB-202). A client is an organization with a name and a sidebar position; a project is one solution for a client, or internal. New migration `015_clients.sql` adds the `clients` table and the nullable `projects.client_id` (`REFERENCES clients(id) ON DELETE SET NULL`; NULL means internal), with `ALTER TABLE` only and no table rebuild; every existing project starts internal and every task, child row and project field other than `kind` is unchanged.
+- The sidebar has two sections: Internal (projects with no client) and Clients (one expandable group per client, listing its projects; a client with no projects still shows; new clients start expanded, and the expanded/collapsed state is UI state). Projects drag-to-reorder within their group and clients within the Clients section (`@dnd-kit`); a project cannot be dragged to another group.
+- A "+" on the Clients section header creates a client, and each client group has a rename action. The create project modal and Settings' Project tab have a Client select ("None (internal)" plus the clients); it saves without a confirmation. A project that changes client goes to the end of its new group.
+- New Tauri commands `list_clients`, `create_client`, `rename_client` and `reorder_clients` (a blank name is refused), `client_id` on `create_project` and `update_project` (absent keeps it, `null` clears it), and the matching types, wrappers and React Query hooks.
+- CLI: `flowboard-cli client list`, and `flowboard-cli project set <project> --client <client id|none>`.
+- The Factory User Story Board has a "Group by epic" / "No grouping" toggle, session-only like the Discovery board's. Grouped, it shows one swimlane per epic holding a Story in the filtered sprint, then a "No epic" lane; epics with no Story in the sprint are left out (FB-291).
+- MCP tool `epic_show` (`{ key }`) and CLI `flowboard-cli epic show <KEY>`: an epic's key, title, status and description with its Stories (key, title, type and status, canceled ones included, by task number). Read-only (FB-292).
+- MCP tool `epic_list` (`{ project, status? }`) and CLI `flowboard-cli epic list <PROJECT> [--status todo|done|canceled|all]`: a Factory project's epics at that status (default `todo`, the open ones), by task number, each with its Story counts by Story status (only the statuses that occur; canceled Stories are counted). An unknown status or a legacy project is refused. Read-only (FB-292).
+- `story_create` takes an optional `epic` (an epic key), and the CLI `story create` takes `--epic <KEY>`, so a Story is filed into an epic as it is created. It follows `story_edit`'s rule (an open epic of the Story's own project); a refused epic creates nothing, not even the Story (FB-292).
+
+### Changed
+- An archived project is read-only: every Factory write (Story and Subtask create, edit, move and comment, links, review, run stop/restart, PRs, Release create/pick/move, `app_move`, `app_create_status`, CLI and MCP) and the legacy-ladder `create_task`/`update_task` and `create_sprint`/`update_sprint` are refused with "<KEY> is archived; unarchive it first". Boards, Stories, Releases and history still open and read normally.
+- Archived projects are left out of the TopBar search's project results and out of Active Runs.
+
+Release note: migration 016 follows FB-202's 015, so FB-14 must ship in the same Release as FB-202 or a later one (LESSONS SF-68).
+- Deleting a sprint is refused while it holds Story-level rows (top-level story or bug on the Factory ladder, story on the legacy ladder) that would land on no board once the sprint is cleared. The error names them and nothing changes. Rows in Factory `backlog`, `refining`, `ready` or `canceled`, or legacy `todo`, `refining`, `ready_for_development` or `canceled`, still delete freely (FB-93).
+- Migration `014_normalize_labels.sql` rewrites existing labels once into the normalized form (data only, `updated_at` untouched). It must ship through a Release build, not a plain merge (LESSONS SF-68) (FB-99).
+- `projects.kind` is no longer stored: migration 015 drops the column in place (`ALTER TABLE projects DROP COLUMN kind`). A project is `client` iff `client_id` is set, and the API (`Project` JSON, `project_show`) still returns `kind`, computed.
+- Contacts move to the client: `project_contacts` is replaced by `client_contacts` (`client_id`, `person_id`, `is_primary`; at most one primary per client; it had no rows, so no data moves). `flowboard-cli contact add/remove` now take a client id instead of a project, and `project_show` lists the contacts of the project's client. The Factory's `user_testing` assignee (Story and Release) is the primary contact of the project's client.
+- The Discovery board's epic swimlane view is now the shared `EpicSwimlaneBoard` (columns passed in) and the grouping toggle the shared `GroupingToggle`; the Discovery board behaves as before (FB-291).
+
+### Removed
+- `flowboard-cli project set --kind`, replaced by `--client`.
+
+Release note: migration 015 must reach production through an FB Release build before anything opens the production database with a develop build (LESSONS SF-68). The CLI refuses a database at a different migration version, so ship the CLI from the same version.
+
+After the release (Pedro): create the Hammer Loc and Viagem Pronta clients in the app, assign HL and VP to them, and confirm with `flowboard-cli project show` that both report `"kind": "client"`.
+
+### Fixed
+- The New release dialog no longer overflows when a tested Story has a long title: the titles in "Tested stories to pick" truncate with an ellipsis (the full title shows on hover) instead of pushing the Version input and the buttons out of the dialog. The form and the candidate rows can now shrink inside the dialog's grid. The shared dialog, the pick logic and the version suggestion are unchanged (FB-267).
+- The Run graph no longer lights Code review while a Review findings fix builds. After a failed Review round, Code review is `current` only until a `subtask_handoff` or `verify_round` follows the pass's latest `review_round`; from then on it is `todo` and the fix's Build/Verify is the lit node. A `bug_subtask_filed` alone is not Build work. This applies to trails without `review_started` too, replacing FB-158's "render as before" fallback. Fix findings, stop classification, `reviewStopFrom` and the Review stop gate are unchanged (FB-276).
+- The Run graph lights the approval gate and PR opened while their step is under way. In the Plan lane, Brief written is done once the Story has Subtasks, and Pedro approves is `current` while the Story is refining with Subtasks (before, it never lit and Brief written stayed lit for all of refining). In the Review lane, PR opened is `current` after the pass's passed Review while no Review is in flight, no Build work (a `subtask_handoff` or `verify_round`) came after the last review round, no PR into develop is open this pass and the Run is not stopped (before, it went straight from `todo` to `done`). Split and Auto-merge are unchanged, and a stop during Integrate still routes to the Review-side Stop gate (FB-282).
+
 ## [1.12.0] - 2026-10-30
 
 ### Added
