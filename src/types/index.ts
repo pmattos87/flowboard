@@ -30,8 +30,23 @@ export interface Project {
   position: number;
   /** Software Factory status ladder. */
   ladder: "legacy" | "factory";
-  /** Software Factory project kind. */
+  /** The project's client (FB-202); null = internal. */
+  client_id: number | null;
+  /** Software Factory project kind. Not stored: "client" iff `client_id` is set. */
   kind: "internal" | "client";
+  /** FB-14: archived projects are read-only and leave the sidebar's main lists. */
+  state: ProjectState;
+}
+
+/** A project's lifecycle state (FB-14). Changed only by `set_project_state`. */
+export type ProjectState = "active" | "archived";
+
+/** An organization that groups its projects in the sidebar (FB-202). */
+export interface Client {
+  id: number;
+  name: string;
+  /** Manual sort order within the sidebar's Clients section (ascending). */
+  position: number;
 }
 
 export interface Person {
@@ -185,6 +200,8 @@ export interface StoryView {
   prs: { url: string; target: string; state: string }[];
   /** Keys of the Stories this one depends on. */
   depends_on: string[];
+  /** The `depends_on` keys still blocking it, in task_number order; `[]` when not blocked (FB-99). */
+  blocked_by: string[];
   subtasks: {
     key: string;
     title: string;
@@ -195,6 +212,10 @@ export interface StoryView {
   }[];
   description: string;
 }
+
+/** `get_blocked_by`: blocked Story key → blocking dependency keys in task_number order.
+ *  Stories not blocked are absent; `{}` on a legacy project (FB-99). */
+export type BlockedByMap = Record<string, string[]>;
 
 /** One `list_active_runs` row: a Factory Story with a Run under way. */
 export interface ActiveRun {

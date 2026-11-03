@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useUiStore } from "@/stores/uiStore";
+import { isArchivedOpen, isClientExpanded, useUiStore, selectLabelFilter } from "@/stores/uiStore";
 
 beforeEach(() => {
   useUiStore.setState({
@@ -12,6 +12,46 @@ beforeEach(() => {
     boardSprintFilter: "all",
     boardSprintFilterFor: null,
     discoveryGrouping: "none",
+    storyBoardGrouping: "none",
+    labelFilters: {},
+    collapsedClientIds: {},
+    openArchivedGroups: {},
+  });
+});
+
+describe("uiStore label filter (FB-99)", () => {
+  const filterOf = (id: number | null) => selectLabelFilter(id)(useUiStore.getState());
+
+  it("starts at null for every project", () => {
+    expect(filterOf(1)).toBeNull();
+    expect(filterOf(null)).toBeNull();
+  });
+
+  it("keeps project A's filter across a switch to B and back; B starts at null", () => {
+    const s = useUiStore.getState();
+    s.setActiveProjectId(1);
+    s.setLabelFilter(1, "qa");
+    s.setActiveProjectId(2);
+    expect(filterOf(2)).toBeNull();
+    useUiStore.getState().setActiveProjectId(1);
+    expect(filterOf(1)).toBe("qa");
+    expect(filterOf(2)).toBeNull();
+  });
+
+  it("setting B's filter leaves A's alone", () => {
+    useUiStore.getState().setLabelFilter(1, "qa");
+    useUiStore.getState().setLabelFilter(2, "ux");
+    expect(filterOf(1)).toBe("qa");
+    expect(filterOf(2)).toBe("ux");
+  });
+
+  it("null clears only that project's filter", () => {
+    useUiStore.getState().setLabelFilter(1, "qa");
+    useUiStore.getState().setLabelFilter(2, "ux");
+    useUiStore.getState().setLabelFilter(1, null);
+    expect(filterOf(1)).toBeNull();
+    expect(filterOf(2)).toBe("ux");
+    expect(useUiStore.getState().labelFilters).toEqual({ 2: "ux" });
   });
 });
 
@@ -165,5 +205,78 @@ describe("uiStore discoveryGrouping (FB-224)", () => {
   it("is session-only: the store has no persist middleware", () => {
     // zustand's persist middleware adds a `persist` API to the store hook.
     expect("persist" in useUiStore).toBe(false);
+  });
+});
+
+describe("uiStore storyBoardGrouping (FB-291)", () => {
+  it("defaults to no grouping", () => {
+    expect(useUiStore.getInitialState().storyBoardGrouping).toBe("none");
+  });
+
+  it("setStoryBoardGrouping sets the mode", () => {
+    useUiStore.getState().setStoryBoardGrouping("epic");
+    expect(useUiStore.getState().storyBoardGrouping).toBe("epic");
+    useUiStore.getState().setStoryBoardGrouping("none");
+    expect(useUiStore.getState().storyBoardGrouping).toBe("none");
+  });
+
+  it("setting storyBoardGrouping leaves discoveryGrouping unchanged", () => {
+    useUiStore.getState().setStoryBoardGrouping("epic");
+    expect(useUiStore.getState().discoveryGrouping).toBe("none");
+  });
+
+  it("setting discoveryGrouping leaves storyBoardGrouping unchanged", () => {
+    useUiStore.getState().setDiscoveryGrouping("epic");
+    expect(useUiStore.getState().storyBoardGrouping).toBe("none");
+    useUiStore.getState().toggleDiscoveryGrouping();
+    useUiStore.getState().toggleDiscoveryGrouping();
+    expect(useUiStore.getState().storyBoardGrouping).toBe("none");
+  });
+
+  it("is session-only: the store has no persist middleware", () => {
+    expect("persist" in useUiStore).toBe(false);
+  });
+});
+
+describe("uiStore client groups (FB-202)", () => {
+  it("an unknown client defaults to expanded", () => {
+    expect(isClientExpanded(useUiStore.getState(), 42)).toBe(true);
+  });
+
+  it("toggleClientExpanded flips one client without changing the others", () => {
+    const { toggleClientExpanded } = useUiStore.getState();
+    toggleClientExpanded(1);
+    toggleClientExpanded(2);
+    toggleClientExpanded(2);
+    const state = useUiStore.getState();
+    expect(isClientExpanded(state, 1)).toBe(false);
+    expect(isClientExpanded(state, 2)).toBe(true);
+    expect(isClientExpanded(state, 3)).toBe(true);
+    useUiStore.getState().toggleClientExpanded(1);
+    expect(isClientExpanded(useUiStore.getState(), 1)).toBe(true);
+  });
+});
+
+describe("uiStore Archived rows (FB-14)", () => {
+  it("is collapsed by default for any group key", () => {
+    const state = useUiStore.getState();
+    expect(isArchivedOpen(state, "internal")).toBe(false);
+    expect(isArchivedOpen(state, 1)).toBe(false);
+    expect(isArchivedOpen(state, 999)).toBe(false);
+  });
+
+  it("toggling one group doesn't change another", () => {
+    const { toggleArchivedOpen } = useUiStore.getState();
+    toggleArchivedOpen(1);
+    let state = useUiStore.getState();
+    expect(isArchivedOpen(state, 1)).toBe(true);
+    expect(isArchivedOpen(state, 2)).toBe(false);
+    expect(isArchivedOpen(state, "internal")).toBe(false);
+
+    toggleArchivedOpen("internal");
+    toggleArchivedOpen(1);
+    state = useUiStore.getState();
+    expect(isArchivedOpen(state, "internal")).toBe(true);
+    expect(isArchivedOpen(state, 1)).toBe(false);
   });
 });

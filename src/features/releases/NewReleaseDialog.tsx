@@ -59,7 +59,7 @@ export function NewReleaseDialog({ projectKey, releases, candidates, onOpenChang
         <DialogHeader>
           <DialogTitle>New release</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4 mt-2">
+        <form onSubmit={handleSubmit} className="min-w-0 space-y-4 mt-2">
           <div className="space-y-1.5">
             <Label className="text-gray-300">Tested stories to pick</Label>
             {candidates.length === 0 ? (
@@ -68,10 +68,10 @@ export function NewReleaseDialog({ projectKey, releases, candidates, onOpenChang
               <ul className="max-h-56 overflow-y-auto space-y-1">
                 {candidates.map((t) => (
                   <li key={t.id}>
-                    <label className="flex items-center gap-2 text-sm text-gray-200 cursor-pointer">
-                      <input type="checkbox" checked={checked.has(t.id)} onChange={() => toggle(t.id)} />
-                      <span className="font-mono text-xs text-gray-400">{projectKey}-{t.task_number}</span>
-                      <span className="truncate">{t.title}</span>
+                    <label className="flex min-w-0 items-center gap-2 text-sm text-gray-200 cursor-pointer">
+                      <input type="checkbox" className="shrink-0" checked={checked.has(t.id)} onChange={() => toggle(t.id)} />
+                      <span className="shrink-0 font-mono text-xs text-gray-400">{projectKey}-{t.task_number}</span>
+                      <span className="min-w-0 truncate" title={t.title}>{t.title}</span>
                     </label>
                   </li>
                 ))}

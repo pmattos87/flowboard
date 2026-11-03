@@ -1,18 +1,28 @@
 import { useEffect, useRef, useState } from "react";
-import { Trash2, Upload } from "lucide-react";
+import { Archive, ArchiveRestore, Trash2, Upload } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   useDeleteProject,
   useProject,
+  useSetProjectState,
   useUpdateProject,
 } from "@/hooks/useProjects";
 import { useUiStore } from "@/stores/uiStore";
 import { seedDemoData } from "@/lib/commands";
 import { ProjectBadge } from "@/components/ProjectBadge";
+import { ClientSelect } from "@/components/ClientSelect";
 import { fileToLogoDataUrl } from "@/lib/image";
 import { cn } from "@/lib/utils";
 import { BackupSettings } from "@/features/backup/BackupSettings";
@@ -42,6 +52,8 @@ export default function Settings() {
   const { data: project, isLoading } = useProject(activeProjectId);
   const updateProject = useUpdateProject();
   const deleteProject = useDeleteProject();
+  const setProjectState = useSetProjectState();
+  const archived = project?.state === "archived";
 
   // The URL is the source of truth for the tab, so a tab click and a link to
   // `?tab=backup` (the sidebar's backup warning) always agree.
@@ -51,7 +63,10 @@ export default function Settings() {
   const [key, setKey] = useState("");
   const [description, setDescription] = useState("");
   const [logoData, setLogoData] = useState<string | null>(null);
+  const [clientId, setClientId] = useState<number | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // FB-305: a Save that flips the kind (no client <-> a client) waits here for confirmation.
+  const [kindChange, setKindChange] = useState<"toClient" | "toInternal" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -67,6 +82,7 @@ export default function Settings() {
       setKey(project.key);
       setDescription(project.description);
       setLogoData(project.logo_data);
+      setClientId(project.client_id);
       setConfirmingDelete(false);
       setError(null);
     }
@@ -79,7 +95,8 @@ export default function Settings() {
     (trimmedName !== project.name ||
       trimmedKey !== project.key ||
       description !== project.description ||
-      logoData !== project.logo_data);
+      logoData !== project.logo_data ||
+      clientId !== project.client_id);
   const valid =
     trimmedName.length > 0 && /^[A-Z0-9]{2,5}$/.test(trimmedKey);
   const canSave = dirty && valid && !updateProject.isPending;
@@ -96,9 +113,29 @@ export default function Settings() {
     }
   };
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSave || !project) return;
+    if ((project.client_id === null) !== (clientId === null)) {
+      setKindChange(clientId === null ? "toInternal" : "toClient");
+      return;
+    }
+    void save();
+  };
+
+  const confirmKindChange = () => {
+    setKindChange(null);
+    void save();
+  };
+
+  /** Cancelling restores only the Client select; other unsaved edits stay. */
+  const cancelKindChange = () => {
+    setKindChange(null);
+    if (project) setClientId(project.client_id);
+  };
+
+  const save = async () => {
+    if (!project) return;
     setError(null);
     try {
       await updateProject.mutateAsync({
@@ -108,6 +145,7 @@ export default function Settings() {
           key: trimmedKey,
           description,
           logo_data: logoData,
+          client_id: clientId,
         },
       });
       setSavedAt(Date.now());
@@ -181,7 +219,56 @@ export default function Settings() {
             <>
               <p className="text-sm text-gray-500">
                 Editing <span className="text-gray-300">{project.name}</span>
+                {project.kind === "client" && (
+                  <span className="ml-2 rounded bg-blue-500/15 px-1.5 py-0.5 text-xs font-medium text-blue-300">
+                    Client
+                  </span>
+                )}
               </p>
+
+              <Dialog
+                open={kindChange !== null}
+                onOpenChange={(open) => {
+                  if (!open) cancelKindChange();
+                }}
+              >
+                <DialogContent className="bg-gray-900 border-gray-800 text-gray-100 sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>
+                      {kindChange === "toClient"
+                        ? "Make this a Client project?"
+                        : "Make this an Internal project?"}
+                    </DialogTitle>
+                    <DialogDescription className="text-gray-400">
+                      {kindChange === "toClient"
+                        ? "User testing is added between tested and production, with betas and client documents."
+                        : "User testing, betas and client documents are removed. Releases go from tested straight to production."}
+                    </DialogDescription>
+                  </DialogHeader>
+                  {kindChange === "toInternal" && (
+                    <p className="text-sm text-amber-400">
+                      Stories in User testing or open betas are affected.
+                    </p>
+                  )}
+                  <DialogFooter>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={cancelKindChange}
+                      className="bg-transparent border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={confirmKindChange}
+                      className="bg-blue-600 hover:bg-blue-500 text-white"
+                    >
+                      Confirm and save
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
 
               <form onSubmit={handleSave} className="mt-6 space-y-4">
                 <div className="space-y-1.5">
@@ -208,6 +295,8 @@ export default function Settings() {
                     className="bg-gray-800 border-gray-700 text-gray-100 uppercase"
                   />
                 </div>
+
+                <ClientSelect id="settings-client" value={clientId} onChange={setClientId} />
 
                 <div className="space-y-1.5">
                   <Label htmlFor="settings-description" className="text-gray-300">
@@ -282,6 +371,36 @@ export default function Settings() {
                   )}
                 </div>
               </form>
+
+              <div className="mt-12 pt-6 border-t border-gray-800">
+                <h2 className="text-sm font-semibold text-gray-300">
+                  {archived ? "Archived project" : "Archive"}
+                </h2>
+                <p className="mt-1 text-xs text-gray-500">
+                  {archived
+                    ? "This project is read-only. Unarchive it to plan new work in it."
+                    : "Archiving puts the project away and makes it read-only. You can unarchive it at any time."}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    setProjectState.mutate({
+                      id: project.id,
+                      state: archived ? "active" : "archived",
+                    })
+                  }
+                  disabled={setProjectState.isPending}
+                  className="mt-3 bg-transparent border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white"
+                >
+                  {archived ? (
+                    <ArchiveRestore className="h-4 w-4" />
+                  ) : (
+                    <Archive className="h-4 w-4" />
+                  )}
+                  {archived ? "Unarchive project" : "Archive project"}
+                </Button>
+              </div>
 
               <div className="mt-12 pt-6 border-t border-gray-800">
                 <h2 className="text-sm font-semibold text-gray-300">Danger zone</h2>

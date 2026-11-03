@@ -27,10 +27,10 @@ const healthyBackup = {
   enabled: true,
 };
 
-/** Answers the projects list with `projects`; the backup warning's status is healthy. */
+/** Answers the projects list with `projects` and no clients; the backup warning's status is healthy. */
 function mockCommands(projects: unknown, backup: unknown = healthyBackup) {
   mockInvoke.mockImplementation(async (cmd: string) =>
-    cmd === "get_backup_status" ? backup : projects
+    cmd === "get_backup_status" ? backup : cmd === "list_clients" ? [] : projects
   );
 }
 

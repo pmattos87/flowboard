@@ -45,10 +45,13 @@ enum Cmd {
     /// People and their factory roles
     #[command(subcommand)]
     People(PeopleCmd),
-    /// Project ladder, kind and client contacts
+    /// Project ladder and client
     #[command(subcommand)]
     Project(ProjectCmd),
-    /// Client contacts of a project
+    /// Clients and their contacts
+    #[command(subcommand)]
+    Client(ClientCmd),
+    /// Contacts of a client
     #[command(subcommand)]
     Contact(ContactCmd),
     /// Factory Stories
@@ -101,20 +104,37 @@ enum ProjectCmd {
         project: String,
         #[arg(long, value_parser = ["legacy", "factory"])]
         ladder: Option<String>,
-        #[arg(long, value_parser = ["internal", "client"])]
-        kind: Option<String>,
+        /// The project's client id, or `none` to make it internal
+        #[arg(long, value_parser = parse_client)]
+        client: Option<ClientArg>,
     },
+}
+
+/// `project set --client`: a client id, or `none` (no client: internal).
+#[derive(Clone, Debug, PartialEq)]
+struct ClientArg(Option<i64>);
+
+fn parse_client(s: &str) -> Result<ClientArg, String> {
+    if s == "none" {
+        return Ok(ClientArg(None));
+    }
+    s.parse().map(|id| ClientArg(Some(id))).map_err(|_| format!("'{s}' is not a client id or `none`"))
+}
+
+#[derive(Subcommand)]
+enum ClientCmd {
+    List,
 }
 
 #[derive(Subcommand)]
 enum ContactCmd {
     Add {
-        project: String,
+        client_id: i64,
         person_id: i64,
         #[arg(long)]
         primary: bool,
     },
-    Remove { project: String, person_id: i64 },
+    Remove { client_id: i64, person_id: i64 },
 }
 
 #[derive(Subcommand)]
@@ -131,6 +151,9 @@ enum StoryCmd {
         /// File a bug Story (a fix) instead of a feature Story
         #[arg(long)]
         bug: bool,
+        /// File the Story in this open epic (a key, e.g. SF-1)
+        #[arg(long)]
+        epic: Option<String>,
     },
     Show { key: String },
     /// The Story's Run trail
@@ -185,6 +208,15 @@ enum EpicCmd {
     },
     /// Close (done) or cancel (canceled) an open epic
     Move { key: String, to: String },
+    /// Show an epic and its Stories, canceled ones included
+    Show { key: String },
+    /// A Factory project's epics with their Story counts by status
+    List {
+        project: String,
+        /// Which epics: todo (open), done, canceled or all
+        #[arg(long, default_value = "todo", value_parser = ["todo", "done", "canceled", "all"])]
+        status: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -285,17 +317,18 @@ async fn run(cli: Cli, pool: SqlitePool) -> Result<Value, String> {
             ops::people_set_role(p, person_id, role).await
         }
         Cmd::Project(ProjectCmd::Show { project }) => ops::project_show(p, &project).await,
-        Cmd::Project(ProjectCmd::Set { project, ladder, kind }) => {
-            ops::project_set(p, &project, ladder.as_deref(), kind.as_deref()).await
+        Cmd::Project(ProjectCmd::Set { project, ladder, client }) => {
+            ops::project_set(p, &project, ladder.as_deref(), client.map(|c| c.0)).await
         }
-        Cmd::Contact(ContactCmd::Add { project, person_id, primary }) => {
-            ops::contact_add(p, &project, person_id, primary).await
+        Cmd::Client(ClientCmd::List) => ops::client_list(p).await,
+        Cmd::Contact(ContactCmd::Add { client_id, person_id, primary }) => {
+            ops::contact_add(p, client_id, person_id, primary).await
         }
-        Cmd::Contact(ContactCmd::Remove { project, person_id }) => {
-            ops::contact_remove(p, &project, person_id).await
+        Cmd::Contact(ContactCmd::Remove { client_id, person_id }) => {
+            ops::contact_remove(p, client_id, person_id).await
         }
         Cmd::Story(s) => match s {
-            StoryCmd::Create { project, title, description, priority, labels, bug } => {
+            StoryCmd::Create { project, title, description, priority, labels, bug, epic } => {
                 let s = NewStory {
                     project: &project,
                     title: &title,
@@ -303,6 +336,7 @@ async fn run(cli: Cli, pool: SqlitePool) -> Result<Value, String> {
                     priority: &priority,
                     labels: &labels,
                     bug,
+                    epic: epic.as_deref(),
                 };
                 ops::story_create(p, s, actor).await
             }
@@ -354,6 +388,8 @@ async fn run(cli: Cli, pool: SqlitePool) -> Result<Value, String> {
             ops::epic_create(p, e, actor).await
         }
         Cmd::Epic(EpicCmd::Move { key, to }) => ops::epic_move(p, &key, &to, actor).await,
+        Cmd::Epic(EpicCmd::Show { key }) => ops::epic_show(p, &key).await,
+        Cmd::Epic(EpicCmd::List { project, status }) => ops::epic_list(p, &project, Some(&status)).await,
         Cmd::Review { key, verdict, commit, findings } => {
             ops::review_record(p, &key, &verdict, &commit, findings.as_deref(), actor).await
         }
@@ -429,16 +465,42 @@ async fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Cmd, StoryCmd};
+    use super::{ClientArg, ClientCmd, Cli, Cmd, ContactCmd, EpicCmd, ProjectCmd, StoryCmd};
     use clap::{CommandFactory, Parser};
 
     #[test]
     fn epic_help_lists_create_and_move() {
         let help = Cli::command().find_subcommand_mut("epic").expect("an epic subcommand").render_help().to_string();
-        for sub in ["create", "move"] {
+        for sub in ["create", "move", "show", "list"] {
             assert!(help.lines().any(|l| l.trim_start().starts_with(sub)), "`epic --help` lacks {sub}:
 {help}");
         }
+    }
+
+    #[test]
+    fn epic_list_help_documents_the_status_values_and_default() {
+        let mut cli = Cli::command();
+        let help = cli
+            .find_subcommand_mut("epic")
+            .and_then(|e| e.find_subcommand_mut("list"))
+            .expect("an epic list subcommand")
+            .render_long_help()
+            .to_string();
+        for needle in ["--status", "todo", "done", "canceled", "all", "[default: todo]"] {
+            assert!(help.contains(needle), "`epic list --help` lacks {needle}:
+{help}");
+        }
+    }
+
+    #[test]
+    fn epic_list_status_defaults_to_todo_and_refuses_other_values() {
+        let status = |args: &[&str]| match Cli::try_parse_from(args).unwrap().cmd {
+            Cmd::Epic(EpicCmd::List { status, .. }) => status,
+            _ => panic!("not epic list"),
+        };
+        assert_eq!(status(&["flowboard-cli", "epic", "list", "SF"]), "todo");
+        assert_eq!(status(&["flowboard-cli", "epic", "list", "SF", "--status", "all"]), "all");
+        assert!(Cli::try_parse_from(["flowboard-cli", "epic", "list", "SF", "--status", "open"]).is_err());
     }
 
     fn story_create_bug(args: &[&str]) -> bool {
@@ -467,5 +529,63 @@ mod tests {
     fn story_create_parses_the_bug_flag() {
         assert!(story_create_bug(&["flowboard-cli", "story", "create", "SF", "a fix", "--bug"]));
         assert!(!story_create_bug(&["flowboard-cli", "story", "create", "SF", "a feature"]));
+    }
+
+    #[test]
+    fn story_create_parses_the_epic_flag() {
+        let epic = |args: &[&str]| match Cli::try_parse_from(args).unwrap().cmd {
+            Cmd::Story(StoryCmd::Create { epic, .. }) => epic,
+            _ => panic!("not story create"),
+        };
+        assert_eq!(epic(&["flowboard-cli", "story", "create", "SF", "t", "--epic", "SF-1"]).as_deref(), Some("SF-1"));
+        assert_eq!(epic(&["flowboard-cli", "story", "create", "SF", "t"]), None);
+    }
+
+    #[test]
+    fn story_create_help_documents_the_epic_flag() {
+        let help = Cli::command()
+            .find_subcommand_mut("story")
+            .and_then(|c| c.find_subcommand_mut("create"))
+            .expect("a story create subcommand")
+            .render_help()
+            .to_string();
+        assert!(help.contains("--epic") && help.contains("open epic"), "`story create --help` lacks --epic:
+{help}");
+    }
+
+    fn project_set_client(args: &[&str]) -> Option<ClientArg> {
+        match Cli::try_parse_from(args).unwrap().cmd {
+            Cmd::Project(ProjectCmd::Set { client, .. }) => client,
+            _ => panic!("not project set"),
+        }
+    }
+
+    #[test]
+    fn project_set_takes_a_client_id_or_none() {
+        let set = |extra: &[&'static str]| [&["flowboard-cli", "project", "set", "VP"], extra].concat();
+        assert_eq!(project_set_client(&set(&[])), None);
+        assert_eq!(project_set_client(&set(&["--client", "3"])), Some(ClientArg(Some(3))));
+        assert_eq!(project_set_client(&set(&["--client", "none"])), Some(ClientArg(None)));
+        assert!(Cli::try_parse_from(set(&["--client", "acme"])).is_err());
+        assert!(Cli::try_parse_from(set(&["--kind", "client"])).is_err(), "--kind is gone");
+    }
+
+    #[test]
+    fn contact_commands_take_a_client_id_and_client_list_parses() {
+        match Cli::try_parse_from(["flowboard-cli", "contact", "add", "4", "7", "--primary"]).unwrap().cmd {
+            Cmd::Contact(ContactCmd::Add { client_id, person_id, primary }) => {
+                assert_eq!((client_id, person_id, primary), (4, 7, true))
+            }
+            _ => panic!("not contact add"),
+        }
+        match Cli::try_parse_from(["flowboard-cli", "contact", "remove", "4", "7"]).unwrap().cmd {
+            Cmd::Contact(ContactCmd::Remove { client_id, person_id }) => assert_eq!((client_id, person_id), (4, 7)),
+            _ => panic!("not contact remove"),
+        }
+        assert!(Cli::try_parse_from(["flowboard-cli", "contact", "add", "VP", "7"]).is_err(), "a project key is not a client id");
+        assert!(matches!(
+            Cli::try_parse_from(["flowboard-cli", "client", "list"]).unwrap().cmd,
+            Cmd::Client(ClientCmd::List)
+        ));
     }
 }

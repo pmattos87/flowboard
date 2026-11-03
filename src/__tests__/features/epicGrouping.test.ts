@@ -40,8 +40,10 @@ const tasks = [
 const titles = (rows: ReturnType<typeof buildEpicRows>) =>
   rows.map((r) => ({ key: r.key, stories: r.stories.map((s) => s.title) }));
 
+const discovery = { keepEmptyOpenEpics: true };
+
 describe("buildEpicRows", () => {
-  const rows = buildEpicRows(tasks);
+  const rows = buildEpicRows(factoryDiscoveryStories(tasks), tasks, discovery);
 
   it("lists open epics in creation order, an empty open epic included", () => {
     expect(rows.map((r) => r.key)).toEqual([10, 20, 30, "none"]);
@@ -86,6 +88,52 @@ describe("buildEpicRows", () => {
   });
 
   it("omits the No epic row when every Story has an epic row", () => {
-    expect(buildEpicRows([epicA, task({ id: 1, epic_id: 10 })]).map((r) => r.key)).toEqual([10]);
+    const only = [epicA, task({ id: 1, epic_id: 10 })];
+    expect(buildEpicRows(factoryDiscoveryStories(only), only, discovery).map((r) => r.key)).toEqual([10]);
+  });
+});
+
+describe("buildEpicRows without empty rows (Story board)", () => {
+  // The Story board's cards: Stories of a sprint, whatever their epic's status.
+  const cards = [
+    task({ id: 1, epic_id: 10, sprint_id: 7, status: "building", title: "A1" }),
+    task({ id: 2, epic_id: 30, sprint_id: 7, status: "building", title: "Done epic card" }),
+    task({ id: 3, epic_id: 40, sprint_id: 7, status: "building", title: "Canceled epic card" }),
+    task({ id: 4, sprint_id: 7, status: "building", title: "Loose" }),
+    task({ id: 5, epic_id: 999, sprint_id: 7, status: "building", title: "Unknown epic" }),
+  ];
+  const project = [epicB, epicDone, epicA, epicCanceled, ...cards];
+  const rows = buildEpicRows(cards, project, { keepEmptyOpenEpics: false });
+
+  it("gives an open epic with no card no row", () => {
+    expect(rows.find((r) => r.key === 20)).toBeUndefined();
+  });
+
+  it("gives an epic of any status holding a card a row, in creation order", () => {
+    expect(rows.map((r) => r.key)).toEqual([10, 30, 40, "none"]);
+    expect(titles(rows).slice(0, 3)).toEqual([
+      { key: 10, stories: ["A1"] },
+      { key: 30, stories: ["Done epic card"] },
+      { key: 40, stories: ["Canceled epic card"] },
+    ]);
+  });
+
+  it("puts every card in exactly one row", () => {
+    const placed = rows.flatMap((r) => r.stories.map((s) => s.id)).sort((a, b) => a - b);
+    expect(placed).toEqual(cards.map((c) => c.id));
+  });
+
+  it("puts the No epic row last, with cards whose epic is not in the task list", () => {
+    expect(rows[rows.length - 1]).toMatchObject({ key: "none", epic: null });
+    expect(rows[rows.length - 1].stories.map((s) => s.title)).toEqual(["Loose", "Unknown epic"]);
+  });
+
+  it("omits the No epic row when every card has an epic", () => {
+    const own = [task({ id: 1, epic_id: 10, sprint_id: 7, status: "building" })];
+    expect(buildEpicRows(own, [epicA, epicB, ...own], { keepEmptyOpenEpics: false }).map((r) => r.key)).toEqual([10]);
+  });
+
+  it("returns no row when there is no card", () => {
+    expect(buildEpicRows([], project, { keepEmptyOpenEpics: false })).toEqual([]);
   });
 });

@@ -17,6 +17,12 @@ pub async fn get_story_trail(pool: State<'_, SqlitePool>, key: String) -> Result
     ops::trail(pool.inner(), &key).await
 }
 
+/// The project's blocked Stories (FB-99): `{ "<story key>": ["<dependency key>", ...] }`.
+#[tauri::command]
+pub async fn get_blocked_by(pool: State<'_, SqlitePool>, project_key: String) -> Result<Value, String> {
+    ops::project_blocked_by(pool.inner(), &project_key).await
+}
+
 #[tauri::command]
 pub async fn restart_run(pool: State<'_, SqlitePool>, key: String) -> Result<Value, String> {
     ops::run_restart(pool.inner(), &key, Actor::Owner).await

@@ -6,6 +6,9 @@ export type SprintFilter = "all" | "backlog" | number;
 /** How the Factory Discovery board groups its cards (FB-224). Session-only, never persisted. */
 export type DiscoveryGrouping = "none" | "epic";
 
+/** How the Factory User Story Board groups its cards (FB-291). Session-only, never persisted; independent of discoveryGrouping. */
+export type StoryBoardGrouping = "none" | "epic";
+
 export interface CreateTaskPrefill {
   parent_id?: number | null;
   sprint_id?: number | null;
@@ -46,7 +49,32 @@ interface UiState {
   discoveryGrouping: DiscoveryGrouping;
   setDiscoveryGrouping: (g: DiscoveryGrouping) => void;
   toggleDiscoveryGrouping: () => void;
+
+  storyBoardGrouping: StoryBoardGrouping;
+  setStoryBoardGrouping: (g: StoryBoardGrouping) => void;
+  /** Board label filter per project id (FB-99). Session-only, never persisted; a missing entry means no filter. */
+  labelFilters: Record<number, string>;
+  /** Sets one project's label filter; null clears it. */
+  setLabelFilter: (projectId: number, label: string | null) => void;
+  /** Sidebar client groups the user collapsed (FB-202). Absent = expanded. Session-only. */
+  collapsedClientIds: Record<number, true>;
+  toggleClientExpanded: (clientId: number) => void;
+
+  /** Sidebar groups whose "Archived (n)" row is open (FB-14). Absent = collapsed. Session-only. */
+  openArchivedGroups: Partial<Record<ArchivedGroupKey, true>>;
+  toggleArchivedOpen: (group: ArchivedGroupKey) => void;
 }
+
+/** A sidebar group: the Internal section, or a client group by client id. */
+export type ArchivedGroupKey = "internal" | number;
+
+/** A group's Archived row is collapsed unless the user opened it. */
+export const isArchivedOpen = (state: Pick<UiState, "openArchivedGroups">, group: ArchivedGroupKey) =>
+  state.openArchivedGroups[group] === true;
+
+/** A client group is expanded unless the user collapsed it, so new clients start expanded. */
+export const isClientExpanded = (state: Pick<UiState, "collapsedClientIds">, clientId: number) =>
+  !state.collapsedClientIds[clientId];
 
 export const useUiStore = create<UiState>((set) => ({
   activeProjectId: null,
@@ -97,4 +125,38 @@ export const useUiStore = create<UiState>((set) => ({
   setDiscoveryGrouping: (g) => set({ discoveryGrouping: g }),
   toggleDiscoveryGrouping: () =>
     set((state) => ({ discoveryGrouping: state.discoveryGrouping === "none" ? "epic" : "none" })),
+
+  storyBoardGrouping: "none",
+  setStoryBoardGrouping: (g) => set({ storyBoardGrouping: g }),
+  labelFilters: {},
+  setLabelFilter: (projectId, label) =>
+    set((state) => {
+      const next = { ...state.labelFilters };
+      if (label === null) delete next[projectId];
+      else next[projectId] = label;
+      return { labelFilters: next };
+    }),
+  collapsedClientIds: {},
+  toggleClientExpanded: (clientId) =>
+    set((state) => {
+      const next = { ...state.collapsedClientIds };
+      if (next[clientId]) delete next[clientId];
+      else next[clientId] = true;
+      return { collapsedClientIds: next };
+    }),
+
+  openArchivedGroups: {},
+  toggleArchivedOpen: (group) =>
+    set((state) => {
+      const next = { ...state.openArchivedGroups };
+      if (next[group]) delete next[group];
+      else next[group] = true;
+      return { openArchivedGroups: next };
+    }),
 }));
+
+/** Selector for one project's label filter: `useUiStore(selectLabelFilter(id))`. Null when none is set. */
+export const selectLabelFilter =
+  (projectId: number | null) =>
+  (state: UiState): string | null =>
+    projectId == null ? null : state.labelFilters[projectId] ?? null;

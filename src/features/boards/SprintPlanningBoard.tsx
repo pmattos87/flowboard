@@ -12,7 +12,7 @@ import {
 import { CalendarDays, CheckCheck, ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { useUiStore } from "@/stores/uiStore";
+import { selectLabelFilter, useUiStore } from "@/stores/uiStore";
 import { useTasks, useUpdateTask } from "@/hooks/useTasks";
 import { useDeleteSprint, useSprints } from "@/hooks/useSprints";
 import { usePeople } from "@/hooks/usePeople";
@@ -29,6 +29,8 @@ import { sprintCompletion } from "@/lib/sprintProgress";
 import { statusOptionsForType } from "./shared/boardConstants";
 import { TaskCard } from "./shared/TaskCard";
 import { SprintFilterSelect } from "./shared/SprintFilterSelect";
+import { LabelFilterSelect } from "./shared/LabelFilterSelect";
+import { matchesLabelFilter } from "@/lib/labels";
 import {
   buildSprintBoardRows,
   computeSprintDropPayload,
@@ -240,6 +242,7 @@ function SprintSection({
 export function SprintPlanningBoard() {
   const activeProjectId = useUiStore((s) => s.activeProjectId);
   const boardSprintFilter = useUiStore((s) => s.boardSprintFilter);
+  const labelFilter = useUiStore(selectLabelFilter(activeProjectId));
 
   const { data: allTasks, isError: tasksError } = useTasks(
     activeProjectId != null ? { project_id: activeProjectId } : undefined,
@@ -309,8 +312,14 @@ export function SprintPlanningBoard() {
   }, [sprints]);
 
   const rows = useMemo(
-    () => buildSprintBoardRows(effectiveTasks, sprints ?? [], boardSprintFilter, project?.ladder),
-    [effectiveTasks, sprints, boardSprintFilter, project?.ladder],
+    () =>
+      buildSprintBoardRows(
+        effectiveTasks.filter((t) => matchesLabelFilter(t, labelFilter)),
+        sprints ?? [],
+        boardSprintFilter,
+        project?.ladder,
+      ),
+    [effectiveTasks, sprints, boardSprintFilter, project?.ladder, labelFilter],
   );
 
   const projectKey = project?.key ?? "FB";
@@ -415,6 +424,7 @@ export function SprintPlanningBoard() {
         </div>
         <div className="ml-auto flex items-center gap-3">
           <SprintFilterSelect projectId={activeProjectId} />
+          <LabelFilterSelect projectId={activeProjectId} />
           <Button onClick={openCreate} className="bg-blue-600 hover:bg-blue-500 text-white">
             <Plus className="h-4 w-4" />
             Create sprint

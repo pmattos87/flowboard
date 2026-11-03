@@ -11,11 +11,23 @@ export type TaskType     = 'story' | 'bug' | 'subtask' | 'epic';
 // a bare type === 'story' check (FB-52).
 // Factory command types (ReleaseDetail.stories[], StoryView) carry `type: TaskType` so a
 // Story reads as feature or fix.
+// StoryView.blocked_by: string[] — its depends_on keys still blocking it, [] when not blocked (FB-99).
 export type TaskStatus   = 'todo' | 'in_progress' | 'in_review' | 'canceled' | 'done';
 export type TaskPriority = 'low' | 'medium' | 'high' | 'critical';
 export type SprintStatus = 'backlog' | 'active' | 'completed';
 
-export interface Project  { id: number; name: string; key: string; description: string; color: string; created_at: string; }
+export interface Project  { id: number; name: string; key: string; description: string; color: string; created_at: string; logo_data: string | null; position: number; ladder: 'legacy' | 'factory'; client_id: number | null; kind: 'internal' | 'client'; state: ProjectState; }
+export type ProjectState = 'active' | 'archived';
+// Project.state (FB-14): set_project_state({ id, state }) -> Project. Archiving is refused while the project has an
+//   'active' sprint or a Release in planned/user_testing; the error names it. Archived projects refuse writes.
+// Project.client_id (FB-202): null = internal. Project.kind is not stored: the backend derives it, 'client' iff client_id is set.
+// create_project payload: client_id?: number | null (absent or null = internal).
+// update_project payload: client_id?: number | null — absent keeps, null makes the project internal, a number sets it.
+//   A project whose client changes lands at the end of its new sidebar group.
+/** A client (FB-202): an organization that groups its projects in the sidebar. */
+export interface Client   { id: number; name: string; position: number; }
+// Commands: list_clients() -> Client[] (by position); create_client({ name }) -> Client (goes last);
+//   rename_client({ id, name }) -> Client; reorder_clients({ orderedIds }) -> void. A blank name is an error.
 export interface Person   { id: number; name: string; email: string; avatar_color: string; role: string; }
 export interface Sprint   { id: number; project_id: number; name: string; goal: string; start_date: string; end_date: string; status: SprintStatus; }
 // complete_sprint target (FB-97); exactly one of:
@@ -28,4 +40,6 @@ export interface ActivityLog { id: number; task_id: number; person_id: number; a
 
 /** `get_backup_status` (FB-95). */
 export interface BackupStatus { backup_dir: string | null; last_backup_at: string | null; last_error: string | null; enabled: boolean; }
+/** `get_blocked_by(projectKey)` (FB-99): blocked Story key → blocking dependency keys in task_number order; unblocked Stories absent; `{}` on a legacy project. */
+export type BlockedByMap = Record<string, string[]>;
 ```

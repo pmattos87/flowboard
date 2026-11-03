@@ -65,6 +65,7 @@ Every task card must contain (in order):
 - Type icon (colored)
 - Title
 - Label badges (if any)
+- On a Factory project, a Story whose depends-on dependency has not reached `integrated_tests` (and is not canceled) shows "Blocked by <KEY>" (FB-99)
 - Priority icon
 - Story points
 - Ticket ID (e.g. `FB-42`)

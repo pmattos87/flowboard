@@ -30,12 +30,19 @@ Important Rules
   - `tasks.parent_id`   → ON DELETE SET NULL (sub-tasks survive parent deletion)
   - `tasks.assignee_id` → ON DELETE SET NULL (task survives assignee deletion)
   - `tasks.epic_id`     → ON DELETE SET NULL (a Story survives its epic's deletion; migration 013)
+  - `projects.client_id` → ON DELETE SET NULL (a project survives its client's deletion, internal again; migration 015)
 - All other foreign keys are NOT NULL with ON DELETE CASCADE:
   - `sprints.project_id`, `tasks.project_id`, `comments.task_id`, `comments.author_id`,
     `time_logs.task_id`, `time_logs.person_id`, `attachments.task_id`,
     `activity_log.task_id`, `activity_log.person_id`
 - `updated_at` must be automatically updated on any task modification.
-- Labels are stored as comma-separated string.
+- Labels are stored as comma-separated string, in one normalized form (FB-99): each label
+  trimmed of spaces, tabs, CR and LF, empties dropped, exact duplicates removed, the rest
+  sorted by `lower(label)` (A-Z folded only, as SQLite's `lower()`) then by the exact text,
+  joined with `,`. Case and inner spaces are kept (`Phase 1`; `QA` and `qa` are two labels).
+  Every write path applies it (`factory::ops::normalize_labels`, used by `create_task`,
+  `update_task`, `story_create`, `story_edit`, `subtask_create`, `epic_create`). Migration
+  `014_normalize_labels.sql` normalizes existing rows once (data only; `updated_at` untouched).
 - Timestamps use ISO strings.
 - `created_at` / `updated_at` should be set in the backend.
 - `tasks.task_number` is `INTEGER NOT NULL`, assigned per-project on insert
@@ -71,7 +78,8 @@ tables are written **only** through `flowboard-cli` (or its MCP,
 `flowboard-cli mcp`), which enforces the ladders; the app reads them.
 
 ```sql
-projects      + ladder ('legacy' default | 'factory'), kind ('internal' default | 'client')
+projects      + ladder ('legacy' default | 'factory')
+              (+ kind, dropped by migration 015: now derived from client_id, see Clients below)
 people        + factory_role ('owner' | 'agent' | NULL; at most one of each)
 tasks         + status values 'backlog','ready','building','integrated_tests','tested','user_testing'
               + feature_branch, review_verdict ('passed'|'failed'|NULL), reviewed_commit,
@@ -80,8 +88,7 @@ tasks         + status values 'backlog','ready','building','integrated_tests','t
 tasks         + epic_id → tasks(id) ON DELETE SET NULL   -- migration 013_epic_link.sql (FB-224)
 releases         (id, project_id, version, state, created_at, released_at)
                  -- state: 'planned' | 'user_testing' | 'released' | 'canceled'; UNIQUE(project_id, version)
-project_contacts (project_id, person_id, is_primary)   -- client contacts; one primary per project
-task_links       (task_id, depends_on_id, created_at)  -- Story depends-on (warns on Release pick)
+task_links       (task_id, depends_on_id, created_at)  -- Story depends-on (warns on Release pick; also drives blocked-by, FB-99)
 task_prs         (id, task_id, url, target, state, created_at, updated_at)
                  -- state: 'open' | 'merged' | 'closed'
 ```
@@ -117,8 +124,8 @@ task_prs         (id, task_id, url, target, state, created_at, updated_at)
   Stories split before this rule (SF-68).
 - A Story in a sprint is `ready` or later; `building` and beyond require a sprint.
   Forward moves from `building` on require every Subtask done/canceled and the Run not stopped.
-- Assignee is set by the move: `building` → agent, `user_testing` → primary contact,
-  `done`/`canceled` → NULL, everything else → owner.
+- Assignee is set by the move: `building` → agent, `user_testing` → the primary contact of
+  the project's client, `done`/`canceled` → NULL, everything else → owner.
 - Run trail = `activity_log` rows on the Story with actions `stage_entered`,
   `subtask_status_changed`, `subtask_handoff`, `verify_started`, `verify_round`, `review_started`, `review_round`,
   `run_stopped`, `run_restarted`, `pr_opened`, `pr_merged`, `release_picked`,
@@ -126,3 +133,46 @@ task_prs         (id, task_id, url, target, state, created_at, updated_at)
 - The app backs up the database (`flowboard.db.pre-migration-<unix secs>.bak`) before
   applying pending migrations, and runs in WAL mode. The CLI never migrates and refuses a
   database whose applied migrations differ from its own.
+
+-------------------------
+Clients (migration `015_clients.sql`, FB-202)
+
+A client is an organization; a project is one solution for a client, or internal.
+
+```sql
+clients          (id, name, position)                  -- position: sidebar order (ascending)
+projects         + client_id → clients(id) ON DELETE SET NULL   -- NULL = internal
+client_contacts  (client_id, person_id, is_primary)    -- PK (client_id, person_id); both FKs
+                 -- ON DELETE CASCADE; at most one is_primary = 1 per client
+                 -- (idx_client_contacts_primary)
+```
+
+- `projects.kind` is no longer stored: a project is `'client'` iff `client_id` is set, else
+  `'internal'`. The API still returns `kind`, computed (`Project` JSON from the projects
+  commands, `project_show`). Migration 015 dropped the column in place with
+  `ALTER TABLE projects DROP COLUMN kind` (no rebuild) and starts every project internal.
+- Contacts belong to the client, not the project: `project_contacts` (migration 010) was
+  replaced by `client_contacts`. `project_show` lists the contacts of the project's client.
+  Contacts are set only with `flowboard-cli contact add/remove <client id> <person id>`;
+  `flowboard-cli client list` lists clients; `flowboard-cli project set --client <id|none>`
+  sets or clears a project's client.
+- Ordering: `projects.position` orders projects inside their group (one group per client, plus
+  the internal group); `clients.position` orders the Clients section. A project whose client
+  changes (the app's `update_project`, or `flowboard-cli project set --client`) goes to the
+  end of its new group (`MAX(position) + 1` among that group's projects); setting the same
+  client again, or any other update, keeps its position.
+- Deleting a client leaves its projects in place, internal again, and drops its contacts.
+
+-------------------------
+Project state (migration `016_project_state.sql`, FB-14)
+
+```sql
+projects         + state TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active','archived'))
+```
+
+- Added with `ALTER TABLE ADD COLUMN` only (no rebuild); every existing project reads `active`.
+- Set only by the app's `set_project_state(id, state)` command (no CLI/MCP command); either
+  direction is allowed at any time, except that archiving is refused while the project has an
+  `active` sprint or a Release in `planned`/`user_testing`. The refusal names that sprint or
+  Release version and changes nothing.
+- `state` is returned in the `Project` JSON (`list_projects`, `get_project`) and by `project_show`.

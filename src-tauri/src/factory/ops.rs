@@ -31,6 +31,25 @@ fn err(e: sqlx::Error) -> String {
     e.to_string()
 }
 
+/// The one stored form of a labels string (FB-99), applied on every write from
+/// the app and the CLI/MCP: each label trimmed of spaces, tabs, CR and LF, empties
+/// dropped, exact duplicates removed, the rest sorted and joined with ",".
+/// Case and inner spaces are kept ("Phase 1"; "QA" and "qa" are two labels).
+///
+/// The sort folds case for A-Z only, then breaks ties by the exact bytes. That
+/// is exactly `ORDER BY lower(x), x` in SQLite (no ICU), which migration 014
+/// uses to normalize existing rows, so "Decisão" lands in the same place in both.
+pub fn normalize_labels(raw: &str) -> String {
+    let mut labels: Vec<&str> = raw
+        .split(',')
+        .map(|l| l.trim_matches([' ', '\t', '\r', '\n']))
+        .filter(|l| !l.is_empty())
+        .collect();
+    labels.sort_by(|a, b| a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase()).then(a.cmp(b)));
+    labels.dedup();
+    labels.join(",")
+}
+
 #[derive(Debug, Clone, FromRow)]
 struct Row {
     id: i64,
@@ -70,7 +89,8 @@ const ROW_SQL: &str = r#"SELECT t.id, t.project_id, t.task_number, t.parent_id, 
        t.title, t.description, t.type, t.status, t.priority, t.assignee_id,
        t.story_points, t.labels, t.feature_branch, t.review_verdict,
        t.reviewed_commit, t.findings_url, t.run_stopped, t.risk, t.release_id,
-       t.epic_id, p.key AS project_key, p.ladder, p.kind AS project_kind
+       t.epic_id, p.key AS project_key, p.ladder,
+       CASE WHEN p.client_id IS NULL THEN 'internal' ELSE 'client' END AS project_kind
   FROM tasks t JOIN projects p ON p.id = t.project_id"#;
 
 fn parse_key(key: &str) -> Result<(String, i64), String> {
@@ -112,6 +132,27 @@ fn require_factory(row: &Row) -> Result<(), String> {
     Ok(())
 }
 
+/// The archive guard (FB-14): an archived project is read-only. Every write on
+/// a project's items calls this first (each Factory write op here, and the
+/// app's task and sprint writes); reads never do, and neither does
+/// `set_project_state`, so a project can always be unarchived. Refuses with
+/// "<KEY> is archived; unarchive it first".
+pub async fn require_writable<'e, E>(ex: E, project_id: i64) -> Result<(), String>
+where
+    E: sqlx::Executor<'e, Database = Sqlite>,
+{
+    let (key, state): (String, String) = sqlx::query_as("SELECT key, state FROM projects WHERE id = ?")
+        .bind(project_id)
+        .fetch_optional(ex)
+        .await
+        .map_err(err)?
+        .ok_or_else(|| format!("project {project_id} not found"))?;
+    if state == "archived" {
+        return Err(format!("{key} is archived; unarchive it first"));
+    }
+    Ok(())
+}
+
 /// The one rule for "is a Story" (FB-52): on a Factory project, a top-level
 /// `story` (a feature) or a top-level `bug` (a fix) climbs the Story ladder. A
 /// `bug` with a parent is a bug Subtask. The caller checks the ladder: on a
@@ -142,6 +183,14 @@ async fn load_epic(tx: &mut Tx<'_>, key: &str) -> Result<Row, String> {
     Ok(row)
 }
 
+/// [`load_epic`] for an op that writes the epic: refused on an archived
+/// project ([`require_writable`]).
+async fn load_epic_for_write(tx: &mut Tx<'_>, key: &str) -> Result<Row, String> {
+    let row = load_epic(tx, key).await?;
+    require_writable(&mut **tx, row.project_id).await?;
+    Ok(row)
+}
+
 /// A Factory Story: a Story-level row on a Factory project.
 async fn load_story(tx: &mut Tx<'_>, key: &str) -> Result<Row, String> {
     let row = load(tx, key).await?;
@@ -152,8 +201,17 @@ async fn load_story(tx: &mut Tx<'_>, key: &str) -> Result<Row, String> {
     Ok(row)
 }
 
-/// A Factory Subtask: a `subtask` or `bug` row whose parent is a Story.
-async fn load_subtask(tx: &mut Tx<'_>, key: &str) -> Result<(Row, Row), String> {
+/// [`load_story`] for an op that writes the Story or its trail: refused on an
+/// archived project ([`require_writable`]).
+async fn load_story_for_write(tx: &mut Tx<'_>, key: &str) -> Result<Row, String> {
+    let row = load_story(tx, key).await?;
+    require_writable(&mut **tx, row.project_id).await?;
+    Ok(row)
+}
+
+/// A Factory Subtask about to be written: a `subtask` or `bug` row whose
+/// parent is a Story, on a project that is not archived ([`require_writable`]).
+async fn load_subtask_for_write(tx: &mut Tx<'_>, key: &str) -> Result<(Row, Row), String> {
     let row = load(tx, key).await?;
     require_factory(&row)?;
     let parent = match row.parent_id {
@@ -163,6 +221,7 @@ async fn load_subtask(tx: &mut Tx<'_>, key: &str) -> Result<(Row, Row), String> 
     if !is_story_level(&parent.kind, parent.parent_id) {
         return Err(format!("{key} is not a Subtask of a Story"));
     }
+    require_writable(&mut **tx, row.project_id).await?;
     Ok((row, parent))
 }
 
@@ -177,15 +236,18 @@ async fn role_person(tx: &mut Tx<'_>, role: &str) -> Result<i64, String> {
         })
 }
 
+/// The primary contact of the project's client (FB-202: contacts belong to the
+/// client, not the project).
 async fn primary_contact(tx: &mut Tx<'_>, project_id: i64) -> Result<i64, String> {
     sqlx::query_scalar::<_, i64>(
-        "SELECT person_id FROM project_contacts WHERE project_id = ? AND is_primary = 1",
+        r#"SELECT c.person_id FROM client_contacts c JOIN projects p ON p.client_id = c.client_id
+            WHERE p.id = ? AND c.is_primary = 1"#,
     )
     .bind(project_id)
     .fetch_optional(&mut **tx)
     .await
     .map_err(err)?
-    .ok_or_else(|| "the project has no primary client contact; run `flowboard-cli contact add <project> <person id> --primary`".into())
+    .ok_or_else(|| "the project's client has no primary contact; run `flowboard-cli contact add <client id> <person id> --primary`".into())
 }
 
 async fn log(
@@ -279,6 +341,18 @@ async fn open_subtasks(tx: &mut Tx<'_>, story_id: i64, only_bugs: bool) -> Resul
 
 // ─── Read ───────────────────────────────────────────────────────────────────
 
+/// Statuses at which a depends-on Story stops blocking its dependents (FB-99):
+/// its work has reached the integration branch, or it was dropped. Every other
+/// status blocks, off-ladder legacy ones included.
+const UNBLOCKING_STATUSES: &[&str] = &["integrated_tests", "tested", "user_testing", "done", "canceled"];
+
+/// SQL condition that holds when the task aliased `alias` is a blocking
+/// dependency, i.e. its status is not one of [`UNBLOCKING_STATUSES`].
+fn blocking_sql(alias: &str) -> String {
+    let list = UNBLOCKING_STATUSES.iter().map(|s| format!("'{s}'")).collect::<Vec<_>>().join(",");
+    format!("{alias}.status NOT IN ({list})")
+}
+
 async fn story_json(tx: &mut Tx<'_>, story: &Row) -> Result<Value, String> {
     let subtasks = sqlx::query_as::<_, Row>(&format!(
         "{ROW_SQL} WHERE t.parent_id = ? ORDER BY t.task_number"
@@ -298,6 +372,16 @@ async fn story_json(tx: &mut Tx<'_>, story: &Row) -> Result<Value, String> {
              JOIN tasks t ON t.id = l.depends_on_id JOIN projects p ON p.id = t.project_id
             WHERE l.task_id = ? ORDER BY t.task_number"#,
     )
+    .bind(story.id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(err)?;
+    let blocked_by: Vec<String> = sqlx::query_scalar(&format!(
+        r#"SELECT p.key || '-' || t.task_number FROM task_links l
+             JOIN tasks t ON t.id = l.depends_on_id JOIN projects p ON p.id = t.project_id
+            WHERE l.task_id = ? AND {} ORDER BY t.task_number"#,
+        blocking_sql("t")
+    ))
     .bind(story.id)
     .fetch_all(&mut **tx)
     .await
@@ -350,6 +434,7 @@ async fn story_json(tx: &mut Tx<'_>, story: &Row) -> Result<Value, String> {
         "flags": { "stopped": story.run_stopped != 0, "waiting_on_bugs": waiting_on_bugs },
         "prs": prs.into_iter().map(|(url, target, state)| json!({ "url": url, "target": target, "state": state })).collect::<Vec<_>>(),
         "depends_on": depends_on,
+        "blocked_by": blocked_by,
         "subtasks": subtasks.iter().map(|s| json!({
             "key": s.key(),
             "title": s.title,
@@ -366,6 +451,37 @@ pub async fn story_show(pool: &SqlitePool, key: &str) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let story = load_story(&mut tx, key).await?;
     story_json(&mut tx, &story).await
+}
+
+/// The blocked Stories of a project (FB-99): a map from each Story key that has
+/// at least one blocking dependency to those dependencies' keys, in task-number
+/// order. Stories with no blocking dependency are left out. Depends-on links
+/// are a Factory concept, so a legacy project gets `{}`.
+pub async fn project_blocked_by(pool: &SqlitePool, key: &str) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let (id, ladder, _) = project_id(&mut tx, key).await?;
+    if ladder != "factory" {
+        return Ok(json!({}));
+    }
+    let rows: Vec<(String, String)> = sqlx::query_as(&format!(
+        r#"SELECT p.key || '-' || s.task_number, p.key || '-' || t.task_number
+             FROM task_links l
+             JOIN tasks s ON s.id = l.task_id
+             JOIN tasks t ON t.id = l.depends_on_id
+             JOIN projects p ON p.id = t.project_id
+            WHERE s.project_id = ? AND {}
+            ORDER BY s.task_number, t.task_number"#,
+        blocking_sql("t")
+    ))
+    .bind(id)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(err)?;
+    let mut out = serde_json::Map::new();
+    for (story, dep) in rows {
+        out.entry(story).or_insert_with(|| json!([])).as_array_mut().unwrap().push(Value::String(dep));
+    }
+    Ok(Value::Object(out))
 }
 
 pub async fn trail(pool: &SqlitePool, key: &str) -> Result<Value, String> {
@@ -393,8 +509,9 @@ pub async fn trail(pool: &SqlitePool, key: &str) -> Result<Value, String> {
     ))
 }
 
-/// Every Factory Story with a Run under way, across projects: `ready` in a
-/// sprint through `user_testing`. Stopped Runs first, then the longest in
+/// Every Factory Story with a Run under way, across active projects (FB-14:
+/// archived ones are left out): `ready` in a sprint through `user_testing`.
+/// Stopped Runs first, then the longest in
 /// their Stage.
 pub async fn active_runs(pool: &SqlitePool) -> Result<Value, String> {
     #[derive(FromRow)]
@@ -420,7 +537,7 @@ pub async fn active_runs(pool: &SqlitePool) -> Result<Value, String> {
              FROM tasks t
              JOIN projects p ON p.id = t.project_id
              LEFT JOIN people a ON a.id = t.assignee_id
-            WHERE p.ladder = 'factory' AND {}
+            WHERE p.ladder = 'factory' AND p.state = 'active' AND {}
               AND t.sprint_id IS NOT NULL
               AND t.status IN ('ready','building','integrated_tests','tested','user_testing')
             ORDER BY t.run_stopped DESC, stage_entered_at, p.key, t.task_number"#,
@@ -491,31 +608,64 @@ pub async fn people_list(pool: &SqlitePool) -> Result<Value, String> {
     ))
 }
 
+/// A project's id, ladder and kind. The kind is derived (FB-202): `client`
+/// iff the project has a client, else `internal`.
 async fn project_id(tx: &mut Tx<'_>, key: &str) -> Result<(i64, String, String), String> {
-    sqlx::query_as("SELECT id, ladder, kind FROM projects WHERE key = ?")
-        .bind(key.to_uppercase())
-        .fetch_optional(&mut **tx)
-        .await
-        .map_err(err)?
-        .ok_or_else(|| format!("project {key} not found"))
+    sqlx::query_as(
+        r#"SELECT id, ladder, CASE WHEN client_id IS NULL THEN 'internal' ELSE 'client' END
+             FROM projects WHERE key = ?"#,
+    )
+    .bind(key.to_uppercase())
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(err)?
+    .ok_or_else(|| format!("project {key} not found"))
 }
 
+/// A client's contacts by person id; `primary` marks the primary one.
+async fn client_contacts(tx: &mut Tx<'_>, client_id: i64) -> Result<Vec<Value>, String> {
+    let rows: Vec<(i64, String, i64)> = sqlx::query_as(
+        r#"SELECT p.id, p.name, c.is_primary FROM client_contacts c
+             JOIN people p ON p.id = c.person_id WHERE c.client_id = ? ORDER BY p.id"#,
+    )
+    .bind(client_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(err)?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, name, primary)| json!({ "person_id": id, "name": name, "primary": primary != 0 }))
+        .collect())
+}
+
+/// The project's ladder, kind and state ('active' | 'archived'), its client
+/// (or null when internal) and that client's contacts.
 pub async fn project_show(pool: &SqlitePool, key: &str) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let (id, ladder, kind) = project_id(&mut tx, key).await?;
-    let contacts: Vec<(i64, String, i64)> = sqlx::query_as(
-        r#"SELECT p.id, p.name, c.is_primary FROM project_contacts c
-             JOIN people p ON p.id = c.person_id WHERE c.project_id = ? ORDER BY p.id"#,
+    let client: Option<(i64, String)> = sqlx::query_as(
+        "SELECT c.id, c.name FROM projects p JOIN clients c ON c.id = p.client_id WHERE p.id = ?",
     )
     .bind(id)
-    .fetch_all(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await
     .map_err(err)?;
+    let contacts = match &client {
+        Some((client_id, _)) => client_contacts(&mut tx, *client_id).await?,
+        None => vec![],
+    };
+    let state: String = sqlx::query_scalar("SELECT state FROM projects WHERE id = ?")
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(err)?;
     Ok(json!({
         "key": key.to_uppercase(),
         "ladder": ladder,
         "kind": kind,
-        "contacts": contacts.into_iter().map(|(id, name, primary)| json!({ "person_id": id, "name": name, "primary": primary != 0 })).collect::<Vec<_>>(),
+        "state": state,
+        "client": client.map(|(id, name)| json!({ "id": id, "name": name })),
+        "contacts": contacts,
     }))
 }
 
@@ -553,14 +703,15 @@ async fn unmapped_items(tx: &mut Tx<'_>, project_id: i64, key: &str) -> Result<V
     Ok(numbers.into_iter().map(|n| format!("{key}-{n}")).collect())
 }
 
-/// Set a project's ladder and/or kind. Switching to the Factory ladder is
-/// refused while an open item isn't mapped to it yet: mapping is a Rollout
-/// step, and an unmapped item would vanish from every board.
+/// Set a project's ladder and/or client (`Some(None)` makes it internal).
+/// Switching to the Factory ladder is refused while an open item isn't mapped
+/// to it yet: mapping is a Rollout step, and an unmapped item would vanish from
+/// every board.
 pub async fn project_set(
     pool: &SqlitePool,
     key: &str,
     ladder: Option<&str>,
-    kind: Option<&str>,
+    client: Option<Option<i64>>,
 ) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let (id, current_ladder, _) = project_id(&mut tx, key).await?;
@@ -585,12 +736,13 @@ pub async fn project_set(
             .await
             .map_err(err)?;
     }
-    if let Some(k) = kind {
-        if !matches!(k, "internal" | "client") {
-            return Err(format!("'{k}' is not a project kind (internal, client)"));
+    if let Some(client_id) = client {
+        if let Some(c) = client_id {
+            require_client(&mut tx, c).await?;
         }
-        sqlx::query("UPDATE projects SET kind = ? WHERE id = ?")
-            .bind(k)
+        // Same rule as the app's update_project: a new client means last in its group.
+        sqlx::query(crate::commands::projects::SET_CLIENT_SQL)
+            .bind(client_id)
             .bind(id)
             .execute(&mut *tx)
             .await
@@ -600,21 +752,63 @@ pub async fn project_set(
     project_show(pool, key).await
 }
 
-pub async fn contact_add(pool: &SqlitePool, key: &str, person_id: i64, primary: bool) -> Result<Value, String> {
+// ─── Clients ────────────────────────────────────────────────────────────────
+
+async fn require_client(tx: &mut Tx<'_>, client_id: i64) -> Result<(), String> {
+    let found: Option<i64> = sqlx::query_scalar("SELECT id FROM clients WHERE id = ?")
+        .bind(client_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(err)?;
+    found.map(|_| ()).ok_or_else(|| format!("client {client_id} not found"))
+}
+
+async fn client_json(tx: &mut Tx<'_>, client_id: i64) -> Result<Value, String> {
+    let (name, position): (String, i64) = sqlx::query_as("SELECT name, position FROM clients WHERE id = ?")
+        .bind(client_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(err)?
+        .ok_or_else(|| format!("client {client_id} not found"))?;
+    Ok(json!({
+        "id": client_id,
+        "name": name,
+        "position": position,
+        "contacts": client_contacts(tx, client_id).await?,
+    }))
+}
+
+/// Every client in sidebar order, with its contacts.
+pub async fn client_list(pool: &SqlitePool) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let (id, _, _) = project_id(&mut tx, key).await?;
+    let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM clients ORDER BY position, id")
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(err)?;
+    let mut out = Vec::with_capacity(ids.len());
+    for id in ids {
+        out.push(client_json(&mut tx, id).await?);
+    }
+    Ok(Value::Array(out))
+}
+
+/// Link a person to a client as a contact. `primary` makes them the client's
+/// one primary contact, replacing any other.
+pub async fn contact_add(pool: &SqlitePool, client_id: i64, person_id: i64, primary: bool) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    require_client(&mut tx, client_id).await?;
     if primary {
-        sqlx::query("UPDATE project_contacts SET is_primary = 0 WHERE project_id = ?")
-            .bind(id)
+        sqlx::query("UPDATE client_contacts SET is_primary = 0 WHERE client_id = ?")
+            .bind(client_id)
             .execute(&mut *tx)
             .await
             .map_err(err)?;
     }
     sqlx::query(
-        r#"INSERT INTO project_contacts (project_id, person_id, is_primary) VALUES (?, ?, ?)
-           ON CONFLICT (project_id, person_id) DO UPDATE SET is_primary = excluded.is_primary"#,
+        r#"INSERT INTO client_contacts (client_id, person_id, is_primary) VALUES (?, ?, ?)
+           ON CONFLICT (client_id, person_id) DO UPDATE SET is_primary = excluded.is_primary"#,
     )
-    .bind(id)
+    .bind(client_id)
     .bind(person_id)
     .bind(primary)
     .execute(&mut *tx)
@@ -623,21 +817,23 @@ pub async fn contact_add(pool: &SqlitePool, key: &str, person_id: i64, primary: 
         sqlx::Error::Database(d) if d.message().contains("FOREIGN KEY") => format!("person {person_id} not found"),
         e => e.to_string(),
     })?;
+    let out = client_json(&mut tx, client_id).await?;
     tx.commit().await.map_err(err)?;
-    project_show(pool, key).await
+    Ok(out)
 }
 
-pub async fn contact_remove(pool: &SqlitePool, key: &str, person_id: i64) -> Result<Value, String> {
+pub async fn contact_remove(pool: &SqlitePool, client_id: i64, person_id: i64) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let (id, _, _) = project_id(&mut tx, key).await?;
-    sqlx::query("DELETE FROM project_contacts WHERE project_id = ? AND person_id = ?")
-        .bind(id)
+    require_client(&mut tx, client_id).await?;
+    sqlx::query("DELETE FROM client_contacts WHERE client_id = ? AND person_id = ?")
+        .bind(client_id)
         .bind(person_id)
         .execute(&mut *tx)
         .await
         .map_err(err)?;
+    let out = client_json(&mut tx, client_id).await?;
     tx.commit().await.map_err(err)?;
-    project_show(pool, key).await
+    Ok(out)
 }
 
 // ─── Stories ────────────────────────────────────────────────────────────────
@@ -650,19 +846,39 @@ pub struct NewStory<'a> {
     pub labels: &'a str,
     /// true files a bug Story (a fix) instead of a feature Story (FB-52).
     pub bug: bool,
+    /// An open epic of the same project to file the Story in (FB-292), under
+    /// the same membership rule as `story_edit` ([`check_epic_link`]).
+    pub epic: Option<&'a str>,
 }
 
+/// Create a Story in backlog, in `s.epic` if given. A refused epic rolls the
+/// insert back, so nothing is created.
 pub async fn story_create(pool: &SqlitePool, s: NewStory<'_>, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let (pid, ladder, _) = project_id(&mut tx, s.project).await?;
     if ladder != "factory" {
         return Err(format!("{} is a legacy project; the Factory does not write to it", s.project));
     }
+    require_writable(&mut *tx, pid).await?;
     let owner = role_person(&mut tx, "owner").await?;
     let kind = if s.bug { "bug" } else { "story" };
+    let epic = match s.epic {
+        Some(k) => Some(load(&mut tx, k).await?),
+        None => None,
+    };
     let id = insert_task(&mut tx, pid, None, None, kind, "backlog", s.title, s.description, s.priority, Some(owner), 0, false, s.labels).await?;
     log(&mut tx, id, actor, "created", "", "backlog").await?;
-    let story = load_by_id(&mut tx, id).await?;
+    let mut story = load_by_id(&mut tx, id).await?;
+    if let Some(epic) = &epic {
+        check_epic_link(&story, Some(epic))?;
+        sqlx::query("UPDATE tasks SET epic_id = ? WHERE id = ?")
+            .bind(epic.id)
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(err)?;
+        story.epic_id = Some(epic.id);
+    }
     let out = story_json(&mut tx, &story).await?;
     tx.commit().await.map_err(err)?;
     Ok(out)
@@ -708,7 +924,7 @@ async fn insert_task(
     .bind(assignee_id)
     .bind(story_points)
     .bind(risk)
-    .bind(labels)
+    .bind(normalize_labels(labels))
     .fetch_one(&mut **tx)
     .await
     .map_err(err)
@@ -726,7 +942,7 @@ pub struct StoryEdit<'a> {
 
 pub async fn story_edit(pool: &SqlitePool, key: &str, e: StoryEdit<'_>) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let story = load_story(&mut tx, key).await?;
+    let story = load_story_for_write(&mut tx, key).await?;
     let priority = e.priority.unwrap_or(&story.priority);
     if !matches!(priority, "low" | "medium" | "high" | "critical") {
         return Err(format!("'{priority}' is not a priority (low, medium, high, critical)"));
@@ -749,7 +965,7 @@ pub async fn story_edit(pool: &SqlitePool, key: &str, e: StoryEdit<'_>) -> Resul
     .bind(e.title.unwrap_or(&story.title))
     .bind(e.description.unwrap_or(&story.description))
     .bind(priority)
-    .bind(e.labels.unwrap_or(&story.labels))
+    .bind(normalize_labels(e.labels.unwrap_or(&story.labels)))
     .bind(epic_id)
     .bind(story.id)
     .execute(&mut *tx)
@@ -794,7 +1010,7 @@ async fn move_story(tx: &mut Tx<'_>, story: &Row, to: &str, actor: Actor) -> Res
 
 pub async fn story_move(pool: &SqlitePool, key: &str, to: &str, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let story = load_story(&mut tx, key).await?;
+    let story = load_story_for_write(&mut tx, key).await?;
     move_story(&mut tx, &story, to, actor).await?;
     let story = load_by_id(&mut tx, story.id).await?;
     let out = story_json(&mut tx, &story).await?;
@@ -808,7 +1024,7 @@ pub async fn story_move(pool: &SqlitePool, key: &str, to: &str, actor: Actor) ->
 /// open status.
 pub async fn story_set_sprint(pool: &SqlitePool, key: &str, sprint_id: Option<i64>) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let story = load_story(&mut tx, key).await?;
+    let story = load_story_for_write(&mut tx, key).await?;
     set_sprint(&mut tx, &story, sprint_id).await?;
     let story = load_by_id(&mut tx, story.id).await?;
     let out = story_json(&mut tx, &story).await?;
@@ -829,6 +1045,7 @@ pub async fn app_story_set_sprint(
     if !is_story_level(&story.kind, story.parent_id) {
         return Err(format!("{} is not a Story", story.key()));
     }
+    require_writable(&mut **tx, story.project_id).await?;
     set_sprint(tx, &story, sprint_id).await
 }
 
@@ -873,7 +1090,7 @@ async fn set_sprint(tx: &mut Tx<'_>, story: &Row, sprint_id: Option<i64>) -> Res
 
 pub async fn story_set_branch(pool: &SqlitePool, key: &str, branch: &str) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let story = load_story(&mut tx, key).await?;
+    let story = load_story_for_write(&mut tx, key).await?;
     sqlx::query(
         "UPDATE tasks SET feature_branch = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?",
     )
@@ -895,7 +1112,7 @@ pub async fn story_comment(pool: &SqlitePool, key: &str, body: &str, actor: Acto
         return Err("a comment needs a body".into());
     }
     let mut tx = pool.begin().await.map_err(err)?;
-    let story = load_story(&mut tx, key).await?;
+    let story = load_story_for_write(&mut tx, key).await?;
     let author = role_person(&mut tx, actor.role()).await?;
     let (id, created_at): (i64, String) = sqlx::query_as(
         r#"INSERT INTO comments (task_id, author_id, body, created_at)
@@ -921,7 +1138,7 @@ pub async fn story_comment(pool: &SqlitePool, key: &str, body: &str, actor: Acto
 
 pub async fn link_add(pool: &SqlitePool, key: &str, depends_on: &str) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let story = load_story(&mut tx, key).await?;
+    let story = load_story_for_write(&mut tx, key).await?;
     let other = load_story(&mut tx, depends_on).await?;
     if other.project_id != story.project_id {
         return Err("a Story can only depend on a Story of the same project".into());
@@ -945,7 +1162,7 @@ pub async fn link_add(pool: &SqlitePool, key: &str, depends_on: &str) -> Result<
 
 pub async fn link_remove(pool: &SqlitePool, key: &str, depends_on: &str) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let story = load_story(&mut tx, key).await?;
+    let story = load_story_for_write(&mut tx, key).await?;
     let other = load(&mut tx, depends_on).await?;
     sqlx::query("DELETE FROM task_links WHERE task_id = ? AND depends_on_id = ?")
         .bind(story.id)
@@ -972,7 +1189,7 @@ pub async fn review_record(
         return Err(format!("'{verdict}' is not a Review verdict (passed, failed)"));
     }
     let mut tx = pool.begin().await.map_err(err)?;
-    let story = load_story(&mut tx, key).await?;
+    let story = load_story_for_write(&mut tx, key).await?;
     require_building(&story, "Review")?;
     let round = count_events(&mut tx, story.id, "review_round", None).await? + 1;
     sqlx::query(
@@ -999,7 +1216,7 @@ pub async fn review_record(
 /// numbers them. Open Subtasks are not checked, so a manual Review still works.
 pub async fn review_start(pool: &SqlitePool, key: &str, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let story = load_story(&mut tx, key).await?;
+    let story = load_story_for_write(&mut tx, key).await?;
     require_building(&story, "Starting a Review")?;
     if story.run_stopped != 0 {
         return Err(format!("{}'s Run is stopped", story.key()));
@@ -1017,7 +1234,7 @@ pub async fn review_start(pool: &SqlitePool, key: &str, actor: Actor) -> Result<
 /// a Subtask that isn't in_progress.
 pub async fn verify_start(pool: &SqlitePool, key: &str, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let (sub, story) = load_subtask(&mut tx, key).await?;
+    let (sub, story) = load_subtask_for_write(&mut tx, key).await?;
     require_building(&story, "Starting a Verify")?;
     if story.run_stopped != 0 {
         return Err(format!("{}'s Run is stopped", story.key()));
@@ -1034,7 +1251,7 @@ pub async fn verify_start(pool: &SqlitePool, key: &str, actor: Actor) -> Result<
 
 pub async fn run_stop(pool: &SqlitePool, key: &str, reason: &str, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let story = load_story(&mut tx, key).await?;
+    let story = load_story_for_write(&mut tx, key).await?;
     require_building(&story, "Stopping a Run")?;
     if story.run_stopped != 0 {
         return Err(format!("{}'s Run is already stopped", story.key()));
@@ -1058,7 +1275,7 @@ pub async fn run_stop(pool: &SqlitePool, key: &str, reason: &str, actor: Actor) 
 
 pub async fn run_restart(pool: &SqlitePool, key: &str, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let story = load_story(&mut tx, key).await?;
+    let story = load_story_for_write(&mut tx, key).await?;
     if story.run_stopped == 0 {
         return Err(format!("{}'s Run is not stopped", story.key()));
     }
@@ -1081,7 +1298,7 @@ pub async fn run_restart(pool: &SqlitePool, key: &str, actor: Actor) -> Result<V
 
 pub async fn pr_open(pool: &SqlitePool, key: &str, url: &str, target: &str, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let story = load_story(&mut tx, key).await?;
+    let story = load_story_for_write(&mut tx, key).await?;
     sqlx::query(
         r#"INSERT INTO task_prs (task_id, url, target, state, created_at, updated_at)
            VALUES (?, ?, ?, 'open', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))"#,
@@ -1107,7 +1324,7 @@ pub async fn pr_set_state(pool: &SqlitePool, key: &str, url: &str, state: &str, 
         return Err(format!("'{state}' is not a PR outcome (merged, closed)"));
     }
     let mut tx = pool.begin().await.map_err(err)?;
-    let story = load_story(&mut tx, key).await?;
+    let story = load_story_for_write(&mut tx, key).await?;
     let updated = sqlx::query(
         r#"UPDATE task_prs SET state = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
             WHERE task_id = ? AND url = ? AND state = 'open'"#,
@@ -1144,7 +1361,7 @@ pub struct NewSubtask<'a> {
 
 pub async fn subtask_create(pool: &SqlitePool, s: NewSubtask<'_>, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let story = load_story(&mut tx, s.story).await?;
+    let story = load_story_for_write(&mut tx, s.story).await?;
     if matches!(story.status.as_str(), "done" | "canceled") {
         return Err(format!("{} is {}; it takes no new Subtasks", story.key(), story.status));
     }
@@ -1169,7 +1386,7 @@ pub async fn subtask_create(pool: &SqlitePool, s: NewSubtask<'_>, actor: Actor) 
 
 pub async fn subtask_move(pool: &SqlitePool, key: &str, to: &str, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let (sub, story) = load_subtask(&mut tx, key).await?;
+    let (sub, story) = load_subtask_for_write(&mut tx, key).await?;
     ladder::check_subtask_move(&sub.status, to)?;
     sqlx::query(
         "UPDATE tasks SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?",
@@ -1190,7 +1407,7 @@ pub async fn subtask_move(pool: &SqlitePool, key: &str, to: &str, actor: Actor) 
 
 pub async fn subtask_handoff(pool: &SqlitePool, key: &str, agent: &str, model: &str, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let (sub, story) = load_subtask(&mut tx, key).await?;
+    let (sub, story) = load_subtask_for_write(&mut tx, key).await?;
     require_building(&story, "Handing a Subtask to an agent")?;
     let event = json!({ "subtask": sub.key(), "agent": agent, "model": model });
     log(&mut tx, story.id, actor, "subtask_handoff", "", &event.to_string()).await?;
@@ -1200,7 +1417,7 @@ pub async fn subtask_handoff(pool: &SqlitePool, key: &str, agent: &str, model: &
 
 pub async fn subtask_verify(pool: &SqlitePool, key: &str, passed: bool, reason: &str, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let (sub, story) = load_subtask(&mut tx, key).await?;
+    let (sub, story) = load_subtask_for_write(&mut tx, key).await?;
     require_building(&story, "Verify")?;
     let round = count_events(&mut tx, story.id, "verify_round", Some(&sub.key())).await? + 1;
     let event = json!({
@@ -1244,6 +1461,7 @@ pub async fn epic_create(pool: &SqlitePool, e: NewEpic<'_>, actor: Actor) -> Res
     if ladder != "factory" {
         return Err(format!("{} is a legacy project; the Factory does not write to it", e.project));
     }
+    require_writable(&mut *tx, pid).await?;
     let id = insert_task(&mut tx, pid, None, None, "epic", "todo", e.title, e.description, e.priority, None, 0, false, e.labels).await?;
     log(&mut tx, id, actor, "created", "", "todo").await?;
     let out = epic_json(&load_by_id(&mut tx, id).await?);
@@ -1267,11 +1485,80 @@ async fn move_epic(tx: &mut Tx<'_>, epic: &Row, to: &str, actor: Actor) -> Resul
 /// Close (`done`) or cancel an open epic.
 pub async fn epic_move(pool: &SqlitePool, key: &str, to: &str, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let epic = load_epic(&mut tx, key).await?;
+    let epic = load_epic_for_write(&mut tx, key).await?;
     move_epic(&mut tx, &epic, to, actor).await?;
     let out = epic_json(&load_by_id(&mut tx, epic.id).await?);
     tx.commit().await.map_err(err)?;
     Ok(out)
+}
+
+/// An epic and its Stories (FB-292), canceled ones included, by task number.
+/// Read-only.
+pub async fn epic_show(pool: &SqlitePool, key: &str) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let epic = load_epic(&mut tx, key).await?;
+    let stories: Vec<(String, String, String, String)> = sqlx::query_as(&format!(
+        r#"SELECT p.key || '-' || t.task_number, t.title, t.type, t.status FROM tasks t
+             JOIN projects p ON p.id = t.project_id
+            WHERE t.epic_id = ? AND {} ORDER BY t.task_number"#,
+        story_level_sql("t")
+    ))
+    .bind(epic.id)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(err)?;
+    Ok(json!({
+        "key": epic.key(),
+        "title": epic.title,
+        "status": epic.status,
+        "description": epic.description,
+        "stories": stories
+            .into_iter()
+            .map(|(k, t, kind, s)| json!({ "key": k, "title": t, "type": kind, "status": s }))
+            .collect::<Vec<_>>(),
+    }))
+}
+
+/// A Factory project's epics (FB-292) at `status` (`todo`, the default, for
+/// open ones; `done`, `canceled` or `all`), by task number. Each carries its
+/// Story counts by Story status, holding only the statuses that occur;
+/// canceled Stories are counted. Read-only.
+pub async fn epic_list(pool: &SqlitePool, project: &str, status: Option<&str>) -> Result<Value, String> {
+    let status = status.unwrap_or("todo");
+    if !matches!(status, "todo" | "done" | "canceled" | "all") {
+        return Err(format!("'{status}' is not an epic list status (todo, done, canceled, all)"));
+    }
+    let mut tx = pool.begin().await.map_err(err)?;
+    let (pid, ladder, _) = project_id(&mut tx, project).await?;
+    if ladder != "factory" {
+        return Err(format!("{project} is a legacy project; the Factory does not write to it"));
+    }
+    let epics: Vec<(i64, i64, String, String)> = sqlx::query_as(
+        r#"SELECT id, task_number, title, status FROM tasks
+            WHERE project_id = ? AND type = 'epic' AND parent_id IS NULL AND (? = 'all' OR status = ?)
+            ORDER BY task_number"#,
+    )
+    .bind(pid)
+    .bind(status)
+    .bind(status)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(err)?;
+    let key = project.to_uppercase();
+    let mut out = Vec::with_capacity(epics.len());
+    for (id, n, title, epic_status) in epics {
+        let counts: Vec<(String, i64)> = sqlx::query_as(&format!(
+            "SELECT t.status, COUNT(*) FROM tasks t WHERE t.epic_id = ? AND {} GROUP BY t.status ORDER BY t.status",
+            story_level_sql("t")
+        ))
+        .bind(id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(err)?;
+        let stories: serde_json::Map<String, Value> = counts.into_iter().map(|(s, c)| (s, json!(c))).collect();
+        out.push(json!({ "key": format!("{key}-{n}"), "title": title, "status": epic_status, "stories": stories }));
+    }
+    Ok(json!({ "project": key, "epics": out }))
 }
 
 /// The membership rule (FB-224) for putting `task` in `epic`, or taking it out
@@ -1378,6 +1665,7 @@ pub async fn app_check_epic_in(tx: &mut Tx<'_>, id: i64, epic_id: Option<Option<
 /// Story's status and sprint, and a Subtask's status, go through the same
 /// operations as the CLI and the MCP: same ladder, assignee rule and trail.
 /// Returns `false`, changing nothing, when the task is on a legacy project.
+/// Refused on an archived Factory project (FB-14).
 pub async fn app_move(
     pool: &SqlitePool,
     id: i64,
@@ -1389,6 +1677,7 @@ pub async fn app_move(
     if row.ladder != "factory" {
         return Ok(false);
     }
+    require_writable(&mut *tx, row.project_id).await?;
     let parent = match row.parent_id {
         Some(p) => Some(load_by_id(&mut tx, p).await?),
         None => None,
@@ -1403,7 +1692,7 @@ pub async fn app_move(
     let key = row.key();
     let is_story = is_story_level(&row.kind, row.parent_id);
     let is_subtask = matches!(row.kind.as_str(), "subtask" | "bug")
-        && parent.as_ref().is_some_and(|p| is_story_level(&p.kind, p.parent_id));
+        && parent.as_ref().is_some_and(|parent| is_story_level(&parent.kind, parent.parent_id));
     if is_story {
         if status.is_some() && sprint_id.is_some() {
             return Err("on a Factory project, change a Story's sprint and its status separately".into());
@@ -1545,7 +1834,8 @@ pub async fn app_sync_points(tx: &mut Transaction<'_, Sqlite>, id: i64, old_pare
 /// The status and sprint the app may create a task with. On a Factory project
 /// a Story starts in backlog or refining, outside sprints; an epic starts in
 /// todo, outside sprints, with no points; a Subtask starts in todo, in its
-/// Story's sprint. `None` on a legacy project.
+/// Story's sprint. `None` on a legacy project. Refused on an archived project
+/// of either ladder (FB-14), which is how `create_task` refuses one.
 pub async fn app_create_status(
     pool: &SqlitePool,
     project_id: i64,
@@ -1556,6 +1846,7 @@ pub async fn app_create_status(
     story_points: Option<i64>,
 ) -> Result<Option<(String, Option<i64>)>, String> {
     let mut tx = pool.begin().await.map_err(err)?;
+    require_writable(&mut *tx, project_id).await?;
     let ladder: String = sqlx::query_scalar("SELECT ladder FROM projects WHERE id = ?")
         .bind(project_id)
         .fetch_one(&mut *tx)
@@ -1673,6 +1964,7 @@ pub async fn release_create(pool: &SqlitePool, project: &str, version: &str) -> 
     if ladder != "factory" {
         return Err(format!("{project} is a legacy project; the Factory does not write to it"));
     }
+    require_writable(&mut *tx, pid).await?;
     sqlx::query(
         "INSERT INTO releases (project_id, version, state, created_at) VALUES (?, ?, 'planned', strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
     )
@@ -1713,7 +2005,8 @@ pub async fn release_list(pool: &SqlitePool, project: &str) -> Result<Value, Str
 pub async fn release_set_version(pool: &SqlitePool, project: &str, version: &str, new_version: &str) -> Result<Value, String> {
     check_version(new_version)?;
     let mut tx = pool.begin().await.map_err(err)?;
-    let (id, _, state, _) = release_row(&mut tx, project, version).await?;
+    let (id, pid, state, _) = release_row(&mut tx, project, version).await?;
+    require_writable(&mut *tx, pid).await?;
     if state != "planned" {
         return Err(format!("Release {version} is {state}; only a planned Release changes version"));
     }
@@ -1733,7 +2026,8 @@ pub async fn release_set_version(pool: &SqlitePool, project: &str, version: &str
 /// move starts from (tested, or user_testing for a Release leaving user_testing).
 pub async fn release_move(pool: &SqlitePool, project: &str, version: &str, to: &str, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let (id, _, state, kind) = release_row(&mut tx, project, version).await?;
+    let (id, pid, state, kind) = release_row(&mut tx, project, version).await?;
+    require_writable(&mut *tx, pid).await?;
     ladder::check_release_move(&state, to, kind == "client")?;
     let story_to = match to {
         "user_testing" => Some("user_testing"),
@@ -1782,7 +2076,7 @@ pub async fn release_move(pool: &SqlitePool, project: &str, version: &str, to: &
 /// depends-on Stories that are neither done nor in the same Release.
 pub async fn release_pick(pool: &SqlitePool, version: &str, key: &str, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let story = load_story(&mut tx, key).await?;
+    let story = load_story_for_write(&mut tx, key).await?;
     let (rid, _, state, _) = release_row(&mut tx, &story.project_key, version).await?;
     if !matches!(state.as_str(), "planned" | "user_testing") {
         return Err(format!("Release {version} is {state}; its pick is closed"));
@@ -1820,7 +2114,7 @@ pub async fn release_pick(pool: &SqlitePool, version: &str, key: &str, actor: Ac
 
 pub async fn release_remove(pool: &SqlitePool, key: &str, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
-    let story = load_story(&mut tx, key).await?;
+    let story = load_story_for_write(&mut tx, key).await?;
     let rid = story.release_id.ok_or_else(|| format!("{} is not in a Release", story.key()))?;
     let (version, state): (String, String) = sqlx::query_as("SELECT version, state FROM releases WHERE id = ?")
         .bind(rid)

@@ -6,11 +6,13 @@ import {
   getProject,
   listProjects,
   reorderProjects,
+  setProjectState,
   updateProject,
   type ProjectCreatePayload,
   type ProjectUpdatePayload,
 } from "@/lib/commands";
-import type { Project } from "@/types";
+import { storyKeys } from "@/hooks/useStory";
+import type { Project, ProjectState } from "@/types";
 
 export const projectKeys = {
   all: ["projects"] as const,
@@ -70,10 +72,15 @@ export function useReorderProjects() {
       await qc.cancelQueries({ queryKey: projectKeys.list() });
       const previous = qc.getQueryData<Project[]>(projectKeys.list());
       if (previous) {
+        // orderedIds may be one sidebar group: reorder those ids among the slots they
+        // already hold and leave every other project where it is.
         const byId = new Map(previous.map((p) => [p.id, p]));
-        const reordered = orderedIds
+        const inOrder = orderedIds
           .map((id) => byId.get(id))
           .filter((p): p is Project => p != null);
+        const moved = new Set(inOrder.map((p) => p.id));
+        let slot = 0;
+        const reordered = previous.map((p) => (moved.has(p.id) ? inOrder[slot++] : p));
         qc.setQueryData<Project[]>(projectKeys.list(), reordered);
       }
       return { previous };
@@ -83,5 +90,21 @@ export function useReorderProjects() {
       toast.error(`Failed to reorder projects: ${String(err)}`);
     },
     onSettled: () => { qc.invalidateQueries({ queryKey: projectKeys.all }); },
+  });
+}
+
+/** Archive or unarchive a project (FB-14). A refusal (open sprint, unreleased Release)
+ *  leaves the cache alone and toasts the backend's message. */
+export function useSetProjectState() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, state }: { id: number; state: ProjectState }) => setProjectState(id, state),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: projectKeys.all });
+      // Active Runs leaves archived projects out.
+      qc.invalidateQueries({ queryKey: storyKeys.active() });
+    },
+    onError: (err, { state }) =>
+      toast.error(`Failed to ${state === "archived" ? "archive" : "unarchive"} project: ${String(err)}`),
   });
 }

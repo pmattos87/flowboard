@@ -1,11 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Link, MemoryRouter } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import Settings from "@/pages/Settings";
 import { useUiStore } from "@/stores/uiStore";
+import { toast } from "sonner";
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const mockInvoke = vi.mocked(invoke);
 
@@ -16,7 +19,26 @@ const fakeProject = {
   description: "Desc",
   color: "#6366f1",
   created_at: "2024-01-01T00:00:00.000Z",
+  logo_data: null,
+  client_id: null,
+  kind: "internal" as const,
 };
+
+const CLIENTS = [
+  { id: 10, name: "Acme", position: 0 },
+  { id: 20, name: "Beta", position: 1 },
+];
+
+/**
+ * FB-207: the Project tab also loads clients. list_clients answers CLIENTS;
+ * every other command takes the next queued answer, then falls back to `fallback`.
+ */
+function mockCommands(fallback: () => Promise<unknown>, ...queue: (() => Promise<unknown>)[]) {
+  mockInvoke.mockImplementation(async (cmd: string) => {
+    if (cmd === "list_clients") return CLIENTS;
+    return (queue.shift() ?? fallback)();
+  });
+}
 
 function renderSettings(path = "/settings") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -120,7 +142,7 @@ describe("Settings — loading state", () => {
 describe("Settings — form", () => {
   async function loadProject() {
     useUiStore.setState({ activeProjectId: 1 });
-    mockInvoke.mockResolvedValue(fakeProject);
+    mockCommands(async () => fakeProject);
     renderSettings();
     await waitFor(() => expect(screen.getByDisplayValue("Alpha")).toBeInTheDocument());
   }
@@ -183,9 +205,11 @@ describe("Settings — form", () => {
     const user = userEvent.setup();
     useUiStore.setState({ activeProjectId: 1 });
     // First call is get_project (load), second is update_project (save)
-    mockInvoke
-      .mockResolvedValueOnce(fakeProject)
-      .mockRejectedValueOnce(new Error("Save failed"));
+    mockCommands(
+      async () => fakeProject,                               // fallback
+      async () => fakeProject,                               // get_project (load)
+      async () => { throw new Error("Save failed"); },  // the mutation
+    );
     renderSettings();
     await waitFor(() => expect(screen.getByDisplayValue("Alpha")).toBeInTheDocument());
 
@@ -200,10 +224,290 @@ describe("Settings — form", () => {
   });
 });
 
+describe("Settings — client (FB-207)", () => {
+  async function loadProject(clientId: number | null) {
+    useUiStore.setState({ activeProjectId: 1 });
+    mockCommands(async () => ({ ...fakeProject, client_id: clientId }));
+    renderSettings();
+    await waitFor(() => expect(screen.getByDisplayValue("Alpha")).toBeInTheDocument());
+    await screen.findByRole("option", { name: "Beta" });
+  }
+
+  it("shows the project's current client", async () => {
+    await loadProject(10);
+    expect(screen.getByLabelText("Client")).toHaveValue("10");
+  });
+
+  it("changing only the client counts as an unsaved change and saves client_id", async () => {
+    const user = userEvent.setup();
+    await loadProject(null);
+    const save = screen.getByRole("button", { name: /save changes/i });
+    expect(save).toBeDisabled();
+
+    await user.selectOptions(screen.getByLabelText("Client"), "Beta");
+    expect(save).toBeEnabled();
+    await user.click(save);
+    await user.click(await screen.findByRole("button", { name: /confirm and save/i }));
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("update_project", {
+        id: 1,
+        payload: { name: "Alpha", key: "AL", description: "Desc", logo_data: null, client_id: 20 },
+      });
+    });
+  });
+
+  const INTERNAL_HINT = "Releases go from tested straight to production.";
+  const CLIENT_HINT =
+    "Adds User testing between tested and production, with betas and client documents.";
+
+  it("starts the Workflow hint from a stored client and follows unsaved changes (FB-304)", async () => {
+    const user = userEvent.setup();
+    await loadProject(10);
+    const select = screen.getByLabelText("Client");
+    expect(select).toHaveAccessibleDescription(CLIENT_HINT);
+
+    await user.selectOptions(select, "None (internal)");
+    expect(select).toHaveAccessibleDescription(INTERNAL_HINT);
+    expect(screen.queryByText(CLIENT_HINT)).not.toBeInTheDocument();
+
+    await user.selectOptions(select, "Beta");
+    expect(select).toHaveAccessibleDescription(CLIENT_HINT);
+    expect(mockInvoke).not.toHaveBeenCalledWith("update_project", expect.anything());
+  });
+
+  it("starts the Workflow hint from no stored client (FB-304)", async () => {
+    const user = userEvent.setup();
+    await loadProject(null);
+    const select = screen.getByLabelText("Client");
+    expect(select).toHaveAccessibleDescription(INTERNAL_HINT);
+    expect(screen.queryByText(CLIENT_HINT)).not.toBeInTheDocument();
+
+    await user.selectOptions(select, "Acme");
+    expect(select).toHaveAccessibleDescription(CLIENT_HINT);
+  });
+
+  it("choosing None (internal) saves client_id: null", async () => {
+    const user = userEvent.setup();
+    await loadProject(10);
+    await user.selectOptions(screen.getByLabelText("Client"), "None (internal)");
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+    await user.click(await screen.findByRole("button", { name: /confirm and save/i }));
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith(
+        "update_project",
+        expect.objectContaining({ id: 1, payload: expect.objectContaining({ client_id: null }) }),
+      );
+    });
+  });
+});
+
+describe("Settings — kind change confirmation and Client badge (FB-305)", () => {
+  type StoredProject = Omit<typeof fakeProject, "client_id" | "kind" | "logo_data"> & {
+    client_id: number | null;
+    kind: "internal" | "client";
+    logo_data: string | null;
+  };
+
+  /**
+   * get_project answers the stored project; update_project stores the payload
+   * (with the kind the backend computes from client_id), so the refetch after a
+   * Save re-renders Settings with the updated project.
+   */
+  async function loadProject(clientId: number | null, logoData: string | null = null) {
+    let stored: StoredProject = {
+      ...fakeProject,
+      client_id: clientId,
+      kind: clientId === null ? "internal" : "client",
+      logo_data: logoData,
+    };
+    useUiStore.setState({ activeProjectId: 1 });
+    mockInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === "list_clients") return CLIENTS;
+      if (cmd === "update_project") {
+        const { payload } = args as {
+          payload: Omit<StoredProject, "id" | "color" | "created_at" | "kind">;
+        };
+        stored = { ...stored, ...payload, kind: payload.client_id === null ? "internal" : "client" };
+        return stored;
+      }
+      return stored;
+    });
+    renderSettings();
+    await waitFor(() => expect(screen.getByDisplayValue("Alpha")).toBeInTheDocument());
+    await screen.findByRole("option", { name: "Beta" });
+  }
+
+  const updateCalls = () => mockInvoke.mock.calls.filter(([cmd]) => cmd === "update_project");
+  const editingLine = () => screen.getByText(/^Editing/);
+
+  it("asks before saving None -> a client, and says User testing is added", async () => {
+    const user = userEvent.setup();
+    await loadProject(null);
+    await user.selectOptions(screen.getByLabelText("Client"), "Acme");
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent(
+      "User testing is added between tested and production, with betas and client documents.",
+    );
+    expect(updateCalls()).toHaveLength(0);
+  });
+
+  it("asks before saving a client -> None, warns about User testing and betas, and does not block", async () => {
+    const user = userEvent.setup();
+    await loadProject(10);
+    await user.selectOptions(screen.getByLabelText("Client"), "None (internal)");
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("User testing, betas and client documents are removed.");
+    expect(dialog).toHaveTextContent("Stories in User testing or open betas are affected.");
+    expect(within(dialog).getByRole("button", { name: /confirm and save/i })).toBeEnabled();
+    expect(updateCalls()).toHaveLength(0);
+  });
+
+  it("confirming saves once with the new client_id and the other edits, and the badge appears after the refetch", async () => {
+    const user = userEvent.setup();
+    await loadProject(null);
+    expect(within(editingLine()).queryByText("Client")).not.toBeInTheDocument();
+
+    const nameInput = screen.getByLabelText("Name");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Gamma");
+    await user.selectOptions(screen.getByLabelText("Client"), "Acme");
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+    await user.click(await screen.findByRole("button", { name: /confirm and save/i }));
+
+    await waitFor(() => expect(updateCalls()).toHaveLength(1));
+    expect(updateCalls()[0][1]).toEqual({
+      id: 1,
+      payload: { name: "Gamma", key: "AL", description: "Desc", logo_data: null, client_id: 10 },
+    });
+    await waitFor(() => expect(within(editingLine()).getByText("Client")).toBeInTheDocument());
+    expect(editingLine()).toHaveTextContent("Gamma");
+    expect(updateCalls()).toHaveLength(1);
+  });
+
+  it("confirming client -> None saves client_id: null, and the badge disappears after the refetch", async () => {
+    const user = userEvent.setup();
+    await loadProject(10);
+    expect(within(editingLine()).getByText("Client")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Client"), "None (internal)");
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+    await user.click(await screen.findByRole("button", { name: /confirm and save/i }));
+
+    await waitFor(() => expect(updateCalls()).toHaveLength(1));
+    expect(updateCalls()[0][1]).toEqual({
+      id: 1,
+      payload: { name: "Alpha", key: "AL", description: "Desc", logo_data: null, client_id: null },
+    });
+    await waitFor(() =>
+      expect(within(editingLine()).queryByText("Client")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("cancelling saves nothing, restores the stored client and keeps other unsaved edits", async () => {
+    const user = userEvent.setup();
+    await loadProject(null);
+    const nameInput = screen.getByLabelText("Name");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Gamma");
+    await user.selectOptions(screen.getByLabelText("Client"), "Acme");
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: /^cancel$/i }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByLabelText("Client")).toHaveValue("");
+    expect(screen.getByLabelText("Name")).toHaveValue("Gamma");
+    expect(updateCalls()).toHaveLength(0);
+  });
+
+  it("cancelling client -> None with Escape saves nothing, restores the stored client and keeps the description edit (QA)", async () => {
+    const user = userEvent.setup();
+    await loadProject(10);
+    await user.type(screen.getByLabelText("Description"), "!");
+    await user.selectOptions(screen.getByLabelText("Client"), "None (internal)");
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await screen.findByRole("dialog");
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByLabelText("Client")).toHaveValue("10");
+    expect(screen.getByLabelText("Description")).toHaveValue("Desc!");
+    expect(within(editingLine()).getByText("Client")).toBeInTheDocument();
+    expect(updateCalls()).toHaveLength(0);
+  });
+
+  it("the To-Client dialog carries no User testing warning (QA)", async () => {
+    const user = userEvent.setup();
+    await loadProject(null);
+    await user.selectOptions(screen.getByLabelText("Client"), "Acme");
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).not.toHaveTextContent("Stories in User testing or open betas are affected.");
+    expect(dialog).not.toHaveTextContent("are removed");
+  });
+
+  it("moving from one client to another saves straight away with no dialog", async () => {
+    const user = userEvent.setup();
+    await loadProject(10);
+    await user.selectOptions(screen.getByLabelText("Client"), "Beta");
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => expect(updateCalls()).toHaveLength(1));
+    expect(updateCalls()[0][1]).toEqual(
+      expect.objectContaining({ payload: expect.objectContaining({ client_id: 20 }) }),
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("editing only name, key and description saves straight away with no dialog", async () => {
+    const user = userEvent.setup();
+    await loadProject(10);
+    const nameInput = screen.getByLabelText("Name");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Gamma");
+    const keyInput = screen.getByLabelText("Key");
+    await user.clear(keyInput);
+    await user.type(keyInput, "GA");
+    await user.type(screen.getByLabelText("Description"), "!");
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => expect(updateCalls()).toHaveLength(1));
+    expect(updateCalls()[0][1]).toEqual({
+      id: 1,
+      payload: { name: "Gamma", key: "GA", description: "Desc!", logo_data: null, client_id: 10 },
+    });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("editing only the logo saves straight away with no dialog", async () => {
+    const user = userEvent.setup();
+    await loadProject(null, "data:image/png;base64,AAAA");
+    await user.click(screen.getByRole("button", { name: /^remove$/i }));
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => expect(updateCalls()).toHaveLength(1));
+    expect(updateCalls()[0][1]).toEqual(
+      expect.objectContaining({
+        payload: expect.objectContaining({ logo_data: null, client_id: null }),
+      }),
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});
+
 describe("Settings — delete", () => {
   async function loadProject() {
     useUiStore.setState({ activeProjectId: 1 });
-    mockInvoke.mockResolvedValue(fakeProject);
+    mockCommands(async () => fakeProject);
     renderSettings();
     await waitFor(() => expect(screen.getByDisplayValue("Alpha")).toBeInTheDocument());
   }
@@ -227,10 +531,11 @@ describe("Settings — delete", () => {
   it("calls delete_project and resets activeProjectId on confirm", async () => {
     const user = userEvent.setup();
     useUiStore.setState({ activeProjectId: 1 });
-    mockInvoke
-      .mockResolvedValueOnce(fakeProject) // get_project (load)
-      .mockResolvedValueOnce(undefined)   // delete_project
-      .mockResolvedValueOnce([]);          // list_projects (cache invalidation refetch)
+    mockCommands(
+      async () => [],                // list_projects (cache invalidation refetch)
+      async () => fakeProject,       // get_project (load)
+      async () => undefined,         // delete_project
+    );
     renderSettings();
     await waitFor(() => expect(screen.getByDisplayValue("Alpha")).toBeInTheDocument());
 
@@ -246,9 +551,11 @@ describe("Settings — delete", () => {
   it("shows error and keeps modal open if delete fails", async () => {
     const user = userEvent.setup();
     useUiStore.setState({ activeProjectId: 1 });
-    mockInvoke
-      .mockResolvedValueOnce(fakeProject)
-      .mockRejectedValueOnce(new Error("FK violation"));
+    mockCommands(
+      async () => fakeProject,                               // fallback
+      async () => fakeProject,                               // get_project (load)
+      async () => { throw new Error("FK violation"); },  // the mutation
+    );
     renderSettings();
     await waitFor(() => expect(screen.getByDisplayValue("Alpha")).toBeInTheDocument());
 
@@ -259,5 +566,57 @@ describe("Settings — delete", () => {
       expect(screen.getByRole("alert")).toHaveTextContent("FK violation");
     });
     expect(useUiStore.getState().activeProjectId).toBe(1);
+  });
+});
+
+describe("Settings — archive / unarchive (FB-14)", () => {
+  function mockProject(state: "active" | "archived", setState: () => Promise<unknown>) {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "list_clients") return CLIENTS;
+      if (cmd === "get_project") return { ...fakeProject, state };
+      if (cmd === "set_project_state") return setState();
+      return [];
+    });
+  }
+
+  it("offers Archive for an active project and archives it", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ activeProjectId: 1 });
+    mockProject("active", async () => ({ ...fakeProject, state: "archived" }));
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: /^archive project$/i }));
+    expect(screen.queryByRole("button", { name: /unarchive project/i })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("set_project_state", { id: 1, state: "archived" }),
+    );
+  });
+
+  it("offers Unarchive for an archived project and unarchives it", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ activeProjectId: 1 });
+    mockProject("archived", async () => ({ ...fakeProject, state: "active" }));
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: /unarchive project/i }));
+    expect(screen.queryByRole("button", { name: /^archive project$/i })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("set_project_state", { id: 1, state: "active" }),
+    );
+  });
+
+  it("shows the backend refusal when archiving is refused", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ activeProjectId: 1 });
+    const refusal = "AL has an active sprint (Sprint 3); complete it first";
+    mockProject("active", async () => {
+      throw refusal;
+    });
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: /^archive project$/i }));
+    await waitFor(() =>
+      expect(vi.mocked(toast.error)).toHaveBeenCalledWith(expect.stringContaining(refusal)),
+    );
   });
 });

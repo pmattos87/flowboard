@@ -1,25 +1,24 @@
-import { Columns3, Layers } from "lucide-react";
-import { useUiStore, type DiscoveryGrouping } from "@/stores/uiStore";
+import { selectLabelFilter, useUiStore } from "@/stores/uiStore";
 import { useTasks } from "@/hooks/useTasks";
 import { usePeople } from "@/hooks/usePeople";
 import { useProject } from "@/hooks/useProjects";
 import { RefreshButton } from "@/components/RefreshButton";
 import { KanbanBoard } from "./shared/KanbanBoard";
-import { DiscoveryEpicBoard } from "./shared/DiscoveryEpicBoard";
-import { DISCOVERY_COLUMNS, FACTORY_DISCOVERY_COLUMNS } from "./shared/boardConstants";
-import { factoryDiscoveryStories } from "./shared/epicGrouping";
+import { EpicSwimlaneBoard } from "./shared/EpicSwimlaneBoard";
+import { GroupingToggle } from "./shared/GroupingToggle";
+import { discoveryColumns, invisibleStories, isDiscoveryRow } from "./shared/invisibleStories";
+import { InvisibleStoriesStrip } from "./shared/InvisibleStoriesStrip";
+import { FACTORY_DISCOVERY_COLUMNS } from "./shared/boardConstants";
+import { buildEpicRows, factoryDiscoveryStories } from "./shared/epicGrouping";
 import { useStoryCardDecor } from "@/features/story/useStoryCardDecor";
-import { isStoryLevel } from "@/lib/storyLevel";
-
-const GROUPING_OPTIONS: { value: DiscoveryGrouping; label: string; Icon: typeof Layers }[] = [
-  { value: "none", label: "No grouping", Icon: Columns3 },
-  { value: "epic", label: "Group by epic", Icon: Layers },
-];
+import { matchesLabelFilter } from "@/lib/labels";
+import { LabelFilterSelect } from "./shared/LabelFilterSelect";
 
 export function DiscoveryBoard() {
   const activeProjectId = useUiStore((s) => s.activeProjectId);
   const grouping = useUiStore((s) => s.discoveryGrouping);
   const setGrouping = useUiStore((s) => s.setDiscoveryGrouping);
+  const labelFilter = useUiStore(selectLabelFilter(activeProjectId));
   const { data: allTasks } = useTasks(activeProjectId != null ? { project_id: activeProjectId } : undefined);
   const { data: people = [] } = usePeople();
   const { data: project } = useProject(activeProjectId);
@@ -35,11 +34,10 @@ export function DiscoveryBoard() {
 
   const isFactory = project?.ladder === "factory";
   // On a Factory project epics are never cards (FB-224); legacy keeps them.
-  const tasks = isFactory
+  const cards = isFactory
     ? factoryDiscoveryStories(allTasks ?? [])
-    : (allTasks ?? []).filter(
-        (t) => (t.type === "epic" || isStoryLevel(t, project?.ladder)) && t.sprint_id === null
-      );
+    : (allTasks ?? []).filter((t) => isDiscoveryRow(t, project?.ladder));
+  const tasks = cards.filter((t) => matchesLabelFilter(t, labelFilter));
   const grouped = isFactory && grouping === "epic";
 
   return (
@@ -56,33 +54,33 @@ export function DiscoveryBoard() {
               : "Backlog — stories and epics not yet assigned to a sprint."}
           </p>
         </div>
-        {isFactory && (
-          <div role="group" aria-label="Grouping" className="ml-auto flex items-center rounded border border-gray-700 p-0.5">
-            {GROUPING_OPTIONS.map(({ value, label, Icon }) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setGrouping(value)}
-                aria-pressed={grouping === value}
-                className={`flex items-center gap-1.5 text-xs rounded px-2.5 py-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                  grouping === value ? "bg-gray-800 text-white" : "text-gray-400 hover:text-white"
-                }`}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="ml-auto flex items-center gap-3">
+          {isFactory && <GroupingToggle value={grouping} onChange={setGrouping} />}
+          <LabelFilterSelect projectId={activeProjectId} />
+        </div>
       </div>
+      {project && (
+        <InvisibleStoriesStrip stories={invisibleStories(allTasks ?? [], project.ladder)} projectKey={project.key} />
+      )}
       {grouped && project ? (
-        <DiscoveryEpicBoard tasks={allTasks ?? []} people={people} project={project} decorate={decorate} />
+        <EpicSwimlaneBoard
+          rows={buildEpicRows(cards, allTasks ?? [], { keepEmptyOpenEpics: true }).map((row) => ({
+            ...row,
+            stories: row.stories.filter((s) => matchesLabelFilter(s, labelFilter)),
+          }))}
+          tasks={allTasks ?? []}
+          columns={FACTORY_DISCOVERY_COLUMNS}
+          emptyMessage="No epics or Stories in the backlog yet."
+          people={people}
+          project={project}
+          decorate={decorate}
+        />
       ) : (
         <KanbanBoard
           tasks={tasks}
           people={people}
           projectKey={project?.key ?? "FB"}
-          columns={isFactory ? FACTORY_DISCOVERY_COLUMNS : DISCOVERY_COLUMNS}
+          columns={discoveryColumns(project?.ladder)}
           decorate={decorate}
         />
       )}

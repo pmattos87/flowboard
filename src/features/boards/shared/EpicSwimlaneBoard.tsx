@@ -6,13 +6,18 @@ import { epicProgress } from "@/lib/epicProgress";
 import { epicPagePath } from "@/features/story/useStoryCardDecor";
 import { KanbanBoard } from "./KanbanBoard";
 import { ProgressBar } from "./TaskBoardGroupedKanban";
-import { FACTORY_DISCOVERY_COLUMNS } from "./boardConstants";
+import type { BoardColumn } from "./boardConstants";
 import type { CardDecor } from "./TaskCard";
-import { buildEpicRows, type EpicGroupKey, type EpicRow } from "./epicGrouping";
+import type { EpicGroupKey, EpicRow } from "./epicGrouping";
 
-interface DiscoveryEpicBoardProps {
-  /** Every task of the project: rows show the unscheduled Stories, progress counts them all. */
+interface EpicSwimlaneBoardProps {
+  /** The rows to show, from `buildEpicRows`. */
+  rows: EpicRow[];
+  /** Every task of the project: each epic's progress counts them all. */
   tasks: Task[];
+  columns: BoardColumn[];
+  /** Shown when there is no row. */
+  emptyMessage: string;
   people: Person[];
   project: Project;
   decorate?: (task: Task) => CardDecor;
@@ -76,10 +81,17 @@ function RowHeader({
   );
 }
 
-/** The Factory Discovery board grouped by epic (FB-224): one collapsible row per epic. */
-export function DiscoveryEpicBoard({ tasks, people, project, decorate }: DiscoveryEpicBoardProps) {
+/** A board grouped by epic (FB-224, FB-291): one collapsible row per epic, each with the given columns. */
+export function EpicSwimlaneBoard({
+  rows,
+  tasks,
+  columns,
+  emptyMessage,
+  people,
+  project,
+  decorate,
+}: EpicSwimlaneBoardProps) {
   const [collapsed, setCollapsed] = useState<Set<EpicGroupKey>>(new Set());
-  const rows = buildEpicRows(tasks);
 
   function toggle(key: EpicGroupKey) {
     setCollapsed((prev) => {
@@ -93,7 +105,7 @@ export function DiscoveryEpicBoard({ tasks, people, project, decorate }: Discove
   if (rows.length === 0) {
     return (
       <div className="flex items-center justify-center h-64 text-gray-500 text-sm">
-        No epics or Stories in the backlog yet.
+        {emptyMessage}
       </div>
     );
   }
@@ -123,7 +135,7 @@ export function DiscoveryEpicBoard({ tasks, people, project, decorate }: Discove
                   tasks={row.stories}
                   people={people}
                   projectKey={project.key}
-                  columns={FACTORY_DISCOVERY_COLUMNS}
+                  columns={columns}
                   decorate={decorate}
                 />
               </div>
