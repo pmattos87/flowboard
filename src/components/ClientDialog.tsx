@@ -18,7 +18,7 @@ import type { ClientUpdatePayload } from "@/lib/commands";
 export function OrgLogo({
   name,
   logoData,
-  className = "h-4 w-4",
+  className = "h-5 w-5",
 }: {
   name: string;
   logoData: string | null | undefined;
