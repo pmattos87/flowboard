@@ -1,8 +1,10 @@
 //! Clients (FB-202): an organization that groups its projects in the sidebar.
-//! A client has a name and a sidebar position only; contacts stay CLI-only
+//! A client has a name, a logo (SF-134: its projects carry none of their own)
+//! and a sidebar position; contacts stay CLI-only
 //! (`factory::ops::contact_add/remove`).
 
-use serde::Serialize;
+use super::deserialize_optional_field;
+use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use tauri::State;
 
@@ -10,21 +12,33 @@ use tauri::State;
 pub struct Client {
     pub id: i64,
     pub name: String,
+    /// Optional logo as a base64 data URL (up to 512 px); NULL = no logo.
+    pub logo_data: Option<String>,
     /// Manual sort order within the sidebar's Clients section (ascending).
     pub position: i64,
 }
 
+/// `update_client`'s fields: an absent name keeps it; for `logo_data`, absent
+/// keeps the logo, `null` clears it and a value sets it.
+#[derive(Debug, Deserialize)]
+pub struct ClientUpdate {
+    pub name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_field")]
+    pub logo_data: Option<Option<String>>,
+}
+
 /// The trimmed name, or an error when it is blank (checked before any write).
-fn clean_name(name: &str) -> Result<&str, String> {
+/// Shared with the company record (`commands::company`).
+pub(crate) fn clean_name<'a>(name: &'a str, what: &str) -> Result<&'a str, String> {
     let name = name.trim();
     if name.is_empty() {
-        return Err("client name cannot be blank".into());
+        return Err(format!("{what} name cannot be blank"));
     }
     Ok(name)
 }
 
 async fn get_client(pool: &SqlitePool, id: i64) -> Result<Client, String> {
-    sqlx::query_as::<_, Client>("SELECT id, name, position FROM clients WHERE id = ?")
+    sqlx::query_as::<_, Client>("SELECT id, name, logo_data, position FROM clients WHERE id = ?")
         .bind(id)
         .fetch_optional(pool)
         .await
@@ -33,7 +47,7 @@ async fn get_client(pool: &SqlitePool, id: i64) -> Result<Client, String> {
 }
 
 async fn list_clients_inner(pool: &SqlitePool) -> Result<Vec<Client>, String> {
-    sqlx::query_as::<_, Client>("SELECT id, name, position FROM clients ORDER BY position, id")
+    sqlx::query_as::<_, Client>("SELECT id, name, logo_data, position FROM clients ORDER BY position, id")
         .fetch_all(pool)
         .await
         .map_err(|e| e.to_string())
@@ -41,7 +55,7 @@ async fn list_clients_inner(pool: &SqlitePool) -> Result<Vec<Client>, String> {
 
 /// A new client goes last in the Clients section.
 async fn create_client_inner(pool: &SqlitePool, name: &str) -> Result<Client, String> {
-    let name = clean_name(name)?;
+    let name = clean_name(name, "client")?;
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO clients (name, position) VALUES (?, (SELECT COALESCE(MAX(position), -1) + 1 FROM clients)) RETURNING id",
     )
@@ -52,14 +66,18 @@ async fn create_client_inner(pool: &SqlitePool, name: &str) -> Result<Client, St
     get_client(pool, id).await
 }
 
-async fn rename_client_inner(pool: &SqlitePool, id: i64, name: &str) -> Result<Client, String> {
-    let name = clean_name(name)?;
-    let updated = sqlx::query("UPDATE clients SET name = ? WHERE id = ?")
-        .bind(name)
-        .bind(id)
-        .execute(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+async fn update_client_inner(pool: &SqlitePool, id: i64, payload: ClientUpdate) -> Result<Client, String> {
+    let name = payload.name.as_deref().map(|n| clean_name(n, "client")).transpose()?;
+    let updated = sqlx::query(
+        "UPDATE clients SET name = COALESCE(?, name), logo_data = CASE WHEN ? THEN ? ELSE logo_data END WHERE id = ?",
+    )
+    .bind(name)
+    .bind(payload.logo_data.is_some())
+    .bind(payload.logo_data.flatten())
+    .bind(id)
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
     if updated.rows_affected() == 0 {
         return Err(format!("client {id} not found"));
     }
@@ -91,8 +109,8 @@ pub async fn create_client(pool: State<'_, SqlitePool>, name: String) -> Result<
 }
 
 #[tauri::command]
-pub async fn rename_client(pool: State<'_, SqlitePool>, id: i64, name: String) -> Result<Client, String> {
-    rename_client_inner(pool.inner(), id, &name).await
+pub async fn update_client(pool: State<'_, SqlitePool>, id: i64, payload: ClientUpdate) -> Result<Client, String> {
+    update_client_inner(pool.inner(), id, payload).await
 }
 
 #[tauri::command]
@@ -105,11 +123,15 @@ mod tests {
     use super::*;
     use crate::test_support as ts;
 
-    async fn rows(pool: &SqlitePool) -> Vec<(i64, String, i64)> {
-        sqlx::query_as("SELECT id, name, position FROM clients ORDER BY id")
+    async fn rows(pool: &SqlitePool) -> Vec<(i64, String, i64, Option<String>)> {
+        sqlx::query_as("SELECT id, name, position, logo_data FROM clients ORDER BY id")
             .fetch_all(pool)
             .await
             .unwrap()
+    }
+
+    fn update(json: &str) -> ClientUpdate {
+        serde_json::from_str(json).unwrap()
     }
 
     #[tokio::test]
@@ -129,7 +151,7 @@ mod tests {
         let c = ts::client(&pool, "C").await;
         reorder_clients_inner(&pool, &[c, a, b]).await.unwrap();
 
-        let positions: Vec<(i64, i64)> = rows(&pool).await.into_iter().map(|(id, _, p)| (id, p)).collect();
+        let positions: Vec<(i64, i64)> = rows(&pool).await.into_iter().map(|(id, _, p, _)| (id, p)).collect();
         assert_eq!(positions, vec![(a, 1), (b, 2), (c, 0)]);
         let listed: Vec<i64> = list_clients_inner(&pool).await.unwrap().into_iter().map(|c| c.id).collect();
         assert_eq!(listed, vec![c, a, b]);
@@ -143,17 +165,45 @@ mod tests {
 
         for blank in ["", "   ", "\t\n"] {
             assert!(create_client_inner(&pool, blank).await.is_err(), "create {blank:?}");
-            assert!(rename_client_inner(&pool, a, blank).await.is_err(), "rename {blank:?}");
+            let payload = ClientUpdate { name: Some(blank.into()), logo_data: Some(Some("data:x".into())) };
+            assert!(update_client_inner(&pool, a, payload).await.is_err(), "update {blank:?}");
         }
         assert_eq!(rows(&pool).await, before);
     }
 
     #[tokio::test]
-    async fn rename_changes_only_the_name_and_refuses_an_unknown_client() {
+    async fn update_changes_only_the_name_and_refuses_an_unknown_client() {
         let pool = ts::pool().await;
         let a = ts::client(&pool, "Acme").await;
-        let renamed = rename_client_inner(&pool, a, " Acme Corp ").await.unwrap();
+        let renamed = update_client_inner(&pool, a, update(r#"{"name": " Acme Corp "}"#)).await.unwrap();
         assert_eq!((renamed.id, renamed.name.as_str(), renamed.position), (a, "Acme Corp", 0));
-        assert_eq!(rename_client_inner(&pool, 999, "X").await.unwrap_err(), "client 999 not found");
+        assert_eq!(update_client_inner(&pool, 999, update(r#"{"name": "X"}"#)).await.unwrap_err(), "client 999 not found");
+    }
+
+    #[test]
+    fn logo_data_is_three_state() {
+        assert_eq!(update(r#"{}"#).logo_data, None, "absent keeps the logo");
+        assert_eq!(update(r#"{"logo_data": null}"#).logo_data, Some(None), "null clears it");
+        assert_eq!(update(r#"{"logo_data": "data:x"}"#).logo_data, Some(Some("data:x".into())));
+    }
+
+    #[tokio::test]
+    async fn update_sets_keeps_and_clears_the_logo() {
+        let pool = ts::pool().await;
+        let a = ts::client(&pool, "Acme").await;
+        assert_eq!(get_client(&pool, a).await.unwrap().logo_data, None);
+
+        let set = update_client_inner(&pool, a, update(r#"{"logo_data": "data:image/png;base64,AA"}"#)).await.unwrap();
+        assert_eq!(set.logo_data.as_deref(), Some("data:image/png;base64,AA"));
+
+        let renamed = update_client_inner(&pool, a, update(r#"{"name": "Acme Corp"}"#)).await.unwrap();
+        assert_eq!(
+            (renamed.name.as_str(), renamed.logo_data.as_deref()),
+            ("Acme Corp", Some("data:image/png;base64,AA"))
+        );
+
+        let cleared = update_client_inner(&pool, a, update(r#"{"logo_data": null}"#)).await.unwrap();
+        assert_eq!((cleared.name.as_str(), cleared.logo_data), ("Acme Corp", None));
+        assert_eq!(list_clients_inner(&pool).await.unwrap()[0].logo_data, None);
     }
 }

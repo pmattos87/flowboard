@@ -144,7 +144,8 @@ export default function Settings() {
           name: trimmedName,
           key: trimmedKey,
           description,
-          logo_data: logoData,
+          // A client project has no logo of its own (SF-134); null clears it.
+          logo_data: clientId === null ? logoData : null,
           client_id: clientId,
         },
       });
@@ -245,6 +246,11 @@ export default function Settings() {
                         : "User testing, betas and client documents are removed. Releases go from tested straight to production."}
                     </DialogDescription>
                   </DialogHeader>
+                  {kindChange === "toClient" && project.logo_data && (
+                    <p className="text-sm text-amber-400">
+                      The project's logo will be removed. Client projects show their client's logo.
+                    </p>
+                  )}
                   {kindChange === "toInternal" && (
                     <p className="text-sm text-amber-400">
                       Stories in User testing or open betas are affected.
@@ -311,46 +317,48 @@ export default function Settings() {
                   />
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label className="text-gray-300">
-                    Logo <span className="text-gray-500">(optional)</span>
-                  </Label>
-                  <div className="flex items-center gap-3">
-                    <ProjectBadge
-                      project={{ name, color: project.color, logo_data: logoData }}
-                      className="h-12 w-12 rounded-md"
-                    />
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleLogoChange}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="bg-transparent border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white"
-                    >
-                      <Upload className="h-3.5 w-3.5" />
-                      Upload logo
-                    </Button>
-                    {logoData && (
-                      <button
+                {clientId === null && (
+                  <div className="space-y-1.5">
+                    <Label className="text-gray-300">
+                      Logo <span className="text-gray-500">(optional)</span>
+                    </Label>
+                    <div className="flex items-center gap-3">
+                      <ProjectBadge
+                        project={{ name, color: project.color, logo_data: logoData }}
+                        className="h-12 w-12 rounded-md"
+                      />
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleLogoChange}
+                      />
+                      <Button
                         type="button"
-                        onClick={() => setLogoData(null)}
-                        className="text-xs text-gray-500 hover:text-red-400 transition-colors"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="bg-transparent border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white"
                       >
-                        Remove
-                      </button>
-                    )}
+                        <Upload className="h-3.5 w-3.5" />
+                        Upload logo
+                      </Button>
+                      {logoData && (
+                        <button
+                          type="button"
+                          onClick={() => setLogoData(null)}
+                          className="text-xs text-gray-500 hover:text-red-400 transition-colors"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      No logo? The project's color is shown instead.
+                    </p>
                   </div>
-                  <p className="text-xs text-gray-500">
-                    No logo? The project's color is shown instead.
-                  </p>
-                </div>
+                )}
 
                 {error && (
                   <p className="text-sm text-red-400" role="alert">

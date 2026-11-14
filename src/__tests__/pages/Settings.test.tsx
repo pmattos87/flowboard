@@ -25,8 +25,8 @@ const fakeProject = {
 };
 
 const CLIENTS = [
-  { id: 10, name: "Acme", position: 0 },
-  { id: 20, name: "Beta", position: 1 },
+  { id: 10, name: "Acme", logo_data: null, position: 0 },
+  { id: 20, name: "Beta", logo_data: null, position: 1 },
 ];
 
 /**
@@ -453,6 +453,40 @@ describe("Settings — kind change confirmation and Client badge (FB-305)", () =
     const dialog = await screen.findByRole("dialog");
     expect(dialog).not.toHaveTextContent("Stories in User testing or open betas are affected.");
     expect(dialog).not.toHaveTextContent("are removed");
+  });
+
+  it("hides the logo field on a client project and shows it once the client is set to None (SF-134)", async () => {
+    const user = userEvent.setup();
+    await loadProject(10);
+    expect(screen.queryByRole("button", { name: /upload logo/i })).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Client"), "None (internal)");
+    expect(screen.getByRole("button", { name: /upload logo/i })).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Client"), "Acme");
+    expect(screen.queryByRole("button", { name: /upload logo/i })).not.toBeInTheDocument();
+  });
+
+  it("the To-Client dialog says the project's logo will be removed, and saving clears it (SF-134)", async () => {
+    const user = userEvent.setup();
+    await loadProject(null, "data:image/png;base64,LOGO");
+    await user.selectOptions(screen.getByLabelText("Client"), "Acme");
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("The project's logo will be removed.");
+    await user.click(within(dialog).getByRole("button", { name: /confirm and save/i }));
+    await waitFor(() => expect(updateCalls()).toHaveLength(1));
+    expect(updateCalls()[0][1]).toEqual({
+      id: 1,
+      payload: { name: "Alpha", key: "AL", description: "Desc", logo_data: null, client_id: 10 },
+    });
+  });
+
+  it("the To-Client dialog says nothing about a logo when the project has none (SF-134)", async () => {
+    const user = userEvent.setup();
+    await loadProject(null);
+    await user.selectOptions(screen.getByLabelText("Client"), "Acme");
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+    expect(await screen.findByRole("dialog")).not.toHaveTextContent("logo");
   });
 
   it("moving from one client to another saves straight away with no dialog", async () => {
