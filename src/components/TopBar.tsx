@@ -204,7 +204,10 @@ export function TopBar() {
       <div className="flex items-center gap-2 min-w-0">
         {activeProject ? (
           <>
-            <ProjectBadge project={activeProject} className="h-4 w-4" />
+            {/* A client project shows only its name (SF-134). */}
+            {activeProject.kind === "internal" && (
+              <ProjectBadge project={activeProject} className="h-4 w-4" />
+            )}
             <span className="text-sm font-medium text-gray-100 truncate">
               {activeProject.name}
             </span>

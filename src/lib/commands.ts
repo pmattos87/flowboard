@@ -6,6 +6,7 @@ import type {
   BackupStatus,
   BlockedByMap,
   Client,
+  Company,
   Comment,
   Person,
   Project,
@@ -64,10 +65,21 @@ export const setProjectState = (id: number, state: ProjectState) =>
 
 export const listClients = () => invoke<Client[]>("list_clients");
 export const createClient = (name: string) => invoke<Client>("create_client", { name });
-export const renameClient = (id: number, name: string) =>
-  invoke<Client>("rename_client", { id, name });
+/** A client or company edit. Absent fields are kept; `logo_data: null` clears the logo. */
+export interface ClientUpdatePayload {
+  name?: string;
+  logo_data?: string | null;
+}
+export const updateClient = (id: number, payload: ClientUpdatePayload) =>
+  invoke<Client>("update_client", { id, payload });
 export const reorderClients = (orderedIds: number[]) =>
   invoke<void>("reorder_clients", { orderedIds });
+
+// ─── Company (SF-134) ──────────────────────────────────────
+
+export const getCompany = () => invoke<Company>("get_company");
+export const updateCompany = (payload: ClientUpdatePayload) =>
+  invoke<Company>("update_company", { payload });
 
 // ─── People ────────────────────────────────────────────────
 

@@ -24,7 +24,8 @@ export interface Project {
   description: string;
   color: string;
   created_at: string;
-  /** Optional project logo as a base64 data URL. null = use the colored square. */
+  /** Optional project logo as a base64 data URL. null = use the colored square.
+   *  Always null on a client project (SF-134): its client carries the logo. */
   logo_data: string | null;
   /** Manual sort order for the sidebar (ascending). */
   position: number;
@@ -45,8 +46,18 @@ export type ProjectState = "active" | "archived";
 export interface Client {
   id: number;
   name: string;
+  /** Optional logo as a base64 data URL (up to 512 px). null = no logo (SF-134). */
+  logo_data: string | null;
   /** Manual sort order within the sidebar's Clients section (ascending). */
   position: number;
+}
+
+/** The owner of every internal project (SF-134): one record, seeded "Internal".
+ *  Its name and logo head the sidebar's Internal section. */
+export interface Company {
+  name: string;
+  /** Optional logo as a base64 data URL (up to 512 px). null = no logo. */
+  logo_data: string | null;
 }
 
 export interface Person {

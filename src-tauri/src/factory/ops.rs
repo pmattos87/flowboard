@@ -643,15 +643,15 @@ async fn client_contacts(tx: &mut Tx<'_>, client_id: i64) -> Result<Vec<Value>, 
 pub async fn project_show(pool: &SqlitePool, key: &str) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let (id, ladder, kind) = project_id(&mut tx, key).await?;
-    let client: Option<(i64, String)> = sqlx::query_as(
-        "SELECT c.id, c.name FROM projects p JOIN clients c ON c.id = p.client_id WHERE p.id = ?",
+    let client: Option<(i64, String, Option<String>)> = sqlx::query_as(
+        "SELECT c.id, c.name, c.logo_data FROM projects p JOIN clients c ON c.id = p.client_id WHERE p.id = ?",
     )
     .bind(id)
     .fetch_optional(&mut *tx)
     .await
     .map_err(err)?;
     let contacts = match &client {
-        Some((client_id, _)) => client_contacts(&mut tx, *client_id).await?,
+        Some((client_id, _, _)) => client_contacts(&mut tx, *client_id).await?,
         None => vec![],
     };
     let state: String = sqlx::query_scalar("SELECT state FROM projects WHERE id = ?")
@@ -664,7 +664,7 @@ pub async fn project_show(pool: &SqlitePool, key: &str) -> Result<Value, String>
         "ladder": ladder,
         "kind": kind,
         "state": state,
-        "client": client.map(|(id, name)| json!({ "id": id, "name": name })),
+        "client": client.map(|(id, name, logo_data)| json!({ "id": id, "name": name, "logo_data": logo_data })),
         "contacts": contacts,
     }))
 }

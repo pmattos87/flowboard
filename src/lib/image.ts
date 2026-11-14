@@ -1,7 +1,10 @@
 /** Largest input we'll read before downscaling (8 MB). */
 const MAX_INPUT_BYTES = 8 * 1024 * 1024;
-/** Longest edge of the stored avatar, in pixels. */
+/** Longest edge of a stored avatar or project logo, in pixels. */
 const MAX_EDGE = 128;
+/** Longest edge of a stored client or company logo, in pixels (SF-134): these
+ *  show larger, on the release-notes deck cover. */
+const ORG_LOGO_MAX_EDGE = 512;
 
 /**
  * Reads an image file, downscales it so its longest edge is at most
@@ -10,7 +13,7 @@ const MAX_EDGE = 128;
  * smaller JPEG encoding is preferred.
  */
 export async function fileToAvatarDataUrl(file: File): Promise<string> {
-  return fileToDataUrl(file, "image/jpeg");
+  return fileToDataUrl(file, "image/jpeg", MAX_EDGE);
 }
 
 /**
@@ -19,12 +22,18 @@ export async function fileToAvatarDataUrl(file: File): Promise<string> {
  * no alpha channel and composites transparent pixels onto black.)
  */
 export async function fileToLogoDataUrl(file: File): Promise<string> {
-  return fileToDataUrl(file, "image/png");
+  return fileToDataUrl(file, "image/png", MAX_EDGE);
+}
+
+/** Like {@link fileToLogoDataUrl}, at up to {@link ORG_LOGO_MAX_EDGE}px: for client and company logos. */
+export async function fileToOrgLogoDataUrl(file: File): Promise<string> {
+  return fileToDataUrl(file, "image/png", ORG_LOGO_MAX_EDGE);
 }
 
 async function fileToDataUrl(
   file: File,
   mime: "image/jpeg" | "image/png",
+  maxEdge: number,
 ): Promise<string> {
   if (!file.type.startsWith("image/")) {
     throw new Error("Please choose an image file.");
@@ -36,7 +45,7 @@ async function fileToDataUrl(
   const dataUrl = await readAsDataUrl(file);
   const img = await loadImage(dataUrl);
 
-  const scale = Math.min(1, MAX_EDGE / Math.max(img.width, img.height));
+  const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
   const width = Math.max(1, Math.round(img.width * scale));
   const height = Math.max(1, Math.round(img.height * scale));
 
