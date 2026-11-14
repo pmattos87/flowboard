@@ -292,7 +292,14 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
       title: "Integrated tests",
       kind: "gate",
       caption: "Pedro tests on develop",
-      state: pick(reached("tested"), status === "integrated_tests"),
+      // In integrated tests is always current; after a bug loop, done reads
+      // the latest pass (the Story's status), not the furthest Stage (FB-316).
+      state:
+        status === "integrated_tests"
+          ? "current"
+          : (bugLoop ? rank(status) >= rank("tested") : reached("tested"))
+            ? "done"
+            : "todo",
     },
     {
       id: "release",
