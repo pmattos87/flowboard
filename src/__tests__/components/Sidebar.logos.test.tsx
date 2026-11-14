@@ -87,6 +87,21 @@ describe("Sidebar logos (SF-134)", () => {
     expect(within(internal).queryByText("Internal")).not.toBeInTheDocument();
   });
 
+  it("renders client and company logos at the internal project badge's size (FB-314)", async () => {
+    renderSidebar();
+    await screen.findByText("Acme App");
+    const internal = screen.getByRole("region", { name: "Internal" });
+    const logos = [
+      within(rowOf("Acme")).getByAltText("Acme logo"),
+      await within(internal).findByAltText("Mattos Dev logo"),
+    ];
+    for (const logo of logos) {
+      expect(logo).toHaveClass("h-5", "w-5");
+      expect(logo).not.toHaveClass("h-4", "w-4");
+    }
+    expect(within(rowOf("Internal A")).getByAltText("Internal A")).toHaveClass("h-5", "w-5");
+  });
+
   it("keeps the badge on internal project rows and drops it on client project rows, active and archived", async () => {
     const user = userEvent.setup();
     renderSidebar();
@@ -124,6 +139,9 @@ describe("Sidebar logos (SF-134)", () => {
     await user.click(screen.getByRole("button", { name: "Edit Acme" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByAltText("Acme logo")).toBeInTheDocument();
+    // FB-314: the dialog's preview keeps its own size; only the sidebar logos grew.
+    expect(within(dialog).getByAltText("Acme logo")).toHaveClass("h-12", "w-12");
+    expect(within(dialog).getByAltText("Acme logo")).not.toHaveClass("h-5", "w-5");
     await user.click(within(dialog).getByRole("button", { name: "Remove" }));
     expect(within(dialog).queryByAltText("Acme logo")).not.toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
