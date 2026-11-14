@@ -176,3 +176,31 @@ projects         + state TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active
   `active` sprint or a Release in `planned`/`user_testing`. The refusal names that sprint or
   Release version and changes nothing.
 - `state` is returned in the `Project` JSON (`list_projects`, `get_project`) and by `project_show`.
+
+-------------------------
+Client and company logos (migration `017_client_company_logos.sql`, SF-134)
+
+```sql
+clients          + logo_data TEXT                      -- base64 data URL, NULL = no logo
+company          (id INTEGER PRIMARY KEY CHECK (id = 1), name TEXT NOT NULL, logo_data TEXT)
+                 -- one row, seeded (1, 'Internal', NULL)
+```
+
+- Where logos live: a **client** carries the logo of its projects; a **client project** has none
+  (`projects.logo_data` is always NULL when `client_id` is set); an **internal project** keeps its
+  own. The **company** is the owner of every internal project: its name and logo head the
+  sidebar's Internal section. It is its own table, not a `clients` row, so "internal" still
+  means `projects.client_id IS NULL` everywhere.
+- In place, no table rebuild: `ALTER`, `CREATE` and `UPDATE` only. The copy-up gives each client
+  the logo of its first project **that has one**, by `position` then `id`, archived projects
+  included; then every client project's `logo_data` is cleared.
+- Kept by every write path: `create_project` and `update_project` refuse a `logo_data` value on a
+  project that has, or is given, a client (`null` is allowed); giving a project a client
+  (`SET_CLIENT_SQL`, shared by the app's `update_project` and `flowboard-cli project set
+  --client`) clears its logo.
+- Client and company logos are stored at up to 512 px on the longest edge, project logos at
+  128 px. A logo copied up by the migration keeps its 128 px until it is re-uploaded.
+- `update_client(id, { name?, logo_data? })` (replaces `rename_client`) and
+  `update_company({ name?, logo_data? })`: absent keeps, `logo_data: null` clears, a value
+  sets; a blank name is refused and changes nothing. `get_company()` reads the row.
+- `project_show` returns `client.logo_data` next to `client.name`.
