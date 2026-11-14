@@ -39,12 +39,13 @@ import { useProjects, useReorderProjects, useSetProjectState } from "@/hooks/use
 import {
   useClients,
   useCreateClient,
-  useRenameClient,
   useReorderClients,
+  useUpdateClient,
 } from "@/hooks/useClients";
+import { useCompany, useUpdateCompany } from "@/hooks/useCompany";
 import { ProjectBadge } from "@/components/ProjectBadge";
 import { BackupWarning } from "@/components/BackupWarning";
-import { ClientNameDialog } from "@/components/ClientNameDialog";
+import { ClientDialog, OrgLogo } from "@/components/ClientDialog";
 import {
   isArchivedOpen,
   isClientExpanded,
@@ -117,6 +118,14 @@ function sortableStyle(
 
 const isArchived = (p: Project) => p.state === "archived";
 
+/** Only internal projects carry their own badge; a client project shows its name alone (SF-134). */
+function ProjectRowBadge({ project }: { project: Project }) {
+  return project.client_id == null ? <ProjectBadge project={project} /> : null;
+}
+
+const editButtonClasses =
+  "mr-1 p-1 rounded text-gray-500 hover:text-gray-200 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 transition-opacity";
+
 /** Archive (active project) or Unarchive (archived one). The selection is left as it is (FB-14). */
 function ProjectStateButton({ project }: { project: Project }) {
   const setProjectState = useSetProjectState();
@@ -174,7 +183,7 @@ function SortableProjectItem({
           {...listeners}
           className={cn(projectEntryClasses(isActive, false), "touch-none")}
         >
-          <ProjectBadge project={project} />
+          <ProjectRowBadge project={project} />
           <span className="truncate">{project.name}</span>
         </button>
         <ProjectStateButton project={project} />
@@ -223,7 +232,7 @@ function ArchivedRow({
                   onClick={() => setActiveProjectId(p.id)}
                   className={projectEntryClasses(activeProjectId === p.id, true)}
                 >
-                  <ProjectBadge project={p} />
+                  <ProjectRowBadge project={p} />
                   <span className="truncate">{p.name}</span>
                 </button>
                 <ProjectStateButton project={p} />
@@ -265,8 +274,8 @@ function SortableClientGroup({ client, projects }: { client: Client; projects: P
   const data: SortData = { kind: "client", id: client.id, group: "clients" };
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: `client-${client.id}`, data });
-  const renameClient = useRenameClient();
-  const [renaming, setRenaming] = useState(false);
+  const updateClient = useUpdateClient();
+  const [editing, setEditing] = useState(false);
   const Chevron = expanded ? ChevronDown : ChevronRight;
   const listId = `client-${client.id}-projects`;
   const activeProjects = projects.filter((p) => !isArchived(p));
@@ -277,7 +286,7 @@ function SortableClientGroup({ client, projects }: { client: Client; projects: P
   return (
     <li ref={setNodeRef} style={sortableStyle(transform, transition, isDragging)}>
       <div className="group flex items-center rounded-md hover:bg-gray-900">
-        {/* Only this button carries the drag listeners, so the rename button never starts a drag. */}
+        {/* Only this button carries the drag listeners, so the edit button never starts a drag. */}
         <button
           type="button"
           onClick={() => toggleExpanded(client.id)}
@@ -291,25 +300,28 @@ function SortableClientGroup({ client, projects }: { client: Client; projects: P
           )}
         >
           <Chevron className="h-3.5 w-3.5 shrink-0 text-gray-500" aria-hidden="true" />
+          <OrgLogo name={client.name} logoData={client.logo_data} />
           <span className="truncate">{client.name}</span>
         </button>
         <button
           type="button"
-          onClick={() => setRenaming(true)}
-          aria-label={`Rename ${client.name}`}
-          className="mr-1 p-1 rounded text-gray-500 hover:text-gray-200 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 transition-opacity"
+          onClick={() => setEditing(true)}
+          aria-label={`Edit ${client.name}`}
+          className={editButtonClasses}
         >
           <Pencil className="h-3 w-3" aria-hidden="true" />
         </button>
       </div>
-      <ClientNameDialog
-        open={renaming}
-        onOpenChange={setRenaming}
-        title="Rename client"
+      <ClientDialog
+        open={editing}
+        onOpenChange={setEditing}
+        title="Edit client"
         submitLabel="Save"
         initialName={client.name}
-        isPending={renameClient.isPending}
-        onSubmit={(name) => renameClient.mutateAsync({ id: client.id, name })}
+        initialLogo={client.logo_data}
+        withLogo
+        isPending={updateClient.isPending}
+        onSubmit={(payload) => updateClient.mutateAsync({ id: client.id, payload })}
       />
       {expanded && (
         <div id={listId}>
@@ -329,6 +341,47 @@ function SectionLabel({ children }: { children: string }) {
     <span className="px-2 text-[10px] font-semibold tracking-wider text-gray-600 uppercase">
       {children}
     </span>
+  );
+}
+
+/** The Internal section's header: the company's logo and name, edited from its pencil (SF-134). */
+function CompanyHeader() {
+  const { data: company } = useCompany();
+  const updateCompany = useUpdateCompany();
+  const [editing, setEditing] = useState(false);
+  // Seeded "Internal"; the fallback covers the first render, before the record loads.
+  const name = company?.name ?? "Internal";
+  const logo = company?.logo_data ?? null;
+
+  return (
+    <div className="group flex items-center justify-between">
+      <span className="flex min-w-0 items-center gap-1.5 px-2">
+        <OrgLogo name={name} logoData={logo} />
+        <span className="truncate text-[10px] font-semibold tracking-wider text-gray-600 uppercase">{name}</span>
+      </span>
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        aria-label={`Edit ${name}`}
+        className={editButtonClasses}
+      >
+        <Pencil className="h-3 w-3" aria-hidden="true" />
+      </button>
+      <ClientDialog
+        open={editing}
+        onOpenChange={setEditing}
+        title="Edit company"
+        description="The company owns every project with no client."
+        nameLabel="Company name"
+        placeholder="Internal"
+        submitLabel="Save"
+        initialName={name}
+        initialLogo={logo}
+        withLogo
+        isPending={updateCompany.isPending}
+        onSubmit={(payload) => updateCompany.mutateAsync(payload)}
+      />
+    </div>
   );
 }
 
@@ -403,7 +456,7 @@ export function Sidebar() {
         onDragEnd={handleDragEnd}
       >
         <section aria-label="Internal" className="px-2">
-          <SectionLabel>Internal</SectionLabel>
+          <CompanyHeader />
           <ProjectList projects={internalProjects.filter((p) => !isArchived(p))} className="mt-1" />
           <ArchivedRow group="internal" projects={internalProjects.filter(isArchived)} />
           {projects && projects.length === 0 && (
@@ -438,13 +491,13 @@ export function Sidebar() {
           </SortableContext>
         </section>
       </DndContext>
-      <ClientNameDialog
+      <ClientDialog
         open={creatingClient}
         onOpenChange={setCreatingClient}
         title="Create client"
         submitLabel="Create client"
         isPending={createClient.isPending}
-        onSubmit={(name) => createClient.mutateAsync(name)}
+        onSubmit={({ name }) => createClient.mutateAsync(name)}
       />
 
       <nav className="mt-6 px-2 space-y-0.5">

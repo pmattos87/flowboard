@@ -31,9 +31,9 @@ function project(
 }
 
 const CLIENTS: Client[] = [
-  { id: 10, name: "Acme", position: 0 },
-  { id: 20, name: "Beta", position: 1 },
-  { id: 40, name: "Gone Co", position: 2 },
+  { id: 10, name: "Acme", logo_data: null, position: 0 },
+  { id: 20, name: "Beta", logo_data: null, position: 1 },
+  { id: 40, name: "Gone Co", logo_data: null, position: 2 },
 ];
 
 const ALL_ACTIVE: Project[] = [

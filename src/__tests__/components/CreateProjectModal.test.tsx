@@ -25,8 +25,8 @@ function mockCommands(rest: (cmd: string) => Promise<unknown>) {
 }
 
 const CLIENTS = [
-  { id: 10, name: "Acme", position: 0 },
-  { id: 20, name: "Beta", position: 1 },
+  { id: 10, name: "Acme", logo_data: null, position: 0 },
+  { id: 20, name: "Beta", logo_data: null, position: 1 },
 ];
 
 beforeEach(() => {
@@ -224,6 +224,26 @@ describe("CreateProjectModal", () => {
       expect(useUiStore.getState().createProjectModalOpen).toBe(false);
     });
     expect(mockInvoke.mock.calls.filter(([cmd]) => cmd === "create_project")).toHaveLength(1);
+  });
+
+  it("hides the logo field once a client is picked, and sends no logo for a client project (SF-134)", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ createProjectModalOpen: true });
+    mockCommands(async () => ({ id: 9 }));
+    renderModal();
+    expect(screen.getByRole("button", { name: /upload logo/i })).toBeInTheDocument();
+    await user.type(screen.getByLabelText(/^name/i), "Client App");
+    await user.type(screen.getByLabelText(/^key/i), "CA");
+    await screen.findByRole("option", { name: "Acme" });
+    await user.selectOptions(screen.getByLabelText("Client"), "Acme");
+    expect(screen.queryByRole("button", { name: /upload logo/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /create project/i }));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith(
+        "create_project",
+        expect.objectContaining({ payload: expect.objectContaining({ client_id: 10, logo_data: null }) }),
+      ),
+    );
   });
 
   it("resets form fields when modal is reopened", async () => {
