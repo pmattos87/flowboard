@@ -360,8 +360,14 @@ mod tests {
             .await
             .unwrap();
         // Only what survives every migration is compared (015 drops projects.kind
-        // and project_contacts).
-        let columns = surviving(&table_columns(&mut conn).await).await;
+        // and project_contacts). projects.logo_data is left out: 017 moves client
+        // projects' logos up to their clients by design.
+        let mut columns = surviving(&table_columns(&mut conn).await).await;
+        for (table, cols) in columns.iter_mut() {
+            if table == "projects" {
+                cols.retain(|c| c != "logo_data");
+            }
+        }
         let before = snapshot(&mut conn, &columns).await;
         conn.close().await.unwrap();
 
@@ -427,6 +433,70 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(points, vec![(1, 5), (6, 0), (7, 13), (9, 0)]);
+        pool.close().await;
+    }
+
+    /// SF-134: each client takes the logo of its first project that has one
+    /// (by position, then id, archived included), every client project loses
+    /// its own, internal projects keep theirs, and the company row is seeded.
+    #[tokio::test]
+    async fn migration_017_copies_logos_up_to_clients_and_seeds_the_company() {
+        let path = temp_db("client-logos");
+        migrate_up_to(&path, 17).await;
+        let mut conn = SqliteConnectOptions::from_str(&sqlite_url(&path, "rw"))
+            .unwrap()
+            .foreign_keys(false)
+            .connect()
+            .await
+            .unwrap();
+        let project = |id: i64, client: &str, position: i64, logo: &str, state: &str| {
+            format!(
+                "INSERT INTO projects (id, name, key, created_at, client_id, position, logo_data, state) \
+                 VALUES ({id}, 'P{id}', 'P{id}', '2026-01-01', {client}, {position}, {logo}, '{state}')"
+            )
+        };
+        for sql in [
+            "INSERT INTO clients (id, name, position) VALUES (1, 'Viagem', 0), (2, 'Hammer', 1), (3, 'Empty', 2)".to_string(),
+            // Viagem: the first project by position has only the colored square;
+            // the second has the real logo, and it must win.
+            project(10, "1", 0, "NULL", "active"),
+            project(11, "1", 1, "'vp-real'", "active"),
+            project(12, "1", 2, "'vp-later'", "active"),
+            // Hammer: a position tie is broken by id, and an archived project counts.
+            project(21, "2", 5, "'hl-second'", "active"),
+            project(20, "2", 5, "'hl-first'", "archived"),
+            // Empty: no project has a logo.
+            project(30, "3", 0, "NULL", "active"),
+            // Internal projects keep theirs.
+            project(40, "NULL", 0, "'internal'", "active"),
+        ] {
+            sqlx::query(&sql).execute(&mut conn).await.unwrap();
+        }
+        conn.close().await.unwrap();
+
+        let pool = open_and_migrate(&path).await.unwrap();
+        let clients: Vec<(i64, Option<String>)> =
+            sqlx::query_as("SELECT id, logo_data FROM clients ORDER BY id").fetch_all(&pool).await.unwrap();
+        assert_eq!(
+            clients,
+            vec![(1, Some("vp-real".into())), (2, Some("hl-first".into())), (3, None)]
+        );
+        let client_logos: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM projects WHERE client_id IS NOT NULL AND logo_data IS NOT NULL")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(client_logos, 0, "no client project keeps a logo");
+        let internal: Option<String> =
+            sqlx::query_scalar("SELECT logo_data FROM projects WHERE id = 40").fetch_one(&pool).await.unwrap();
+        assert_eq!(internal.as_deref(), Some("internal"));
+        let company: Vec<(i64, String, Option<String>)> =
+            sqlx::query_as("SELECT id, name, logo_data FROM company").fetch_all(&pool).await.unwrap();
+        assert_eq!(company, vec![(1, "Internal".into(), None)]);
+        assert!(
+            sqlx::query("INSERT INTO company (id, name) VALUES (2, 'Second')").execute(&pool).await.is_err(),
+            "company is a single row"
+        );
         pool.close().await;
     }
 

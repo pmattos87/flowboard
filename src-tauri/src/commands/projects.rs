@@ -12,6 +12,7 @@ pub struct Project {
     pub color: String,
     pub created_at: String,
     /// Optional logo as a base64 data URL. NULL = use the colored square.
+    /// Always NULL on a client project (SF-134): the client carries the logo.
     pub logo_data: Option<String>,
     /// Manual sort order for the sidebar (ascending).
     pub position: i64,
@@ -33,13 +34,19 @@ const PROJECT_SQL: &str =
 /// Set project `?2`'s client to `?1` (NULL = internal). A project whose client
 /// changes moves to the end of its new group (the projects with the same
 /// `client_id`, or the internal ones); an unchanged client keeps its position.
-/// The right-hand side reads the row as it was before the update. Shared with
-/// `factory::ops::project_set` (the CLI's `project set --client`).
+/// A client project carries no logo of its own (SF-134: its client's shows), so
+/// giving a project a client clears its logo. The right-hand side reads the row
+/// as it was before the update. Shared with `factory::ops::project_set` (the
+/// CLI's `project set --client`).
 pub(crate) const SET_CLIENT_SQL: &str = r#"UPDATE projects SET
     position = CASE WHEN client_id IS ?1 THEN position
                     ELSE (SELECT COALESCE(MAX(g.position), -1) + 1 FROM projects g WHERE g.client_id IS ?1) END,
+    logo_data = CASE WHEN ?1 IS NULL THEN logo_data ELSE NULL END,
     client_id = ?1
   WHERE id = ?2"#;
+
+/// The refusal for a logo written onto a client project.
+const CLIENT_PROJECT_LOGO: &str = "a client project has no logo of its own; set the logo on its client";
 
 #[derive(Debug, Deserialize)]
 pub struct ProjectCreate {
@@ -70,6 +77,13 @@ pub async fn create_project(
     pool: State<'_, SqlitePool>,
     payload: ProjectCreate,
 ) -> Result<Project, String> {
+    create_project_inner(pool.inner(), payload).await
+}
+
+async fn create_project_inner(pool: &SqlitePool, payload: ProjectCreate) -> Result<Project, String> {
+    if payload.client_id.is_some() && payload.logo_data.is_some() {
+        return Err(CLIENT_PROJECT_LOGO.into());
+    }
     let id: i64 = sqlx::query_scalar(
         r#"INSERT INTO projects (name, key, description, color, logo_data, client_id, created_at, position)
            VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'),
@@ -82,11 +96,11 @@ pub async fn create_project(
     .bind(payload.color.unwrap_or_else(|| "#6366f1".into()))
     .bind(payload.logo_data)
     .bind(payload.client_id)
-    .fetch_one(pool.inner())
+    .fetch_one(pool)
     .await
     .map_err(|e| e.to_string())?;
 
-    get_project(pool, id).await
+    get_project_inner(pool, id).await
 }
 
 #[tauri::command]
@@ -112,6 +126,10 @@ pub async fn get_project(pool: State<'_, SqlitePool>, id: i64) -> Result<Project
 
 async fn update_project_inner(pool: &SqlitePool, id: i64, payload: ProjectUpdate) -> Result<Project, String> {
     let current = get_project_inner(pool, id).await?;
+    let client_after = payload.client_id.unwrap_or(current.client_id);
+    if client_after.is_some() && matches!(payload.logo_data, Some(Some(_))) {
+        return Err(CLIENT_PROJECT_LOGO.into());
+    }
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
     sqlx::query(
         "UPDATE projects SET name = ?, key = ?, description = ?, color = ?, logo_data = ? WHERE id = ?",
@@ -242,7 +260,10 @@ pub async fn reorder_projects(
 
 #[cfg(test)]
 mod tests {
-    use super::{get_project_inner, set_project_state_inner, update_project_inner, Project, ProjectUpdate, PROJECT_SQL};
+    use super::{
+        create_project_inner, get_project_inner, set_project_state_inner, update_project_inner, Project, ProjectCreate,
+        ProjectUpdate, PROJECT_SQL,
+    };
     use crate::test_support as ts;
 
     /// FB-202: `kind` is not stored; the Project JSON derives it from `client_id`.
@@ -419,6 +440,99 @@ mod tests {
             assert_eq!(set_project_state_inner(&pool, id, "archived").await.unwrap().state, "archived");
             set_project_state_inner(&pool, id, "active").await.unwrap();
         }
+    }
+
+    fn create(json: &str) -> ProjectCreate {
+        serde_json::from_str(json).unwrap()
+    }
+
+    async fn logo(pool: &sqlx::SqlitePool, id: i64) -> Option<String> {
+        sqlx::query_scalar("SELECT logo_data FROM projects WHERE id = ?").bind(id).fetch_one(pool).await.unwrap()
+    }
+
+    /// SF-134: a client project carries no logo; create refuses one and writes nothing.
+    #[tokio::test]
+    async fn create_refuses_a_logo_on_a_client_project() {
+        let pool = ts::pool().await;
+        let acme = ts::client(&pool, "Acme").await;
+        let with_logo = format!(r#"{{"name": "C", "key": "CL", "logo_data": "data:x", "client_id": {acme}}}"#);
+        let err = create_project_inner(&pool, create(&with_logo)).await.unwrap_err();
+        assert!(err.contains("client project has no logo"), "{err}");
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM projects").fetch_one(&pool).await.unwrap();
+        assert_eq!(n, 0);
+
+        let without = format!(r#"{{"name": "C", "key": "CL", "client_id": {acme}}}"#);
+        let client = create_project_inner(&pool, create(&without)).await.unwrap();
+        assert_eq!((client.kind.as_str(), client.logo_data), ("client", None));
+        let internal = create_project_inner(&pool, create(r#"{"name": "I", "key": "IN", "logo_data": "data:x"}"#)).await.unwrap();
+        assert_eq!(internal.logo_data.as_deref(), Some("data:x"), "internal projects keep their logo");
+    }
+
+    /// SF-134: update refuses a logo on a project that is, or becomes, a client
+    /// project, and changes nothing; clearing one is allowed.
+    #[tokio::test]
+    async fn update_refuses_a_logo_on_a_client_project() {
+        let pool = ts::pool().await;
+        let acme = ts::client(&pool, "Acme").await;
+        let cl = ts::project(&pool, "CL").await;
+        let inp = ts::project(&pool, "IN").await;
+        update_project_inner(&pool, cl, update(&format!(r#"{{"client_id": {acme}}}"#))).await.unwrap();
+
+        let err = update_project_inner(&pool, cl, update(r#"{"logo_data": "data:x", "name": "no"}"#)).await.unwrap_err();
+        assert!(err.contains("client project has no logo"), "{err}");
+        let both = format!(r#"{{"logo_data": "data:x", "client_id": {acme}}}"#);
+        let err = update_project_inner(&pool, inp, update(&both)).await.unwrap_err();
+        assert!(err.contains("client project has no logo"), "{err}");
+        let p = get_project_inner(&pool, inp).await.unwrap();
+        assert_eq!((p.client_id, p.logo_data), (None, None), "the refused update changed nothing");
+        assert_eq!(get_project_inner(&pool, cl).await.unwrap().name, "CL");
+
+        update_project_inner(&pool, cl, update(r#"{"logo_data": null}"#)).await.unwrap();
+        // Back to internal, and a logo is fine again.
+        let p = update_project_inner(&pool, cl, update(r#"{"client_id": null, "logo_data": "data:y"}"#)).await.unwrap();
+        assert_eq!((p.kind.as_str(), p.logo_data.as_deref()), ("internal", Some("data:y")));
+    }
+
+    /// SF-134: giving a project a client clears its logo, on the app path and
+    /// the CLI path (`project set --client`) alike; an internal project keeps its own.
+    #[tokio::test]
+    async fn moving_a_project_to_a_client_clears_its_logo() {
+        let pool = ts::pool().await;
+        let acme = ts::client(&pool, "Acme").await;
+        let app = ts::project(&pool, "AP").await;
+        let cli = ts::project(&pool, "CI").await;
+        let other = ts::project(&pool, "OT").await;
+        for id in [app, cli, other] {
+            sqlx::query("UPDATE projects SET logo_data = 'data:x' WHERE id = ?").bind(id).execute(&pool).await.unwrap();
+        }
+
+        update_project_inner(&pool, app, update(&format!(r#"{{"client_id": {acme}}}"#))).await.unwrap();
+        assert_eq!(logo(&pool, app).await, None);
+        crate::factory::ops::project_set(&pool, "CI", None, Some(Some(acme))).await.unwrap();
+        assert_eq!(logo(&pool, cli).await, None);
+
+        update_project_inner(&pool, other, update(r#"{"client_id": null}"#)).await.unwrap();
+        assert_eq!(logo(&pool, other).await.as_deref(), Some("data:x"));
+    }
+
+    /// SF-134: `project_show` carries the client's logo next to its name.
+    #[tokio::test]
+    async fn project_show_returns_the_client_logo() {
+        let pool = ts::pool().await;
+        let acme = ts::client(&pool, "Acme").await;
+        let id = ts::project(&pool, "SH").await;
+        ts::project(&pool, "IN").await;
+        update_project_inner(&pool, id, update(&format!(r#"{{"client_id": {acme}}}"#))).await.unwrap();
+        let shown = crate::factory::ops::project_show(&pool, "SH").await.unwrap();
+        assert_eq!(shown["client"]["logo_data"], serde_json::Value::Null);
+
+        sqlx::query("UPDATE clients SET logo_data = 'data:acme' WHERE id = ?").bind(acme).execute(&pool).await.unwrap();
+        let shown = crate::factory::ops::project_show(&pool, "SH").await.unwrap();
+        assert_eq!(
+            (shown["client"]["name"].as_str(), shown["client"]["logo_data"].as_str()),
+            (Some("Acme"), Some("data:acme"))
+        );
+        assert_eq!(crate::factory::ops::project_show(&pool, "IN").await.unwrap()["client"], serde_json::Value::Null);
     }
 
     #[test]

@@ -7,7 +7,7 @@ import {
   clientKeys,
   useClients,
   useCreateClient,
-  useRenameClient,
+  useUpdateClient,
   useReorderClients,
 } from "@/hooks/useClients";
 import type { Client } from "@/types";
@@ -27,9 +27,9 @@ function makeWrapper() {
 beforeEach(() => mockInvoke.mockReset());
 
 const clients: Client[] = [
-  { id: 1, name: "Acme", position: 0 },
-  { id: 2, name: "Beta", position: 1 },
-  { id: 3, name: "Gamma", position: 2 },
+  { id: 1, name: "Acme", logo_data: null, position: 0 },
+  { id: 2, name: "Beta", logo_data: null, position: 1 },
+  { id: 3, name: "Gamma", logo_data: null, position: 2 },
 ];
 
 describe("useClients", () => {
@@ -62,15 +62,29 @@ describe("useCreateClient", () => {
   });
 });
 
-describe("useRenameClient", () => {
-  it("calls rename_client and invalidates clientKeys.all", async () => {
-    mockInvoke.mockResolvedValueOnce({ ...clients[1], name: "Beta Co" });
+describe("useUpdateClient", () => {
+  it("calls update_client with the name and logo and invalidates clientKeys.all", async () => {
+    mockInvoke.mockResolvedValueOnce({ ...clients[1], name: "Beta Co", logo_data: "data:x" });
     const { wrapper, qc } = makeWrapper();
     const invalidate = vi.spyOn(qc, "invalidateQueries");
-    const { result } = renderHook(() => useRenameClient(), { wrapper });
-    await result.current.mutateAsync({ id: 2, name: "Beta Co" });
-    expect(mockInvoke).toHaveBeenCalledWith("rename_client", { id: 2, name: "Beta Co" });
+    const { result } = renderHook(() => useUpdateClient(), { wrapper });
+    await result.current.mutateAsync({ id: 2, payload: { name: "Beta Co", logo_data: "data:x" } });
+    expect(mockInvoke).toHaveBeenCalledWith("update_client", {
+      id: 2,
+      payload: { name: "Beta Co", logo_data: "data:x" },
+    });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: clientKeys.all });
+  });
+
+  it("does not invalidate when the command fails", async () => {
+    mockInvoke.mockRejectedValueOnce("client name cannot be blank");
+    const { wrapper, qc } = makeWrapper();
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    const { result } = renderHook(() => useUpdateClient(), { wrapper });
+    await expect(result.current.mutateAsync({ id: 2, payload: { name: " " } })).rejects.toBe(
+      "client name cannot be blank",
+    );
+    expect(invalidate).not.toHaveBeenCalled();
   });
 });
 

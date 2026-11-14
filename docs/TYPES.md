@@ -24,10 +24,17 @@ export type ProjectState = 'active' | 'archived';
 // create_project payload: client_id?: number | null (absent or null = internal).
 // update_project payload: client_id?: number | null — absent keeps, null makes the project internal, a number sets it.
 //   A project whose client changes lands at the end of its new sidebar group.
+// Project.logo_data (SF-134): always null on a client project (its client carries the logo). create_project and
+//   update_project refuse a logo value on a project that has, or is given, a client; giving it a client clears it.
 /** A client (FB-202): an organization that groups its projects in the sidebar. */
-export interface Client   { id: number; name: string; position: number; }
+export interface Client   { id: number; name: string; logo_data: string | null; position: number; }
 // Commands: list_clients() -> Client[] (by position); create_client({ name }) -> Client (goes last);
-//   rename_client({ id, name }) -> Client; reorder_clients({ orderedIds }) -> void. A blank name is an error.
+//   update_client({ id, payload: { name?, logo_data? } }) -> Client (SF-134; replaces rename_client; absent keeps,
+//   logo_data null clears); reorder_clients({ orderedIds }) -> void. A blank name is an error.
+/** The company (SF-134): the owner of every internal project. One record, seeded name 'Internal'. */
+export interface Company  { name: string; logo_data: string | null; }
+// Commands: get_company() -> Company; update_company({ payload: { name?, logo_data? } }) -> Company (same rules
+//   as update_client). Client and company logos are stored at up to 512 px (fileToOrgLogoDataUrl), project logos 128 px.
 export interface Person   { id: number; name: string; email: string; avatar_color: string; role: string; }
 export interface Sprint   { id: number; project_id: number; name: string; goal: string; start_date: string; end_date: string; status: SprintStatus; }
 // complete_sprint target (FB-97); exactly one of:

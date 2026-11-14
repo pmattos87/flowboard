@@ -39,9 +39,9 @@ const PROJECTS: Project[] = [
 ];
 
 const CLIENTS: Client[] = [
-  { id: 10, name: "Acme", position: 0 },
-  { id: 20, name: "Beta", position: 1 },
-  { id: 30, name: "Empty Co", position: 2 },
+  { id: 10, name: "Acme", logo_data: null, position: 0 },
+  { id: 20, name: "Beta", logo_data: null, position: 1 },
+  { id: 30, name: "Empty Co", logo_data: null, position: 2 },
 ];
 
 function renderSidebar() {
@@ -246,12 +246,12 @@ describe("Sidebar client management (FB-207)", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
-  it("renames a client with its id and the new name", async () => {
+  it("edits a client's name with its id, leaving its logo alone", async () => {
     const user = userEvent.setup();
     renderSidebar();
     await screen.findByText("Acme App");
 
-    await user.click(screen.getByRole("button", { name: "Rename Beta" }));
+    await user.click(screen.getByRole("button", { name: "Edit Beta" }));
     const dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByLabelText("Client name");
     expect(input).toHaveValue("Beta");
@@ -262,16 +262,16 @@ describe("Sidebar client management (FB-207)", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("rename_client", { id: 20, name: "Beta Corp" });
+      expect(mockInvoke).toHaveBeenCalledWith("update_client", { id: 20, payload: { name: "Beta Corp" } });
     });
   });
 
-  it("pressing the rename button does not start a client drag", async () => {
+  it("pressing the edit button does not start a client drag", async () => {
     renderSidebar();
     await screen.findByText("Acme App");
     stubRects();
 
-    const rename = screen.getByRole("button", { name: "Rename Acme" });
+    const rename = screen.getByRole("button", { name: "Edit Acme" });
     fireEvent.pointerDown(rename, { clientX: 50, clientY: 10, pointerId: 1, button: 0, isPrimary: true });
     fireEvent.pointerMove(rename, { clientX: 50, clientY: 20, pointerId: 1 });
     fireEvent.pointerMove(rename, { clientX: 50, clientY: 110, pointerId: 1 });
