@@ -4,6 +4,7 @@ pub mod activity_log;
 pub mod attachments;
 pub mod backup;
 pub mod clients;
+pub mod company;
 pub mod comments;
 pub mod dev;
 pub mod people;
