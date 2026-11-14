@@ -202,3 +202,24 @@ describe("TopBar", () => {
     );
   });
 });
+
+describe("TopBar project badge (SF-134)", () => {
+  const base = { key: "AL", description: "", color: "#6366f1", created_at: "", position: 0, ladder: "legacy", state: "active" };
+
+  it("shows the badge for an internal project", async () => {
+    useUiStore.setState({ activeProjectId: 1 });
+    const project = { ...base, id: 1, name: "Alpha", logo_data: "data:alpha", client_id: null, kind: "internal" };
+    mockInvoke.mockImplementation((cmd) => Promise.resolve(cmd === "get_project" ? project : []));
+    renderTopBar();
+    expect(await screen.findByAltText("Alpha")).toHaveAttribute("src", "data:alpha");
+  });
+
+  it("shows only the name for a client project", async () => {
+    useUiStore.setState({ activeProjectId: 2 });
+    const project = { ...base, id: 2, name: "Client App", logo_data: null, client_id: 10, kind: "client" };
+    mockInvoke.mockImplementation((cmd) => Promise.resolve(cmd === "get_project" ? project : []));
+    renderTopBar();
+    const name = await screen.findByText("Client App");
+    expect(name.parentElement?.querySelector("img, span[style]")).toBeNull();
+  });
+});

@@ -14,6 +14,8 @@
     - Logo container height: 56px
     - Preserve dark spacing and glow aesthetics
   - Projects section with colored square icons (20px) + `+` button
+    - Internal section: headed by the company's logo (20px, when set) and name (seeded "Internal"), with a hover pencil that opens the edit dialog (name + logo upload/remove). Internal project rows keep their badge (logo or colored square).
+    - Clients section: each client row shows the client's logo (20px, when set) before its name, and a hover pencil opening the same edit dialog. Client project rows, active and archived, show only the project name, no badge.
   - Navigation (flat list with Lucide icons):
     - Discovery Board
     - User Story Board

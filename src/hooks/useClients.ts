@@ -1,6 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { createClient, listClients, renameClient, reorderClients } from "@/lib/commands";
+import {
+  createClient,
+  listClients,
+  reorderClients,
+  updateClient,
+  type ClientUpdatePayload,
+} from "@/lib/commands";
 import type { Client } from "@/types";
 
 export const clientKeys = {
@@ -24,12 +30,13 @@ export function useCreateClient() {
   });
 }
 
-export function useRenameClient() {
+/** Edit a client's name and/or logo (SF-134; replaces the name-only rename). */
+export function useUpdateClient() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, name }: { id: number; name: string }) => renameClient(id, name),
+    mutationFn: ({ id, payload }: { id: number; payload: ClientUpdatePayload }) => updateClient(id, payload),
     onSuccess: () => { qc.invalidateQueries({ queryKey: clientKeys.all }); },
-    onError: (err) => toast.error(`Failed to rename client: ${String(err)}`),
+    onError: (err) => toast.error(`Failed to update client: ${String(err)}`),
   });
 }
 
