@@ -426,6 +426,46 @@ describe("runGraph second pass after a bug loop (FB-176)", () => {
   });
 });
 
+describe("runGraph Integrated tests on a second pass (FB-316)", () => {
+  const url1 = "https://github.com/o/r/pull/135";
+  const url2 = "https://github.com/o/r/pull/136";
+  const secondBuild = [
+    stage("building"), stage("integrated_tests"), stage("tested"),
+    ev("bug_subtask_filed", { subtask: "FB-3" }), stage("building"),
+  ];
+  const secondPass = [
+    ...secondBuild,
+    ev("review_round", { round: 1, verdict: "passed" }),
+    ev("pr_opened", { url: url2, target: "develop" }), ev("pr_merged", { url: url2 }),
+    stage("integrated_tests"),
+  ];
+  const done = [sub(2, "done"), sub(3, "done", "bug")];
+
+  it("back in integrated tests after a bug found in tested: Integrated tests is current", () => {
+    const g = graph({ status: "integrated_tests" }, done, secondPass);
+    expect(g.bugLoop).toBe(true);
+    expect(states(g.ship)).toEqual({ review: "done", pr: "done", merge: "done", integrated: "current", release: "todo", production: "todo" });
+  });
+
+  it("back in building before the second pass's PR: Integrated tests is not done", () => {
+    const g = graph({ status: "building" }, [sub(2, "done"), sub(3, "in_progress", "bug")], [
+      ...secondBuild, ev("review_round", { round: 1, verdict: "passed" }),
+    ]);
+    expect(g.bugLoop).toBe(true);
+    expect(g.ship.find((n) => n.id === "integrated")?.state).not.toBe("done");
+    expect(g.ship.find((n) => n.id === "integrated")?.state).toBe("todo");
+  });
+
+  it("tested on the second pass: Integrated tests is done again", () => {
+    const g = graph({ status: "tested" }, done, [
+      stage("building"), ev("pr_opened", { url: url1, target: "develop" }), ev("pr_merged", { url: url1 }),
+      ...secondPass, stage("tested"),
+    ]);
+    expect(g.ship.find((n) => n.id === "integrated")?.state).toBe("done");
+    expect(g.ship.find((n) => n.id === "release")?.state).toBe("current");
+  });
+});
+
 describe("runGraph Review lit from review_started (FB-158)", () => {
   const built = [stage("building"), ev("verify_round", { subtask: "FB-2", round: 1, result: "pass" })];
   const started = (round: number) => ev("review_started", { round });
