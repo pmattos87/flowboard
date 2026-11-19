@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, getNodeText } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
@@ -74,7 +74,15 @@ function renderBoard(board: React.ReactNode) {
 async function renderedTitles(board: React.ReactNode, marker: string, tasks: Task[]): Promise<Set<string>> {
   renderBoard(board);
   await screen.findByText(marker);
-  const shown = new Set(tasks.filter((t) => screen.queryByText(t.title) !== null).map((t) => t.title));
+  // One pass over the DOM, matching the way `queryByText` does (an element's own
+  // text, whitespace-normalised, script/style ignored); one query per row was a
+  // full-DOM scan each and pushed this test past the timeout under load.
+  const texts = new Set(
+    Array.from(document.body.querySelectorAll("*"))
+      .filter((el) => !el.matches("script, style"))
+      .map((el) => getNodeText(el as HTMLElement).trim().replace(/\s+/g, " ")),
+  );
+  const shown = new Set(tasks.filter((t) => texts.has(t.title)).map((t) => t.title));
   cleanup();
   return shown;
 }

@@ -6,9 +6,6 @@ import { TopBar } from "./TopBar";
 import { WarningSlot } from "./WarningSlot";
 import { StagingBadge } from "./StagingBadge";
 
-// Fixed at build time (same pattern as Settings), so read once at import.
-const isStaging = import.meta.env.VITE_APP_ENV === "staging";
-
 function useKeyboardShortcuts() {
   const setCreateTaskModalOpen = useUiStore((s) => s.setCreateTaskModalOpen);
 
@@ -40,6 +37,8 @@ function useKeyboardShortcuts() {
 
 export function AppShell() {
   useKeyboardShortcuts();
+  // Fixed at build time; read at render (same pattern as Settings) so tests can stub it.
+  const isStaging = import.meta.env.VITE_APP_ENV === "staging";
 
   return (
     <div className="flex h-screen flex-col bg-gray-950 text-gray-100">
