@@ -3,8 +3,8 @@
   "branches": { "integration": "develop", "production": "main" },
   "gates": [
     "npx tsc --noEmit",
-    "npx vitest run",
-    "cargo test --manifest-path src-tauri/Cargo.toml"
+    { "run": "npx vitest run", "related": "npx vitest related --run {files}" },
+    { "run": "cargo test --manifest-path src-tauri/Cargo.toml", "paths": ["src-tauri/"] }
   ],
   "build": ["npm run build"],
   "ci": {
