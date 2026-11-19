@@ -178,7 +178,8 @@ describe("CompleteSprintDialog", () => {
   });
 
   it("asks for a new sprint when no open sprint is left and sends its fields", async () => {
-    const user = userEvent.setup();
+    // Same keystroke events, without a timer hop between each one.
+    const user = userEvent.setup({ delay: null });
     renderDialog([source, sprint(19, "completed", "2024-02-01")], [task(1, 20, "todo")]);
 
     expect(screen.getByRole("radio", { name: "A new sprint" })).toBeChecked();
@@ -199,7 +200,8 @@ describe("CompleteSprintDialog", () => {
   });
 
   it("keeps Confirm disabled while the new sprint ends before it starts (QA)", async () => {
-    const user = userEvent.setup();
+    // Same keystroke events, without a timer hop between each one.
+    const user = userEvent.setup({ delay: null });
     renderDialog([source], [task(1, 20, "todo")]);
     await user.type(screen.getByLabelText("Name"), "Sprint 21");
     await user.type(screen.getByLabelText("Start date"), "2024-03-15");

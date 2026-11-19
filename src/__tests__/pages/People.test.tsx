@@ -96,7 +96,8 @@ describe("People — add person modal", () => {
       if (cmd === "list_people") return Promise.resolve(fakePeople);
       return Promise.resolve({});
     });
-    const user = userEvent.setup();
+    // Same keystroke events, without a timer hop between each one (26 of them).
+    const user = userEvent.setup({ delay: null });
     renderPage();
     await user.click(await screen.findByRole("button", { name: /add person/i }));
 
