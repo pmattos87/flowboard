@@ -4,6 +4,24 @@
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-11-14
+
+### Added
+- Clients have a logo, and the internal company has a name and a logo (SF-134). New migration `017_client_company_logos.sql` adds `clients.logo_data` and a one-row `company` table seeded `Internal`, with `ALTER`/`CREATE`/`UPDATE` only. It copies each client's logo up from its first project that has one (by position, then id, archived included) and clears every client project's own logo; internal projects keep theirs.
+- The sidebar's Internal section is headed by the company's logo and name, with a pencil that edits both; each client row shows its client's logo, and its pencil opens the same dialog (name, logo upload and remove). Client and company logos are stored at up to 512 px.
+- New Tauri commands `update_client` (replaces `rename_client`; `logo_data` absent keeps, `null` clears), `get_company` and `update_company` (a blank name is refused), with the matching types, wrappers and React Query hooks (`useUpdateClient`, `useCompany`, `useUpdateCompany`).
+- `project_show` (MCP and CLI) returns `client.logo_data` next to `client.name`.
+
+### Changed
+- Client logos in the sidebar and the company logo on the Internal header are sized like project logos (20 px, `h-5 w-5`), instead of 16 px (FB-311).
+- A client project shows no badge: its sidebar row (active or archived) and the top bar show only its name. The logo field is hidden in Settings' Project tab and the Create project modal once a client is picked, and the "Make this a Client project?" dialog says the project's logo will be removed.
+- `create_project` and `update_project` refuse a logo on a project that has, or is given, a client; giving a project a client (app or `flowboard-cli project set --client`) clears its logo.
+
+Release note: migration 017 must ship through an FB Release build (LESSONS SF-68), carried by an FB Story while SF is on the legacy ladder.
+
+### Fixed
+- The Run graph lights Integrated tests as current whenever the Story is in integrated tests, including on a second pass after a bug loop (it used to show a done check). After a bug loop its done state reads the latest pass (status tested or later), and it shows todo while the Story is back in building (FB-316).
+
 ## [1.13.0] - 2026-11-03
 
 ### Added
