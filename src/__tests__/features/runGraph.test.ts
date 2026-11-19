@@ -228,6 +228,43 @@ describe("runGraph Review lane Stop gate (FB-174)", () => {
     expect(g.reviewStop.state).toBe("stopped");
   });
 
+  it("FB-319: Verify reopens while the Review findings' bug Subtask is open, and is done once it passes", () => {
+    const trail = [...built, failed(1), ev("bug_subtask_filed", { subtask: "FB-3" })];
+    const building = graph({ status: "building" }, [sub(2, "done"), sub(3, "in_progress", "bug")], trail);
+    expect(building.verify.state).not.toBe("done");
+    const verifying = graph({ status: "building" }, [sub(2, "done"), sub(3, "in_progress", "bug")], [
+      ...trail, ev("verify_started", { subtask: "FB-3", round: 1 }),
+    ]);
+    expect(verifying.verify.state).toBe("current");
+    const passed = graph({ status: "building" }, [sub(2, "done"), sub(3, "done", "bug")], [
+      ...trail, ev("verify_started", { subtask: "FB-3", round: 1 }), ev("verify_round", { subtask: "FB-3", round: 1, result: "pass" }),
+    ]);
+    expect(passed.verify.state).toBe("done");
+  });
+
+  it("FB-319 (QA): with the findings' bug Subtask open and no Verify round in flight, Verify is todo", () => {
+    const trail = [...built, failed(1), ev("bug_subtask_filed", { subtask: "FB-3" })];
+    expect(graph({ status: "building" }, [sub(2, "done"), sub(3, "in_progress", "bug")], trail).verify.state).toBe("todo");
+    expect(graph({ status: "building" }, [sub(2, "done"), sub(3, "todo", "bug")], trail).verify.state).toBe("todo");
+  });
+
+  it("FB-319 (QA): a canceled findings bug Subtask does not reopen Verify", () => {
+    const trail = [...built, failed(1), ev("bug_subtask_filed", { subtask: "FB-3" })];
+    expect(graph({ status: "building" }, [sub(2, "done"), sub(3, "canceled", "bug")], trail).verify.state).toBe("done");
+  });
+
+  it("FB-319 (QA): an open bug Subtask filed before the latest Review round does not reopen Verify", () => {
+    const g = graph({ status: "building" }, [sub(2, "done"), sub(3, "in_progress", "bug")], [
+      ...built, ev("bug_subtask_filed", { subtask: "FB-3" }), ev("review_round", { round: 1, verdict: "passed" }),
+    ]);
+    expect(g.verify.state).toBe("done");
+  });
+
+  it("FB-319 (QA): a bug Subtask filed after the Review round but already done leaves Verify done", () => {
+    const trail = [...built, failed(1), ev("bug_subtask_filed", { subtask: "FB-3" })];
+    expect(graph({ status: "building" }, [sub(2, "done"), sub(3, "done", "bug")], trail).verify.state).toBe("done");
+  });
+
   it("a Subtask failed Verify twice: the Build gate stops; the Review gate stays todo", () => {
     const g = graph({ status: "building", run_stopped: true }, [sub(2, "in_progress")], [
       stage("building"),

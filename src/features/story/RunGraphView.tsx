@@ -158,9 +158,13 @@ export function edgeStyle(e: Edge) {
   // A loop is dashed grey until its trigger fires, then solid in its colour.
   if (e.loop === "bug") return e.active ? { stroke: "#f59e0b", dash: "", op: 0.85 } : { stroke: "#4b5563", dash: "6 5", op: 0.6 };
   if (e.loop === "findings") return e.active ? { stroke: "#818cf8", dash: "", op: 0.85 } : { stroke: "#4b5563", dash: "6 5", op: 0.6 };
-  // A Subtask's line to Verify lights as soon as that Subtask is done, even
-  // while Verify itself waits for the other Subtasks.
-  if (e.subtaskToVerify && e.a.state === "done") return { stroke: "#34d399", dash: "", op: 0.7 };
+  // A Subtask's line to Verify follows that Subtask alone: green once it is
+  // done, red when it stopped, dimmed otherwise, whatever Verify shows (FB-319).
+  if (e.subtaskToVerify) {
+    if (e.a.state === "done") return { stroke: "#34d399", dash: "", op: 0.7 };
+    if (e.a.state === "stopped") return { stroke: "#ef4444", dash: "", op: 0.9 };
+    return { stroke: "#4b5563", dash: "5 5", op: 0.8 };
+  }
   // The edges into the Stop gates show where the Run stopped: red on the edge
   // that carries the stop (`active`), dimmed otherwise.
   if (e.intoStop) return e.active ? { stroke: "#ef4444", dash: "", op: 0.9 } : { stroke: "#4b5563", dash: "5 5", op: 0.8 };
