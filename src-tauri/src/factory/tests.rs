@@ -154,8 +154,8 @@ async fn internal_story_walks_the_whole_ladder_with_assignees() {
 
     mv(&fx, &s, "building").await.unwrap();
     assert_eq!(assignee(&fx, &s).await, Some(fx.agent));
+    // FB-327: the handoff starts the Subtask and a passing Verify finishes it.
     ops::subtask_handoff(&fx.pool, &sub, "implementer", "claude-sonnet-5-5", Actor::Agent).await.unwrap();
-    finish_subtask(&fx, &sub).await;
     ops::subtask_verify(&fx.pool, &sub, true, "gates green", Actor::Agent).await.unwrap();
     ops::review_record(&fx.pool, &s, "passed", "abc123", None, Actor::Agent).await.unwrap();
     ops::pr_open(&fx.pool, &s, "https://github.com/x/y/pull/1", "develop", Actor::Agent).await.unwrap();
@@ -264,6 +264,8 @@ async fn verify_and_review_rounds_are_numbered() {
     let sub = subtask(&fx, &s, false).await;
     ready_in_sprint(&fx, &s).await;
     mv(&fx, &s, "building").await.unwrap();
+    // FB-327: only an in_progress Subtask can pass Verify.
+    ops::subtask_move(&fx.pool, &sub, "in_progress", Actor::Agent).await.unwrap();
     let r1 = ops::subtask_verify(&fx.pool, &sub, false, "tests red", Actor::Agent).await.unwrap();
     let r2 = ops::subtask_verify(&fx.pool, &sub, true, "", Actor::Agent).await.unwrap();
     assert_eq!((r1["round"].as_i64(), r2["round"].as_i64()), (Some(1), Some(2)));
@@ -949,9 +951,8 @@ async fn a_top_level_bug_climbs_the_whole_story_ladder() {
     let run = active_run(&pool, &s).await.expect("a bug Story under way is an active Run");
     assert_eq!(run["flags"]["waiting_on_bugs"], 0, "an open non-bug Subtask is not a bug");
 
+    // FB-327: the handoff starts the Subtask and a passing Verify finishes it.
     ops::subtask_handoff(&pool, &sub, "backend-engineer", "claude-opus-5-5", Actor::Agent).await.unwrap();
-    ops::subtask_move(&pool, &sub, "in_progress", Actor::Agent).await.unwrap();
-    ops::subtask_move(&pool, &sub, "done", Actor::Agent).await.unwrap();
     ops::subtask_verify(&pool, &sub, true, "gates green", Actor::Agent).await.unwrap();
     mv("integrated_tests").await.unwrap();
 
@@ -1952,4 +1953,320 @@ async fn an_archived_projects_runs_leave_active_runs_until_unarchived() {
 
     set_project_state_inner(&pool, p, "active").await.unwrap();
     assert!(active_run(&pool, &s).await.is_some(), "unarchived, the Run is listed again");
+}
+
+// ─── Implied Subtask moves (FB-327) ─────────────────────────────────────────
+
+/// A Factory project SF with a `building` Story; returns the pool, the Story's
+/// id and its key.
+async fn building_story_fixture() -> (SqlitePool, i64, String) {
+    let pool = ts::pool().await;
+    let p = ts::factory_project(&pool, "SF").await;
+    let story = ts::task(&pool, p, None, None, TaskType::Story, TaskStatus::Building).await;
+    let key = key_of(&pool, story).await;
+    (pool, story, key)
+}
+
+async fn status_of(pool: &SqlitePool, key: &str) -> String {
+    let n: i64 = key.rsplit_once('-').unwrap().1.parse().unwrap();
+    sqlx::query_scalar("SELECT status FROM tasks WHERE task_number = ? AND project_id = (SELECT id FROM projects WHERE key = 'SF')")
+        .bind(n)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn log_rows(pool: &SqlitePool) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM activity_log").fetch_one(pool).await.unwrap()
+}
+
+/// The Story's trail as `(action, new)`, in `activity_log.id` order.
+async fn story_events(pool: &SqlitePool, key: &str) -> Vec<(String, Value)> {
+    ops::trail(pool, key)
+        .await
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| (e["action"].as_str().unwrap().to_string(), e["new"].clone()))
+        .collect()
+}
+
+/// The Subtask's own `status_changed` rows as `(old, new)`, oldest first.
+async fn subtask_status_changes(pool: &SqlitePool, key: &str) -> Vec<(String, String)> {
+    let n: i64 = key.rsplit_once('-').unwrap().1.parse().unwrap();
+    sqlx::query_as(
+        r#"SELECT a.old_value, a.new_value FROM activity_log a JOIN tasks t ON t.id = a.task_id
+            WHERE t.task_number = ? AND t.project_id = (SELECT id FROM projects WHERE key = 'SF')
+              AND a.action = 'status_changed' ORDER BY a.id"#,
+    )
+    .bind(n)
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+/// What `sync_points` gives a Story: its open non-bug Subtasks' points.
+async fn synced_points(pool: &SqlitePool, story: i64) -> i64 {
+    sqlx::query_scalar(
+        "SELECT COALESCE(SUM(story_points), 0) FROM tasks WHERE parent_id = ? AND type <> 'bug' AND status <> 'canceled'",
+    )
+    .bind(story)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+/// Knock the Story's points off, so a test sees the implied move resync them.
+async fn unsync_points(pool: &SqlitePool, story: i64) {
+    sqlx::query("UPDATE tasks SET story_points = 99 WHERE id = ?").bind(story).execute(pool).await.unwrap();
+}
+
+#[tokio::test]
+async fn handoff_on_a_todo_subtask_moves_it_to_in_progress_before_logging_the_handoff() {
+    let (pool, story, s) = building_story_fixture().await;
+    let sub = new_subtask(&pool, &s, false, 3).await;
+    new_subtask(&pool, &s, false, 2).await;
+    unsync_points(&pool, story).await;
+    let before = story_events(&pool, &s).await.len();
+
+    let out = ops::subtask_handoff(&pool, &sub, "backend-engineer", "claude-opus-5-5", Actor::Agent).await.unwrap();
+    assert_eq!(out["status"], "in_progress");
+    assert_eq!(out["moved"], serde_json::json!({ "from": "todo", "to": "in_progress" }));
+    assert_eq!(status_of(&pool, &sub).await, "in_progress");
+    assert_eq!(subtask_status_changes(&pool, &sub).await, vec![("todo".into(), "in_progress".into())]);
+
+    let events = story_events(&pool, &s).await;
+    assert_eq!(
+        events[before..],
+        [
+            (
+                "subtask_status_changed".to_string(),
+                serde_json::json!({ "subtask": sub, "from": "todo", "to": "in_progress" }),
+            ),
+            (
+                "subtask_handoff".to_string(),
+                serde_json::json!({ "subtask": sub, "agent": "backend-engineer", "model": "claude-opus-5-5" }),
+            ),
+        ]
+    );
+    assert_eq!(points_of(&pool, story).await, synced_points(&pool, story).await);
+    assert_eq!(points_of(&pool, story).await, 5);
+}
+
+#[tokio::test]
+async fn handoff_on_an_in_progress_subtask_moves_nothing() {
+    let (pool, _, s) = building_story_fixture().await;
+    let sub = new_subtask(&pool, &s, false, 1).await;
+    ops::subtask_move(&pool, &sub, "in_progress", Actor::Agent).await.unwrap();
+    let before = story_events(&pool, &s).await.len();
+
+    let out = ops::subtask_handoff(&pool, &sub, "qa", "m", Actor::Agent).await.unwrap();
+    assert_eq!(out["status"], "in_progress");
+    assert_eq!(out["moved"], Value::Null);
+    assert_eq!(status_of(&pool, &sub).await, "in_progress");
+    assert_eq!(subtask_status_changes(&pool, &sub).await.len(), 1, "only the manual move");
+    let events = story_events(&pool, &s).await;
+    let added: Vec<&str> = events[before..].iter().map(|(a, _)| a.as_str()).collect();
+    assert_eq!(added, vec!["subtask_handoff"]);
+}
+
+#[tokio::test]
+async fn handoff_on_a_done_or_canceled_subtask_is_refused_and_logs_nothing() {
+    let (pool, _, s) = building_story_fixture().await;
+    let done = new_subtask(&pool, &s, false, 1).await;
+    ops::subtask_move(&pool, &done, "in_progress", Actor::Agent).await.unwrap();
+    ops::subtask_move(&pool, &done, "done", Actor::Agent).await.unwrap();
+    let canceled = new_subtask(&pool, &s, false, 1).await;
+    ops::subtask_move(&pool, &canceled, "canceled", Actor::Agent).await.unwrap();
+    let before = log_rows(&pool).await;
+
+    for (sub, st) in [(&done, "done"), (&canceled, "canceled")] {
+        let err = ops::subtask_handoff(&pool, sub, "a", "m", Actor::Agent).await.unwrap_err();
+        assert!(err.contains(st), "the refusal names the status: {err}");
+        assert_eq!(status_of(&pool, sub).await, st);
+    }
+    assert_eq!(log_rows(&pool).await, before, "a refused handoff logs nothing");
+}
+
+#[tokio::test]
+async fn a_passing_verify_moves_an_in_progress_subtask_to_done_after_the_round() {
+    let (pool, story, s) = building_story_fixture().await;
+    let sub = new_subtask(&pool, &s, false, 3).await;
+    ops::subtask_move(&pool, &sub, "in_progress", Actor::Agent).await.unwrap();
+    unsync_points(&pool, story).await;
+    let before = story_events(&pool, &s).await.len();
+
+    let out = ops::subtask_verify(&pool, &sub, true, "gates green", Actor::Agent).await.unwrap();
+    assert_eq!(out["status"], "done");
+    assert_eq!(out["moved"], serde_json::json!({ "from": "in_progress", "to": "done" }));
+    assert_eq!(out["result"], "pass");
+    assert_eq!(status_of(&pool, &sub).await, "done");
+    assert_eq!(subtask_status_changes(&pool, &sub).await.last().unwrap(), &("in_progress".into(), "done".into()));
+
+    let events = story_events(&pool, &s).await;
+    assert_eq!(
+        events[before..],
+        [
+            (
+                "verify_round".to_string(),
+                serde_json::json!({ "subtask": sub, "round": 1, "result": "pass", "reason": "gates green" }),
+            ),
+            (
+                "subtask_status_changed".to_string(),
+                serde_json::json!({ "subtask": sub, "from": "in_progress", "to": "done" }),
+            ),
+        ]
+    );
+    assert_eq!(points_of(&pool, story).await, synced_points(&pool, story).await);
+}
+
+#[tokio::test]
+async fn a_failing_verify_logs_the_round_and_moves_nothing() {
+    let (pool, _, s) = building_story_fixture().await;
+    let sub = new_subtask(&pool, &s, false, 1).await;
+    ops::subtask_move(&pool, &sub, "in_progress", Actor::Agent).await.unwrap();
+    let before = story_events(&pool, &s).await.len();
+
+    let out = ops::subtask_verify(&pool, &sub, false, "tests red", Actor::Agent).await.unwrap();
+    assert_eq!(out["status"], "in_progress");
+    assert_eq!(out["moved"], Value::Null);
+    assert_eq!(status_of(&pool, &sub).await, "in_progress");
+    let events = story_events(&pool, &s).await;
+    assert_eq!(
+        events[before..],
+        [(
+            "verify_round".to_string(),
+            serde_json::json!({ "subtask": sub, "round": 1, "result": "fail", "reason": "tests red" }),
+        )]
+    );
+}
+
+#[tokio::test]
+async fn a_passing_verify_off_in_progress_is_refused_and_records_nothing() {
+    let (pool, _, s) = building_story_fixture().await;
+    let todo = new_subtask(&pool, &s, false, 1).await;
+    let done = new_subtask(&pool, &s, false, 1).await;
+    ops::subtask_move(&pool, &done, "in_progress", Actor::Agent).await.unwrap();
+    ops::subtask_move(&pool, &done, "done", Actor::Agent).await.unwrap();
+    let before = log_rows(&pool).await;
+
+    for (sub, st) in [(&todo, "todo"), (&done, "done")] {
+        let err = ops::subtask_verify(&pool, sub, true, "", Actor::Agent).await.unwrap_err();
+        assert!(err.contains("not in_progress"), "{err}");
+        assert_eq!(status_of(&pool, sub).await, st);
+    }
+    assert_eq!(log_rows(&pool).await, before, "a refused pass records no verify_round");
+}
+
+#[tokio::test]
+async fn a_bug_subtask_gets_the_same_implied_moves_and_its_points_stay_out() {
+    let (pool, story, s) = building_story_fixture().await;
+    new_subtask(&pool, &s, false, 2).await;
+    let bug = new_subtask(&pool, &s, true, 5).await;
+
+    let out = ops::subtask_handoff(&pool, &bug, "backend-engineer", "m", Actor::Agent).await.unwrap();
+    assert_eq!(out["moved"], serde_json::json!({ "from": "todo", "to": "in_progress" }));
+    assert_eq!(points_of(&pool, story).await, 2, "a bug Subtask's points don't count");
+    let out = ops::subtask_verify(&pool, &bug, true, "", Actor::Agent).await.unwrap();
+    assert_eq!(out["moved"], serde_json::json!({ "from": "in_progress", "to": "done" }));
+    assert_eq!(status_of(&pool, &bug).await, "done");
+    assert_eq!(points_of(&pool, story).await, 2, "a bug Subtask's points don't count");
+    assert_eq!(
+        subtask_status_changes(&pool, &bug).await,
+        vec![("todo".into(), "in_progress".into()), ("in_progress".into(), "done".into())]
+    );
+}
+
+/// The Story's trail without timestamps, each Verify round's reason blanked.
+async fn comparable_trail(pool: &SqlitePool, key: &str) -> Vec<Value> {
+    let mut trail = ops::trail(pool, key).await.unwrap().as_array().unwrap().clone();
+    for e in &mut trail {
+        e.as_object_mut().unwrap().remove("at");
+        if e["action"] == "verify_round" {
+            e["new"]["reason"] = Value::Null;
+        }
+    }
+    trail
+}
+
+#[tokio::test]
+async fn the_new_calls_leave_the_same_story_trail_as_the_old_ones() {
+    // Old flow: move to in_progress, handoff, verify_start, verify pass, move to done.
+    // A pass now finishes the Subtask itself, so the old Verify call (one
+    // `verify_round` row, nothing else) is written here as it used to be.
+    let (old, old_story, s) = building_story_fixture().await;
+    let sub = new_subtask(&old, &s, false, 2).await;
+    ops::subtask_move(&old, &sub, "in_progress", Actor::Agent).await.unwrap();
+    ops::subtask_handoff(&old, &sub, "backend-engineer", "m", Actor::Agent).await.unwrap();
+    ops::verify_start(&old, &sub, Actor::Agent).await.unwrap();
+    let round = serde_json::json!({ "subtask": sub, "round": 1, "result": "pass", "reason": "old" });
+    sqlx::query(
+        r#"INSERT INTO activity_log (task_id, person_id, action, old_value, new_value, created_at)
+           VALUES (?, ?, 'verify_round', '', ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))"#,
+    )
+    .bind(old_story)
+    .bind(ts::AGENT)
+    .bind(round.to_string())
+    .execute(&old)
+    .await
+    .unwrap();
+    ops::subtask_move(&old, &sub, "done", Actor::Agent).await.unwrap();
+
+    // New flow: handoff, verify_start, verify pass.
+    let (new, _, s2) = building_story_fixture().await;
+    let sub2 = new_subtask(&new, &s2, false, 2).await;
+    assert_eq!((&s, &sub), (&s2, &sub2), "both fixtures give the same keys");
+    ops::subtask_handoff(&new, &sub2, "backend-engineer", "m", Actor::Agent).await.unwrap();
+    ops::verify_start(&new, &sub2, Actor::Agent).await.unwrap();
+    ops::subtask_verify(&new, &sub2, true, "new", Actor::Agent).await.unwrap();
+
+    assert_eq!(comparable_trail(&new, &s2).await, comparable_trail(&old, &s).await);
+    assert_eq!(status_of(&new, &sub2).await, "done");
+}
+
+#[tokio::test]
+async fn the_subtasks_own_status_event_comes_before_the_handoff_by_log_id() {
+    let (pool, story, s) = building_story_fixture().await;
+    let sub = new_subtask(&pool, &s, false, 1).await;
+    ops::subtask_handoff(&pool, &sub, "a", "m", Actor::Agent).await.unwrap();
+    let n: i64 = sub.rsplit_once('-').unwrap().1.parse().unwrap();
+    let status_id: i64 = sqlx::query_scalar(
+        r#"SELECT a.id FROM activity_log a JOIN tasks t ON t.id = a.task_id
+            WHERE t.task_number = ? AND t.project_id = (SELECT id FROM projects WHERE key = 'SF')
+              AND a.action = 'status_changed'"#,
+    )
+    .bind(n)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let handoff_id: i64 =
+        sqlx::query_scalar("SELECT id FROM activity_log WHERE task_id = ? AND action = 'subtask_handoff'")
+            .bind(story)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(status_id < handoff_id, "status_changed ({status_id}) is logged before subtask_handoff ({handoff_id})");
+}
+
+#[tokio::test]
+async fn a_failing_verify_off_in_progress_is_still_recorded_and_moves_nothing() {
+    let (pool, _, s) = building_story_fixture().await;
+    let sub = new_subtask(&pool, &s, false, 1).await;
+    let out = ops::subtask_verify(&pool, &sub, false, "red", Actor::Agent).await.unwrap();
+    assert_eq!(out["status"], "todo");
+    assert_eq!(out["moved"], Value::Null);
+    assert_eq!(out["round"], 1);
+    assert_eq!(status_of(&pool, &sub).await, "todo");
+    assert!(subtask_status_changes(&pool, &sub).await.is_empty());
+}
+
+#[tokio::test]
+async fn implied_subtask_moves_never_move_the_story() {
+    let (pool, _, s) = building_story_fixture().await;
+    let sub = new_subtask(&pool, &s, false, 1).await;
+    ops::subtask_handoff(&pool, &sub, "a", "m", Actor::Agent).await.unwrap();
+    ops::subtask_verify(&pool, &sub, true, "", Actor::Agent).await.unwrap();
+    assert_eq!(status_of(&pool, &sub).await, "done");
+    assert_eq!(status_of(&pool, &s).await, "building", "the last Subtask finishing leaves the Story building");
 }
