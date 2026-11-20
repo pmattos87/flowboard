@@ -344,12 +344,12 @@ impl FlowboardMcp {
         out(ops::subtask_move(&self.pool, &p.key, &p.to, AGENT).await)
     }
 
-    #[tool(description = "Record a Subtask being handed to an agent and model")]
+    #[tool(description = "Record a Subtask being handed to an agent and model. A todo Subtask also moves to in_progress; an in_progress one moves nothing; done or canceled is refused. The result gives its status and moved ({from, to} or null)")]
     async fn subtask_handoff(&self, Parameters(p): Parameters<Handoff>) -> Result<String, String> {
         out(ops::subtask_handoff(&self.pool, &p.key, &p.agent, &p.model, AGENT).await)
     }
 
-    #[tool(description = "Record a Verify round's result for a Subtask")]
+    #[tool(description = "Record a Verify round's result for a Subtask. A pass also moves the Subtask from in_progress to done, and is refused (recording nothing) when the Subtask is not in_progress; a fail moves nothing. The result gives its status and moved ({from, to} or null)")]
     async fn subtask_verify(&self, Parameters(p): Parameters<Verify>) -> Result<String, String> {
         out(ops::subtask_verify(&self.pool, &p.key, p.passed, &p.reason, AGENT).await)
     }

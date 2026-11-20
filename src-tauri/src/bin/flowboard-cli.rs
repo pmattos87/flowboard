@@ -258,6 +258,7 @@ enum SubtaskCmd {
         risk: bool,
     },
     Move { key: String, to: String },
+    /// Hand a Subtask to an agent; a todo Subtask also moves to in_progress
     Handoff {
         key: String,
         #[arg(long)]
@@ -265,6 +266,7 @@ enum SubtaskCmd {
         #[arg(long)]
         model: String,
     },
+    /// Record a Verify round; a pass also moves the Subtask from in_progress to done
     Verify {
         key: String,
         #[arg(value_parser = ["pass", "fail"])]
