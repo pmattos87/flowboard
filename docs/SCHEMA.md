@@ -130,6 +130,14 @@ task_prs         (id, task_id, url, target, state, created_at, updated_at)
   `subtask_status_changed`, `subtask_handoff`, `verify_started`, `verify_round`, `review_started`, `review_round`,
   `run_stopped`, `run_restarted`, `pr_opened`, `pr_merged`, `release_picked`,
   `release_removed`, `bug_subtask_filed` (details as JSON in `new_value`).
+- Subtask moves: `todo → in_progress` through `subtask_move` or `subtask_handoff`; `in_progress → done`
+  through `subtask_move` or a passing `subtask_verify`; every other move through `subtask_move` only
+  (`verify_start` moves nothing). Each implied move logs what `subtask_move` logs (`status_changed` on the
+  Subtask, `subtask_status_changed` on the Story), so the trail reads the same. In the Story's trail the
+  status event comes before `subtask_handoff` and after `verify_round`. A handoff on `in_progress` moves
+  nothing and on `done`/`canceled` is refused; a pass off `in_progress` is refused and records nothing, a
+  fail moves nothing and is recorded on any status. Both results carry `status` and `moved` (`{from, to}`
+  or null). Neither call checks `run_stopped` (FB-327).
 - The app backs up the database (`flowboard.db.pre-migration-<unix secs>.bak`) before
   applying pending migrations, and runs in WAL mode. The CLI never migrates and refuses a
   database whose applied migrations differ from its own.

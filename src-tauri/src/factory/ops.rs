@@ -1384,41 +1384,71 @@ pub async fn subtask_create(pool: &SqlitePool, s: NewSubtask<'_>, actor: Actor) 
     Ok(out)
 }
 
-pub async fn subtask_move(pool: &SqlitePool, key: &str, to: &str, actor: Actor) -> Result<Value, String> {
-    let mut tx = pool.begin().await.map_err(err)?;
-    let (sub, story) = load_subtask_for_write(&mut tx, key).await?;
+/// Move Subtask `sub` of `story` to `to` inside an open transaction: the ladder
+/// check, the update, `status_changed` on the Subtask, `subtask_status_changed`
+/// on the Story, and the Story's points. Returns the move as `{from, to}`.
+/// Shared by `subtask_move` and the moves `subtask_handoff` and a passing
+/// `subtask_verify` imply (FB-327), so all three log the same trail.
+async fn move_subtask(tx: &mut Tx<'_>, sub: &Row, story: &Row, to: &str, actor: Actor) -> Result<Value, String> {
     ladder::check_subtask_move(&sub.status, to)?;
     sqlx::query(
         "UPDATE tasks SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?",
     )
     .bind(to)
     .bind(sub.id)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map_err(err)?;
-    log(&mut tx, sub.id, actor, "status_changed", &sub.status, to).await?;
+    log(tx, sub.id, actor, "status_changed", &sub.status, to).await?;
     let event = json!({ "subtask": sub.key(), "from": sub.status, "to": to });
-    log(&mut tx, story.id, actor, "subtask_status_changed", "", &event.to_string()).await?;
-    sync_points(&mut tx, story.id).await?;
+    log(tx, story.id, actor, "subtask_status_changed", "", &event.to_string()).await?;
+    sync_points(tx, story.id).await?;
+    Ok(json!({ "from": sub.status, "to": to }))
+}
+
+pub async fn subtask_move(pool: &SqlitePool, key: &str, to: &str, actor: Actor) -> Result<Value, String> {
+    let mut tx = pool.begin().await.map_err(err)?;
+    let (sub, story) = load_subtask_for_write(&mut tx, key).await?;
+    move_subtask(&mut tx, &sub, &story, to, actor).await?;
     let out = json!({ "key": sub.key(), "status": to, "story": story.key() });
     tx.commit().await.map_err(err)?;
     Ok(out)
 }
 
+/// Record a Subtask being handed to an agent. A `todo` Subtask also moves to
+/// `in_progress` (logged before the handoff); an `in_progress` one moves
+/// nothing; any other status is refused with the ladder's reason. The result
+/// adds the Subtask's `status` and `moved` (`{from, to}` or null).
 pub async fn subtask_handoff(pool: &SqlitePool, key: &str, agent: &str, model: &str, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let (sub, story) = load_subtask_for_write(&mut tx, key).await?;
     require_building(&story, "Handing a Subtask to an agent")?;
+    let moved = if sub.status == "in_progress" {
+        Value::Null
+    } else {
+        move_subtask(&mut tx, &sub, &story, "in_progress", actor).await?
+    };
     let event = json!({ "subtask": sub.key(), "agent": agent, "model": model });
     log(&mut tx, story.id, actor, "subtask_handoff", "", &event.to_string()).await?;
+    let mut out = event;
+    out["status"] = json!("in_progress");
+    out["moved"] = moved;
     tx.commit().await.map_err(err)?;
-    Ok(event)
+    Ok(out)
 }
 
+/// Record a Verify round's result. A pass also moves the Subtask from
+/// `in_progress` to `done` (logged after the round) and is refused, recording
+/// nothing, off `in_progress`; a fail moves nothing and is recorded whatever
+/// the status. The result adds the Subtask's `status` and `moved` (`{from, to}`
+/// or null).
 pub async fn subtask_verify(pool: &SqlitePool, key: &str, passed: bool, reason: &str, actor: Actor) -> Result<Value, String> {
     let mut tx = pool.begin().await.map_err(err)?;
     let (sub, story) = load_subtask_for_write(&mut tx, key).await?;
     require_building(&story, "Verify")?;
+    if passed && sub.status != "in_progress" {
+        return Err(format!("{} is {}, not in_progress; only an in_progress Subtask can pass Verify", sub.key(), sub.status));
+    }
     let round = count_events(&mut tx, story.id, "verify_round", Some(&sub.key())).await? + 1;
     let event = json!({
         "subtask": sub.key(),
@@ -1427,8 +1457,12 @@ pub async fn subtask_verify(pool: &SqlitePool, key: &str, passed: bool, reason: 
         "reason": reason,
     });
     log(&mut tx, story.id, actor, "verify_round", "", &event.to_string()).await?;
+    let moved = if passed { move_subtask(&mut tx, &sub, &story, "done", actor).await? } else { Value::Null };
+    let mut out = event;
+    out["status"] = json!(if passed { "done" } else { sub.status.as_str() });
+    out["moved"] = moved;
     tx.commit().await.map_err(err)?;
-    Ok(event)
+    Ok(out)
 }
 
 // ─── Epics (FB-224) ─────────────────────────────────────────────────────────
