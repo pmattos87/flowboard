@@ -95,6 +95,27 @@ describe("edgeStyle", () => {
     }
   });
 
+  it("FB-319: a Subtask → Verify edge follows its Subtask alone, whatever Verify's state", () => {
+    const verifyStates = ["done", "current", "todo", "stopped"] as const;
+    for (const v of verifyStates) {
+      for (const st of ["todo", "current"] as const) {
+        const s = edgeStyle({ a: box(st), b: box(v), subtaskToVerify: true });
+        expect(s.stroke).toBe(DIM);
+        expect(s.dash).toBe("5 5");
+      }
+      const done = edgeStyle({ a: box("done"), b: box(v), subtaskToVerify: true });
+      expect(done.stroke).toBe(GREEN);
+      expect(done.dash).toBe("");
+      expect(edgeStyle({ a: box("stopped"), b: box(v), subtaskToVerify: true }).stroke).toBe(RED);
+    }
+  });
+
+  it("FB-319: a current Subtask's edge into a done Verify stays dimmed", () => {
+    const s = edgeStyle({ a: box("current"), b: box("done"), subtaskToVerify: true });
+    expect(s.stroke).toBe(DIM);
+    expect(s.dash).toBe("5 5");
+  });
+
   it("keeps an unflagged done → todo edge dimmed (Verify → Docs, Orchestrator → Verify)", () => {
     const s = edgeStyle({ a: box("done"), b: box("todo") });
     expect(s.stroke).toBe(DIM);

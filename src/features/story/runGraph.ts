@@ -162,7 +162,14 @@ export function runGraph({ story, subtasks, trail, projectKey, clientProject }: 
   const verifyInFlight =
     lastIndex("verify_started") >
     Math.max(lastIndex("subtask_handoff"), lastIndex("verify_round"), lastIndex("review_started"));
-  const buildFinished = passIntegrated || reviewRounds.length > 0 || (building && open.length === 0 && subtasks.length > 0);
+  // A bug Subtask filed after this pass's latest Review round (its findings)
+  // and still open puts the Build back in progress until it passes (FB-319).
+  const openKeys = new Set(open.map((s) => `${projectKey}-${s.task_number}`));
+  const findingsFixOpen = pass
+    .slice(lastIndex("review_round") + 1)
+    .some((e) => e.action === "bug_subtask_filed" && openKeys.has(str(obj(e).subtask)));
+  const buildFinished =
+    passIntegrated || (reviewRounds.length > 0 && !findingsFixOpen) || (building && open.length === 0 && subtasks.length > 0);
 
   const orchestrator: RunNode = {
     id: "orchestrator",

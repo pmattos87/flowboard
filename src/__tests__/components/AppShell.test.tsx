@@ -1,16 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { invoke } from "@tauri-apps/api/core";
+import { AppShell } from "@/components/AppShell";
 
-// AppShell reads VITE_APP_ENV once at import, so each case stubs the env,
-// resets modules and imports everything fresh (React, router, query included,
-// so all of them share the same module instances).
+// AppShell reads VITE_APP_ENV at render, so each case stubs the env before
+// rendering; no module reset (re-importing the whole shell tree per case was
+// what pushed these tests past the timeout under load).
 async function renderShell(staging: boolean) {
   if (staging) vi.stubEnv("VITE_APP_ENV", "staging");
-  vi.resetModules();
-  const { MemoryRouter, Routes, Route } = await import("react-router-dom");
-  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
-  const { invoke } = await import("@tauri-apps/api/core");
-  const { AppShell } = await import("@/components/AppShell");
   vi.mocked(invoke).mockReset();
   vi.mocked(invoke).mockResolvedValue([]);
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
