@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-11-22
+
+### Changed
+- `subtask_handoff` on a `todo` Subtask also moves it to `in_progress`, in the same transaction; on an `in_progress` Subtask it moves nothing, and on `done` or `canceled` it is refused with the ladder's wording. `subtask_verify` with `passed` true on an `in_progress` Subtask also moves it to `done`; a pass on a Subtask that isn't `in_progress` is refused and records nothing, while a fail moves nothing and is still recorded on any status. Each implied move logs exactly what `subtask_move` logs (the status event comes before `subtask_handoff` and after `verify_round`), so the trail and the Run graph read the same. Both results now carry `status` and `moved` (`{from, to}` or null). Neither call checks `run_stopped`. `subtask_move` and `verify_start` are unchanged; the MCP tool descriptions and the CLI help say so. A Run goes from 5 board calls per Subtask to 3 (FB-327).
+
+Release note: the SF Run skill switches to the new calls in SF-145, so FB-327 must not reach production before SF-145.
+
+### Fixed
+- The Run graph's edge from a Subtask to Verify now depends only on that Subtask: green when it is done, red when it is stopped, dimmed (grey, dashed) while it is todo or current. A running Review-fix Subtask therefore no longer lights the edge as done (FB-319).
+- Verify is no longer shown as done while a bug Subtask filed after the pass's latest Review round is still open: it is current while a Verify round is in flight for that Subtask and todo otherwise. The Docs node is unchanged (FB-319).
+
 ## [1.14.0] - 2026-11-14
 
 ### Added
